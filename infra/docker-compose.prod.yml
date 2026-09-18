@@ -1,0 +1,43 @@
+# Production overlay. NOT deployed anywhere yet — this dev host never
+# runs this file. Prepared and syntax-checked now (`docker compose
+# ... config`) so it's ready to use once a separate production host
+# exists and code reaches it via GitHub, per the project's deployment
+# decision (dev on this host, prod on a separate host, GitHub in between).
+#
+# Usage on the future prod host:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#     --env-file ../.env up -d --build
+# or: make prod-up
+#
+# Needs DOMAIN_NAME and CERTBOT_EMAIL set in .env (see .env.example).
+# First-time cert issuance is a manual one-off — see the bootstrap note
+# in nginx/nginx.prod.conf.template and README "نشر الإنتاج لاحقًا".
+
+services:
+  nginx:
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.prod.conf.template:/etc/nginx/templates/default.conf.template:ro,Z
+      - certbot_conf:/etc/letsencrypt:Z
+      - certbot_www:/var/www/certbot:ro,Z
+    environment:
+      DOMAIN_NAME: ${DOMAIN_NAME}
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot_conf:/etc/letsencrypt:Z
+      - certbot_www:/var/www/certbot:Z
+    # No default command: this service is for one-off / cron-driven runs,
+    # not something `up` should start continuously. Example first issuance:
+    #   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+    #     --env-file ../.env run --rm certbot certonly --webroot \
+    #     -w /var/www/certbot -d ${DOMAIN_NAME} --email ${CERTBOT_EMAIL} \
+    #     --agree-tos --no-eff-email
+    entrypoint: ["/bin/true"]
+
+volumes:
+  certbot_conf:
+  certbot_www:

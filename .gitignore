@@ -9,6 +9,8 @@ __pycache__/
 backend/staticfiles/
 backend/.venv/
 *.egg-info/
+.pytest_cache/
+.ruff_cache/
 
 # Node / Next.js
 frontend/node_modules/
