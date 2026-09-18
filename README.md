@@ -1,19 +1,26 @@
-# CPS — منصة إدارة الأعمال
+# CPS — منصة إدارة الأعمال (ERP)
 
-منصة SaaS متعددة المستأجرين (Multi-tenant) لإدارة الأعمال: فوترة، محاسبة،
-مخزون، موارد بشرية، نقاط بيع، CRM. مبنية بـ Django REST Framework +
-Next.js، تدعم العربية (افتراضي) والإنجليزية مع RTL كامل.
+منصة SaaS متعددة المستأجرين (Multi-tenant) لإدارة الأعمال، تبدأ كنظام
+محاسبي ومخزني كامل. مبنية بـ Django REST Framework + Next.js، تدعم
+العربية (افتراضي) والإنجليزية مع RTL كامل.
+
+**المرجع المعماري الملزم لكل سبرنت:** [`docs/SYSTEM_ANALYSIS.md`](docs/SYSTEM_ANALYSIS.md)
+— كل قرار تصميمي، خارطة الـ 13 سبرنت، والقواعد الثابتة (قسم 4) موجودة
+هناك. أي تعارض بين هذا الملف والكود يُحل لصالح `SYSTEM_ANALYSIS.md`.
 
 ## الحالة الحالية
 
-- **المرحلة صفر (أساس):** ✅ مكتملة ومُختبرة — Tenant/User، تسجيل شركة
-  جديدة، تسجيل دخول JWT (subdomain + email + password)، دليل حسابات
-  أولي يُنشأ تلقائيًا مع كل مستأجر جديد.
-- **المرحلة 1 (جزئية):** ✅ العملاء، المنتجات، الفواتير متعددة البنود مع
-  حساب تلقائي للإجمالي والضريبة من طرف الخادم، وترحيل قيود تلقائي لدليل
-  الحسابات عند اعتماد الفاتورة (issue). باقي المرحلة 1 (تقارير محاسبية
-  أوسع، تعديل/حذف الفواتير، إلخ) لم يُبنَ بعد.
-- **المرحلة 2 (POS)، المرحلة 3 (HR + Workflow):** لم تبدأ بعد.
+- **سبرنت 0 (التحصين):** ✅ مكتمل — انظر "GitHub / CI" و"كيف تشغّل
+  الاختبارات" أدناه. 18 اختبار pytest ضد Postgres حقيقي، حاويات backend
+  و celery_worker non-root، ruff نظيف، CI يفشل فعليًا عند أي خطأ.
+- **المرحلة صفر/1 من العمل السابق (أساس تجاري أولي، قبل اعتماد خارطة
+  الـ 13 سبرنت في SYSTEM_ANALYSIS.md):** Tenant/User، تسجيل شركة جديدة،
+  تسجيل دخول JWT (subdomain + email + password)، دليل حسابات أولي،
+  عملاء/منتجات/فواتير بحساب خادمي كامل وترحيل قيد متوازن عند الاعتماد.
+  هذا **هيكل عظمي أولي فقط** — التقدير الواقعي في SYSTEM_ANALYSIS.md
+  قسم 2: ≈5-7% من نطاق الـ ERP الكامل. الشجرتان (قانونية/مراكز تكلفة)،
+  Party الموحّد، الفترات المالية، المستودعات، المشتريات، إلخ — **لم
+  تُبنَ بعد**؛ هي خارطة سبرنتات 1-12 القادمة.
 
 ## البنية
 
@@ -24,8 +31,8 @@ frontend/   Next.js 16 + TypeScript (App Router) — عربي/RTL افتراضي
 infra/      docker-compose.yml (أساسي) + .dev.yml/.prod.yml (overlays) + nginx
 .github/    workflows/ci.yml
 Makefile    اختصارات: dev-up, dev-down, dev-logs, dev-build, dev-config,
-            prod-up, prod-down, prod-config
-docs/       (فارغ حاليًا)
+            test, lint, prod-up, prod-down, prod-config
+docs/       SYSTEM_ANALYSIS.md (المرجع الملزم) + CPS_Technical_Architecture_Study.md
 ```
 
 ### التطبيقات الخلفية (backend/apps)
@@ -95,7 +102,12 @@ make dev-up                 # = docker compose -f infra/docker-compose.yml
 - لوحة إدارة Django: http://localhost:3000/admin/
 
 الـ backend container يشغّل `migrate` و `collectstatic` تلقائيًا عند كل
-إقلاع (`backend/entrypoint.sh`).
+إقلاع (جزء من `command:` في `infra/docker-compose.yml`). حاويتا `backend`
+و`celery_worker` تعملان بمستخدم غير مميز (`appuser`, uid 1000) — الصورة
+تبدأ بـ root فقط لأن `entrypoint.sh` يحتاجه لعمل `chown` على الـ named
+volume `static_data` (يُنشأ root-owned افتراضيًا)، ثم يُسقط الصلاحيات عبر
+`gosu appuser` قبل تشغيل أي كود تطبيقي فعلي — لا gunicorn ولا celery
+يعملان كـ root أبدًا.
 
 ### إنشاء مستخدم مشرف (superuser) لدخول /admin
 
@@ -122,26 +134,44 @@ GitHub:
 3. `make prod-up` (= compose الأساسي + `docker-compose.prod.yml`، بورت
    80/443، بدون أي source bind-mounts، Next.js build ثابت).
 
-## اختبار end-to-end (تم تنفيذه فعليًا أثناء البناء، وأُعيد التحقق بعد
-إعادة هيكلة infra إلى base/dev/prod وتغيير المنفذ لـ 3000)
+## كيف تشغّل الاختبارات
 
-السيناريو التالي اختُبر عبر curl على Postgres حقيقي داخل Docker ونجح:
+```bash
+make test    # pytest ضد Postgres حقيقي (خدمة postgres في dev compose)،
+             # في قاعدة test_<POSTGRES_DB> منفصلة يُنشئها/يمسحها
+             # pytest-django تلقائيًا — ليست SQLite أبدًا.
+make lint    # ruff check .
+```
 
-1. `POST /api/auth/register/` — تسجيل شركة (Tenant + Owner user في
-   transaction واحدة + دليل حسابات تلقائي).
-2. `POST /api/auth/login/` — دخول بـ subdomain + email + password.
-3. `POST /api/customers/`, `POST /api/products/` — إنشاء عميل ومنتجين.
-4. `POST /api/invoices/` — فاتورة ببندين: 3× (150.00, ضريبة 14%) +
-   2× (40.50, ضريبة 14%) → subtotal=531.00, tax_total=74.34,
-   total=605.34 — **محسوبة بالكامل من الخادم**.
-5. `POST /api/invoices/{id}/issue/` — اعتماد الفاتورة → قيد يومية تلقائي
-   متوازن: مدين Accounts Receivable 605.34 = دائن Sales Revenue 531.00 +
-   دائن Tax Payable 74.34.
-6. اختبار عزل المستأجر: تسجيل مستأجر ثانٍ، والتأكد أنه (أ) لا يرى عملاء
-   المستأجر الأول في القائمة، (ب) يحصل على 404 عند طلب customer id
-   principal بشكل مباشر، (ج) لا يمكنه تسجيل الدخول بـ subdomain المستأجر
-   الأول حتى ببيانات اعتماد صحيحة لحسابه هو في مستأجر آخر (هذا الاختبار
-   بالذات كشف ثغرة ModelBackend المذكورة أعلاه).
+كلاهما يُشغَّل أيضًا في CI على كل push (انظر "GitHub / CI" تحت) ويفشل
+البناء فعليًا لو أي اختبار أو مخالفة lint فشلت — لا `continue-on-error`
+ولا إخفاء لأخطاء في أي مكان.
+
+**18 اختبارًا حاليًا** في `backend/tests/`:
+
+- `test_health.py` (1): health check بسيط.
+- `test_migrations.py` (1): طلب `db` fixture يُجبر pytest-django على بناء
+  قاعدة الاختبار كاملة، فيفشل تلقائيًا لو أي migration معطوبة.
+- `test_invoicing_e2e.py` (1): تحويل سيناريو الـ curl اليدوي القديم إلى
+  اختبار دائم — تسجيل شركة ← دخول ← عميل ← منتجَين ← فاتورة ببندين
+  (تحقق من subtotal/tax_total/total محسوبة خادميًا بالضبط: 531.00 /
+  74.34 / 605.34) ← اعتماد الفاتورة ← تحقق أن قيد اليومية متوازن (مجموع
+  المدين = مجموع الدائن = 605.34) وموزّع على الحسابات الصحيحة.
+- `test_tenant_isolation.py` (15) — **أهم ملف اختبار في المشروع**:
+  - رجعة (regression) لثغرة ModelBackend: تأكيد أن `AUTHENTICATION_BACKENDS`
+    لا يحتوي عليها أبدًا، ودخول بـ subdomain خاطئ + بيانات صحيحة لمستأجر
+    آخر يُرفض (400)، ودخول صحيح ينجح.
+  - `list` (عملاء/منتجات/فواتير): مستأجر B لا يرى بيانات A إطلاقًا.
+  - وصول مباشر بـ ID لسجل مستأجر آخر (GET/PATCH/DELETE على عميل، GET
+    على منتج، GET/issue على فاتورة) → **404 دائمًا لا 403** بدون أي
+    تعديل فعلي على السجل.
+  - إنشاء فاتورة بـ `customer` أو `product` يخص مستأجر آخر → 400
+    (السيرفر يحلّ كل id ضد `request.user.tenant`؛ لا حقل `tenant_id`
+    موجود أصلًا ليُستغل).
+
+`backend/tests/factories.py` (factory-boy): `TenantFactory`,
+`UserFactory`, `CustomerFactory`, `ProductFactory` لبناء بيانات الاختبار
+بسرعة دون المرور بكل الـ API لكل حالة.
 
 ## GitHub / CI
 
@@ -149,29 +179,19 @@ GitHub:
   بيئة)، و`.gitignore` يستثني `.env`, `node_modules/`, `__pycache__/`,
   `backend/staticfiles/`, أدلة كاش pytest/ruff. **لم يُنفَّذ `git push`
   بعد** — بانتظار رابط الـ repository.
-- `.github/workflows/ci.yml` يعمل على كل push:
-  - **backend**: `ruff check` + `pytest` (يشغّل Postgres service container
-    في الـ CI نفسه). يحتوي حاليًا 5 اختبارات: health check، تأكيد أن
-    migrations تُطبَّق بدون أخطاء، واختبارا regression صريحان لثغرة
-    ModelBackend المذكورة أعلاه (تأكيد أن `AUTHENTICATION_BACKENDS` لا
-    يحتوي عليها أبدًا + أن تسجيل الدخول بـ subdomain خاطئ يُرفض حتى ببيانات
-    صحيحة لمستأجر آخر).
+- `.github/workflows/ci.yml` يعمل على كل push، ويفشل فعليًا عند أي خطأ
+  (لا إخفاء لأي فشل):
+  - **backend**: `ruff check .` + `pytest -v` (18 اختبارًا، تفصيلها في
+    "كيف تشغّل الاختبارات" أعلاه) ضد خدمة Postgres حقيقية داخل الـ CI
+    نفسه (service container، ليست SQLite).
   - **frontend**: `npm install` + `npm run build` فقط (بدون lint/tests
-    بعد).
-  - اختبارات أوسع (عملاء/منتجات/فواتير/حساب الضريبة) "خطوة جاية" كما
-    اتفقنا — البنية التحتية (pytest + pytest-django + fixtures) جاهزة
-    الآن في `backend/tests/` و`backend/pyproject.toml`.
+    بعد — خارج نطاق سبرنت 0).
 
 ## ديون تقنية يجب معالجتها قبل الإنتاج
 
 - **ترقيم الفواتير** (`apps/sales/services.py: generate_invoice_number`)
   يعتمد على `count() + 1` وهو غير آمن تحت الكتابة المتزامنة لنفس
   المستأجر. يحتاج DB sequence أو `select_for_update` قبل الإنتاج.
-- **صورة Docker الخلفية تعمل كـ root** (`backend/Dockerfile`) — تم التراجع
-  عن مستخدم غير مميز (`appuser`) لأن الـ named volume `static_data` كان
-  يُنشأ مملوكًا لـ root ولا يمكن لـ appuser الكتابة فيه أثناء
-  `collectstatic`. يحتاج إضافة أداة إسقاط صلاحيات (gosu/tini) تعمل
-  كـ entrypoint root ثم تُسلّم التنفيذ لمستخدم غير مميز.
 - **Django admin وتسجيل الدخول بدون subdomain**: `TenantEmailBackend`
   يسمح بمسار دخول بديل بدون subdomain، لكنه مقصور على `is_superuser=True`
   فقط ويتطلب أن يكون بريد المشرف فريدًا عالميًا (غير مفروض كقيد قاعدة
@@ -204,9 +224,9 @@ GitHub:
   `/etc/letsencrypt/live/${DOMAIN_NAME}/...`) — nginx لن يُقلع بدونها. خطوة
   bootstrap يدوية لمرة واحدة موثّقة كتعليق داخل نفس الملف.
 
-## الخطوات التالية المقترحة
+## الخطوة التالية
 
-1. استكمال المرحلة 1: تعديل/حذف الفواتير (مع قيود عكسية إن كانت معتمدة)،
-   تقارير محاسبية (ميزان مراجعة، قائمة دخل مبسطة).
-2. توليد فاتورة PDF عبر Celery task.
-3. المرحلة 2: نقاط بيع (POS) Offline-first، إدارة الفروع.
+**سبرنت 1** حسب خارطة `docs/SYSTEM_ANALYSIS.md` قسم 5: الهيكل التنظيمي
+والصلاحيات — الشجرة القانونية (عمق غير محدود)، شجرة مراكز التكلفة
+بالأنواع والربط، RBAC على مستوى الشركة/الفرع/الشاشة، الوضع المبسّط.
+معيار القبول: مستأجر بشركة واحدة لا يرى الهيكل التنظيمي إطلاقًا.

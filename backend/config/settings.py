@@ -65,6 +65,16 @@ AUTHENTICATION_BACKENDS = [
     "apps.accounts.backends.TenantEmailBackend",
 ]
 
+# auth.W004 fires because User.email (USERNAME_FIELD) is deliberately
+# unique only *within* a tenant, not globally (docs/SYSTEM_ANALYSIS.md
+# 3.14 login contract: subdomain + email + password). Django's check
+# can't know that TenantEmailBackend.authenticate() already handles this
+# correctly — it always resolves the user by (tenant, email), never by a
+# bare global email lookup. This is a structural design decision, not an
+# oversight; silencing is the documented, deliberate response per
+# SYSTEM_ANALYSIS.md rule 9 (see also backend/tests/test_tenant_isolation.py).
+SILENCED_SYSTEM_CHECKS = ["auth.W004"]
+
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",

@@ -1,4 +1,4 @@
-.PHONY: dev-up dev-down dev-logs dev-build prod-up prod-down prod-config dev-config
+.PHONY: dev-up dev-down dev-logs dev-build prod-up prod-down prod-config dev-config test lint
 
 COMPOSE_DIR := infra
 ENV_FILE := .env
@@ -22,6 +22,19 @@ dev-build:
 
 dev-config:
 	$(DC) $(DEV) config
+
+## Tests run against the real dev Postgres service (starts it via
+## depends_on if not already up), in a separate test_<db> database that
+## pytest-django creates and drops automatically — never SQLite. The
+## throwaway test/lint container bypasses entrypoint.sh's non-root
+## privilege-drop (--entrypoint '') since it's a one-off run, not a
+## persistent service; dev deps aren't baked into the image, so each
+## run installs them fresh.
+test:
+	$(DC) $(DEV) run --rm --entrypoint '' backend sh -c "pip install -q -r requirements-dev.txt && pytest -v"
+
+lint:
+	$(DC) $(DEV) run --rm --entrypoint '' backend sh -c "pip install -q -r requirements-dev.txt && ruff check ."
 
 ## Prod (future production host only — never run on this dev host)
 prod-up:

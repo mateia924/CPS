@@ -38,6 +38,15 @@ services:
     build:
       context: ../backend
     restart: unless-stopped
+    # entrypoint.sh (root, chowns static_data, drops to appuser via gosu)
+    # wraps this whole chain — migrate/collectstatic/gunicorn all run as
+    # appuser. celery_worker below intentionally does NOT run migrate:
+    # only one service should ever run it, to avoid concurrent migration
+    # races on container (re)start.
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput &&
+             exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3"
     env_file: ../.env
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -54,8 +63,9 @@ services:
     build:
       context: ../backend
     restart: unless-stopped
+    # Same entrypoint.sh as backend (root -> chown -> gosu appuser), just
+    # a different command — no migrate here, see comment on backend above.
     command: celery -A config worker --loglevel=info
-    entrypoint: []
     env_file: ../.env
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
