@@ -87,10 +87,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       { subdomain, email, password },
       false
     );
+    // Auth itself succeeded once we have tokens — a subsequent /me
+    // hiccup (slow backend, transient network blip) must not be
+    // reported back to the caller as a login failure; the dashboard
+    // layout will retry /me on its own.
     persist(payload);
     setTenant(payload.tenant);
     setUser(payload.user);
-    await loadMe();
+    await loadMe().catch(() => undefined);
   };
 
   const register: AuthContextValue["register"] = async (data) => {
@@ -98,7 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     persist(payload);
     setTenant(payload.tenant);
     setUser(payload.user);
-    await loadMe();
+    await loadMe().catch(() => undefined);
   };
 
   const logout = () => {

@@ -1,0 +1,319 @@
+# CPS Arabic translations.
+msgid ""
+msgstr ""
+"Project-Id-Version: CPS\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-09-18 21:46+0000\n"
+"PO-Revision-Date: 2026-09-19 00:00+0000\n"
+"Last-Translator: CPS\n"
+"Language-Team: Arabic\n"
+"Language: ar\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=6; plural=n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 "
+"&& n%100<=10 ? 3 : n%100>=11 && n%100<=99 ? 4 : 5;\n"
+
+msgid "code"
+msgstr "الكود"
+
+msgid "description"
+msgstr "الوصف"
+
+msgid "name"
+msgstr "الاسم"
+
+msgid "system role"
+msgstr "دور نظامي"
+
+msgid "View customers"
+msgstr "عرض العملاء"
+
+msgid "Create, edit and delete customers"
+msgstr "إنشاء وتعديل وحذف العملاء"
+
+msgid "View products"
+msgstr "عرض المنتجات"
+
+msgid "Create, edit and delete products"
+msgstr "إنشاء وتعديل وحذف المنتجات"
+
+msgid "View invoices"
+msgstr "عرض الفواتير"
+
+msgid "Create invoices"
+msgstr "إنشاء فواتير"
+
+msgid "Issue/approve invoices"
+msgstr "اعتماد الفواتير"
+
+msgid "View the chart of accounts and journal entries"
+msgstr "عرض دليل الحسابات وقيود اليومية"
+
+msgid "View legal entities"
+msgstr "عرض الكيانات القانونية"
+
+msgid "Create, edit and deactivate legal entities"
+msgstr "إنشاء وتعديل وتعطيل الكيانات القانونية"
+
+msgid "View cost centers"
+msgstr "عرض مراكز التكلفة"
+
+msgid "Create, edit and deactivate cost centers"
+msgstr "إنشاء وتعديل وتعطيل مراكز التكلفة"
+
+msgid "Manage roles, permissions and user assignments"
+msgstr "إدارة الأدوار والصلاحيات وتعيينها للمستخدمين"
+
+msgid "System roles cannot be deleted."
+msgstr "لا يمكن حذف الأدوار النظامية."
+
+msgid "Asset"
+msgstr "أصول"
+
+msgid "Liability"
+msgstr "خصوم"
+
+msgid "Equity"
+msgstr "حقوق ملكية"
+
+msgid "Revenue"
+msgstr "إيرادات"
+
+msgid "Expense"
+msgstr "مصروفات"
+
+msgid "type"
+msgstr "النوع"
+
+msgid "system account"
+msgstr "حساب نظامي"
+
+msgid "date"
+msgstr "التاريخ"
+
+msgid "memo"
+msgstr "ملاحظة"
+
+msgid "source type"
+msgstr "نوع المصدر"
+
+msgid "source id"
+msgstr "معرّف المصدر"
+
+msgid "Cash"
+msgstr "النقدية"
+
+msgid "Accounts Receivable"
+msgstr "حسابات العملاء (المدينون)"
+
+msgid "Tax Payable"
+msgstr "ضريبة مستحقة"
+
+msgid "Owner's Equity"
+msgstr "حقوق الملكية"
+
+msgid "Sales Revenue"
+msgstr "إيرادات المبيعات"
+
+msgid "General Expenses"
+msgstr "مصروفات عامة"
+
+msgid "Owner"
+msgstr "مالك"
+
+msgid "Admin"
+msgstr "مدير"
+
+msgid "Staff"
+msgstr "موظف"
+
+msgid "email address"
+msgstr "البريد الإلكتروني"
+
+msgid "first name"
+msgstr "الاسم الأول"
+
+msgid "last name"
+msgstr "اسم العائلة"
+
+msgid "role"
+msgstr "الدور"
+
+msgid "active"
+msgstr "نشط"
+
+msgid "staff status"
+msgstr "حالة الموظف"
+
+msgid "date joined"
+msgstr "تاريخ الانضمام"
+
+msgid "user"
+msgstr "مستخدم"
+
+msgid "users"
+msgstr "مستخدمون"
+
+msgid "This subdomain is already taken."
+msgstr "هذا النطاق الفرعي مستخدم بالفعل."
+
+msgid "Invalid subdomain, email or password."
+msgstr "النطاق الفرعي أو البريد الإلكتروني أو كلمة المرور غير صحيحة."
+
+msgid "This account is inactive."
+msgstr "هذا الحساب غير نشط."
+
+msgid "Holding"
+msgstr "قابضة"
+
+msgid "Company"
+msgstr "شركة"
+
+msgid "Branch"
+msgstr "فرع"
+
+msgid "country code"
+msgstr "رمز الدولة"
+
+msgid "tax number"
+msgstr "الرقم الضريبي"
+
+msgid "base currency"
+msgstr "العملة الأساسية"
+
+msgid "An entity cannot be its own parent."
+msgstr "لا يمكن أن يكون الكيان أبًا لنفسه."
+
+msgid "A branch cannot have child entities."
+msgstr "لا يمكن أن يكون للفرع كيانات فرعية."
+
+msgid "This would create a cycle in the legal entity tree."
+msgstr "هذا سيُنشئ دورة في شجرة الكيانات القانونية."
+
+msgid "Department"
+msgstr "إدارة"
+
+msgid "Vehicle"
+msgstr "سيارة"
+
+msgid "Warehouse"
+msgstr "مستودع"
+
+msgid "Employee"
+msgstr "موظف"
+
+msgid "Project"
+msgstr "مشروع"
+
+msgid "General"
+msgstr "عام"
+
+msgid "A cost center cannot be its own parent."
+msgstr "لا يمكن أن يكون مركز التكلفة أبًا لنفسه."
+
+msgid "This would create a cycle in the cost center tree."
+msgstr "هذا سيُنشئ دورة في شجرة مراكز التكلفة."
+
+#, python-format
+msgid "This would create a cycle in the %(label)s tree."
+msgstr "هذا سيُنشئ دورة في شجرة %(label)s."
+
+msgid "Main Branch"
+msgstr "الفرع الرئيسي"
+
+msgid "email"
+msgstr "البريد الإلكتروني"
+
+msgid "phone"
+msgstr "الهاتف"
+
+msgid "address"
+msgstr "العنوان"
+
+msgid "SKU"
+msgstr "رمز المنتج"
+
+msgid "unit price"
+msgstr "سعر الوحدة"
+
+msgid "tax rate (%)"
+msgstr "نسبة الضريبة (%)"
+
+msgid "Draft"
+msgstr "مسودة"
+
+msgid "Issued"
+msgstr "معتمدة"
+
+msgid "Paid"
+msgstr "مدفوعة"
+
+msgid "Cancelled"
+msgstr "ملغاة"
+
+msgid "number"
+msgstr "الرقم"
+
+msgid "status"
+msgstr "الحالة"
+
+msgid "issue date"
+msgstr "تاريخ الإصدار"
+
+msgid "subtotal"
+msgstr "الإجمالي قبل الضريبة"
+
+msgid "tax total"
+msgstr "إجمالي الضريبة"
+
+msgid "total"
+msgstr "الإجمالي"
+
+msgid "quantity"
+msgstr "الكمية"
+
+msgid "At least one invoice line is required."
+msgstr "مطلوب بند واحد على الأقل في الفاتورة."
+
+msgid "This field is required."
+msgstr "هذا الحقل مطلوب."
+
+msgid "Product not found."
+msgstr "المنتج غير موجود."
+
+msgid "Cost center not found."
+msgstr "مركز التكلفة غير موجود."
+
+msgid "Only draft invoices can be issued."
+msgstr "يمكن اعتماد الفواتير في حالة المسودة فقط."
+
+msgid "company name"
+msgstr "اسم الشركة"
+
+msgid "subdomain"
+msgstr "النطاق الفرعي"
+
+msgid "tenant"
+msgstr "المستأجر"
+
+msgid "tenants"
+msgstr "المستأجرون"
+
+msgid "organization structure"
+msgstr "الهيكل التنظيمي"
+
+msgid "cost centers"
+msgstr "مراكز التكلفة"
+
+msgid "inventory"
+msgstr "المخزون"
+
+msgid "purchasing"
+msgstr "المشتريات"
+
+msgid "HR"
+msgstr "الموارد البشرية"
+
+msgid "tenant features"
+msgstr "وحدات المستأجر"
