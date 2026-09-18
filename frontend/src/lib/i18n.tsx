@@ -1,0 +1,151 @@
+"use client";
+
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+
+export type Locale = "ar" | "en";
+
+const dictionaries: Record<Locale, Record<string, string>> = {
+  ar: {
+    appName: "CPS",
+    login: "تسجيل الدخول",
+    register: "تسجيل شركة جديدة",
+    subdomain: "النطاق الفرعي",
+    email: "البريد الإلكتروني",
+    password: "كلمة المرور",
+    companyName: "اسم الشركة",
+    firstName: "الاسم الأول",
+    lastName: "اسم العائلة",
+    submit: "إرسال",
+    logout: "تسجيل الخروج",
+    dashboard: "لوحة التحكم",
+    customers: "العملاء",
+    products: "المنتجات",
+    invoices: "الفواتير",
+    name: "الاسم",
+    phone: "الهاتف",
+    taxNumber: "الرقم الضريبي",
+    address: "العنوان",
+    add: "إضافة",
+    sku: "الرمز",
+    unitPrice: "سعر الوحدة",
+    taxRate: "نسبة الضريبة %",
+    active: "نشط",
+    number: "الرقم",
+    status: "الحالة",
+    issueDate: "تاريخ الإصدار",
+    total: "الإجمالي",
+    subtotal: "الإجمالي قبل الضريبة",
+    taxTotal: "إجمالي الضريبة",
+    customer: "العميل",
+    createInvoice: "إنشاء فاتورة",
+    quantity: "الكمية",
+    product: "المنتج",
+    addLine: "إضافة بند",
+    issue: "اعتماد الفاتورة",
+    draft: "مسودة",
+    issued: "معتمدة",
+    paid: "مدفوعة",
+    cancelled: "ملغاة",
+    noSubdomainYet: "أول مرة؟",
+    createAccount: "أنشئ حساب شركتك",
+    alreadyHaveAccount: "لديك حساب بالفعل؟",
+    welcome: "مرحبًا",
+  },
+  en: {
+    appName: "CPS",
+    login: "Log in",
+    register: "Register a new company",
+    subdomain: "Subdomain",
+    email: "Email",
+    password: "Password",
+    companyName: "Company name",
+    firstName: "First name",
+    lastName: "Last name",
+    submit: "Submit",
+    logout: "Log out",
+    dashboard: "Dashboard",
+    customers: "Customers",
+    products: "Products",
+    invoices: "Invoices",
+    name: "Name",
+    phone: "Phone",
+    taxNumber: "Tax number",
+    address: "Address",
+    add: "Add",
+    sku: "SKU",
+    unitPrice: "Unit price",
+    taxRate: "Tax rate %",
+    active: "Active",
+    number: "Number",
+    status: "Status",
+    issueDate: "Issue date",
+    total: "Total",
+    subtotal: "Subtotal",
+    taxTotal: "Tax total",
+    customer: "Customer",
+    createInvoice: "Create invoice",
+    quantity: "Quantity",
+    product: "Product",
+    addLine: "Add line",
+    issue: "Issue invoice",
+    draft: "Draft",
+    issued: "Issued",
+    paid: "Paid",
+    cancelled: "Cancelled",
+    noSubdomainYet: "First time?",
+    createAccount: "Create your company account",
+    alreadyHaveAccount: "Already have an account?",
+    welcome: "Welcome",
+  },
+};
+
+interface LocaleContextValue {
+  locale: Locale;
+  setLocale: (locale: Locale) => void;
+  t: (key: string) => string;
+  dir: "rtl" | "ltr";
+}
+
+const LocaleContext = createContext<LocaleContextValue | null>(null);
+
+export function LocaleProvider({ children }: { children: React.ReactNode }) {
+  const [locale, setLocaleState] = useState<Locale>("ar");
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem("cps_locale") as Locale | null;
+    if (stored === "ar" || stored === "en") {
+      setLocaleState(stored);
+    }
+  }, []);
+
+  const dir = locale === "ar" ? "rtl" : "ltr";
+
+  useEffect(() => {
+    document.documentElement.lang = locale;
+    document.documentElement.dir = dir;
+  }, [locale, dir]);
+
+  const setLocale = (next: Locale) => {
+    setLocaleState(next);
+    window.localStorage.setItem("cps_locale", next);
+  };
+
+  const t = useMemo(() => {
+    const dict = dictionaries[locale];
+    return (key: string) => dict[key] ?? key;
+  }, [locale]);
+
+  return (
+    <LocaleContext.Provider value={{ locale, setLocale, t, dir }}>
+      {children}
+    </LocaleContext.Provider>
+  );
+}
+
+export function useLocale() {
+  const ctx = useContext(LocaleContext);
+  if (!ctx) {
+    throw new Error("useLocale must be used inside LocaleProvider");
+  }
+  return ctx;
+}
