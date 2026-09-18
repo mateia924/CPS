@@ -128,6 +128,15 @@ make dev-up                 # = docker compose -f infra/docker-compose.yml
 عبر mount لمجلد `frontend/` بالكامل) بدل الـ build الثابت المستخدم في
 الإنتاج.
 
+**تنبيه عن `infra/nginx/nginx.conf`:** هذا الملف مُمنتَج كـ bind mount
+لملف واحد (لا مجلد كامل)، وbind mount من نوع "ملف واحد" على Linux مربوط
+بالـ inode القديم لا بالمسار — أي تعديل يستبدل الملف بـ inode جديد
+(الطريقة الشائعة لأغلب أدوات التحرير) يخلّي الحاوية شايفة نسخة قديمة من
+الملف حتى بعد `nginx -s reload`. لازم `docker compose ... up -d
+--force-recreate nginx` بعد أي تعديل على هذا الملف، لا reload/restart
+عادي. (هذا لا ينطبق على `frontend/`/`backend/` — تلك bind mounts لمجلد
+كامل، وتعديلات الملفات بداخلها تُرى فورًا بدون مشكلة.)
+
 بعد التشغيل:
 - الواجهة: http://localhost:3000/
 - الـ API: http://localhost:3000/api/
