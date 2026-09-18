@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { LegalEntityTree } from "@/components/LegalEntityTree";
+import { DataTable } from "@/components/DataTable";
 import { useLocale } from "@/lib/i18n";
 import type { LegalEntity, LegalEntityTreeNode, LegalEntityType, Paginated } from "@/lib/types";
 
@@ -14,6 +15,7 @@ export default function OrganizationPage() {
   const { refreshMe } = useAuth();
   const [tree, setTree] = useState<LegalEntityTreeNode[]>([]);
   const [flat, setFlat] = useState<LegalEntity[]>([]);
+  const [editing, setEditing] = useState<LegalEntity | null>(null);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [entityType, setEntityType] = useState<LegalEntityType>("branch");
@@ -22,8 +24,9 @@ export default function OrganizationPage() {
   const [baseCurrency, setBaseCurrency] = useState("SAR");
   const [taxNumber, setTaxNumber] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState(0);
 
-  const load = async () => {
+  const loadTreeAndParents = async () => {
     const [treeData, flatData] = await Promise.all([
       api.get<LegalEntityTreeNode[]>("/legal-entities/tree/"),
       api.get<Paginated<LegalEntity>>("/legal-entities/"),
@@ -33,30 +36,54 @@ export default function OrganizationPage() {
   };
 
   useEffect(() => {
-    load();
-  }, []);
+    loadTreeAndParents();
+  }, [refreshToken]);
+
+  const startEdit = (entity: LegalEntity) => {
+    setEditing(entity);
+    setCode(entity.code);
+    setName(entity.name);
+    setEntityType(entity.entity_type);
+    setParent(entity.parent || "");
+    setCountryCode(entity.country_code);
+    setBaseCurrency(entity.base_currency);
+    setTaxNumber(entity.tax_number);
+  };
+
+  const cancelEdit = () => {
+    setEditing(null);
+    setCode("");
+    setName("");
+    setEntityType("branch");
+    setParent("");
+    setCountryCode("SA");
+    setBaseCurrency("SAR");
+    setTaxNumber("");
+  };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    const payload = {
+      code,
+      name,
+      entity_type: entityType,
+      parent: parent || null,
+      country_code: countryCode,
+      base_currency: baseCurrency,
+      tax_number: taxNumber,
+    };
     try {
-      await api.post("/legal-entities/", {
-        code,
-        name,
-        entity_type: entityType,
-        parent: parent || null,
-        country_code: countryCode,
-        base_currency: baseCurrency,
-        tax_number: taxNumber,
-      });
-      setCode("");
-      setName("");
-      setParent("");
-      setTaxNumber("");
-      await load();
-      await refreshMe(); // adding an entity may flip simplified_mode off
+      if (editing) {
+        await api.patch(`/legal-entities/${editing.id}/`, payload);
+      } else {
+        await api.post("/legal-entities/", payload);
+      }
+      cancelEdit();
+      setRefreshToken((n) => n + 1);
+      await refreshMe(); // adding/editing an entity may flip simplified_mode
     } catch {
-      setError("Could not create this entity — check code uniqueness and parent rules.");
+      setError("Could not save this entity — check code uniqueness and parent rules.");
     }
   };
 
@@ -93,11 +120,13 @@ export default function OrganizationPage() {
               <label>{t("parent")}</label>
               <select value={parent} onChange={(e) => setParent(e.target.value)}>
                 <option value="">{t("none")}</option>
-                {flat.map((entity) => (
-                  <option key={entity.id} value={entity.id}>
-                    {entity.code} — {entity.name}
-                  </option>
-                ))}
+                {flat
+                  .filter((entity) => entity.id !== editing?.id)
+                  .map((entity) => (
+                    <option key={entity.id} value={entity.id}>
+                      {entity.code} — {entity.name}
+                    </option>
+                  ))}
               </select>
             </div>
           </div>
@@ -122,10 +151,31 @@ export default function OrganizationPage() {
 
           {error && <p className="error-text">{error}</p>}
           <button className="primary" type="submit" style={{ marginTop: "0.75rem" }}>
-            {t("add")}
+            {editing ? t("saveChanges") : t("add")}
           </button>
+          {editing && (
+            <button
+              type="button"
+              className="secondary"
+              style={{ marginTop: "0.75rem", marginInlineStart: "0.5rem" }}
+              onClick={cancelEdit}
+            >
+              {t("cancel")}
+            </button>
+          )}
         </form>
       </div>
+
+      <DataTable<LegalEntity>
+        endpoint="/legal-entities/"
+        refreshToken={refreshToken}
+        onEdit={startEdit}
+        columns={[
+          { key: "code", label: t("code"), sortable: true },
+          { key: "name", label: t("name"), sortable: true },
+          { key: "entity_type", label: t("type"), render: (row) => t(row.entity_type) },
+        ]}
+      />
     </div>
   );
 }

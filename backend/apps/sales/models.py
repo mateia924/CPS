@@ -12,6 +12,7 @@ class Customer(TenantScopedModel):
     phone = models.CharField(_("phone"), max_length=50, blank=True)
     tax_number = models.CharField(_("tax number"), max_length=50, blank=True)
     address = models.TextField(_("address"), blank=True)
+    is_active = models.BooleanField(_("active"), default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

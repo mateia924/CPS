@@ -1,10 +1,11 @@
 from django.db.models import Q
+from rest_framework import filters
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.access.permissions import HasModulePermission
-from apps.common.viewsets import TenantScopedViewSet
+from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 
 from .models import CostCenter, LegalEntity
 from .serializers import (
@@ -16,10 +17,13 @@ from .serializers import (
 from .services import get_accessible_entity_ids
 
 
-class LegalEntityViewSet(TenantScopedViewSet):
+class LegalEntityViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
     serializer_class = LegalEntitySerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
     queryset = LegalEntity.objects.all()
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["code", "name"]
+    ordering_fields = ["code", "name", "created_at"]
     permission_map = {
         "list": "organization.view",
         "retrieve": "organization.view",
@@ -28,20 +32,13 @@ class LegalEntityViewSet(TenantScopedViewSet):
         "update": "organization.manage",
         "partial_update": "organization.manage",
         "destroy": "organization.manage",
+        "deactivate": "organization.manage",
+        "activate": "organization.manage",
     }
 
     def get_queryset(self):
         accessible_ids = get_accessible_entity_ids(self.request.user)
         return super().get_queryset().filter(id__in=accessible_ids)
-
-    def destroy(self, request, *args, **kwargs):
-        # 3.1: "لا حذف لكيان عليه معاملات (soft-deactivate فقط)" — the
-        # API never hard-deletes a legal entity, regardless of whether it
-        # has transactions; it only deactivates it.
-        entity = self.get_object()
-        entity.is_active = False
-        entity.save(update_fields=["is_active"])
-        return Response(LegalEntitySerializer(entity).data)
 
     @action(detail=False, methods=["get"])
     def tree(self, request):
@@ -57,10 +54,13 @@ class LegalEntityViewSet(TenantScopedViewSet):
         return Response(serializer.data)
 
 
-class CostCenterViewSet(TenantScopedViewSet):
+class CostCenterViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
     serializer_class = CostCenterSerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
     queryset = CostCenter.objects.all()
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["code", "name"]
+    ordering_fields = ["code", "name", "created_at"]
     permission_map = {
         "list": "costcenters.view",
         "retrieve": "costcenters.view",
@@ -69,13 +69,9 @@ class CostCenterViewSet(TenantScopedViewSet):
         "update": "costcenters.manage",
         "partial_update": "costcenters.manage",
         "destroy": "costcenters.manage",
+        "deactivate": "costcenters.manage",
+        "activate": "costcenters.manage",
     }
-
-    def destroy(self, request, *args, **kwargs):
-        center = self.get_object()
-        center.is_active = False
-        center.save(update_fields=["is_active"])
-        return Response(CostCenterSerializer(center).data)
 
     @action(detail=False, methods=["get"])
     def tree(self, request):

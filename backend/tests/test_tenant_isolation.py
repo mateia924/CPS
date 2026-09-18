@@ -318,3 +318,96 @@ def test_get_other_tenant_role_returns_404(tenant_b, client_a):
     role_b = RoleFactory(tenant=tenant_b)
     response = client_a.get(f"/api/roles/{role_b.id}/")
     assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------
+# Sprint 1.5: the new PATCH/deactivate/activate/void endpoints go
+# through the same isolation guarantees as everything else here.
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_patch_other_tenant_legal_entity_returns_404(tenant_b, client_a):
+    entity_b = LegalEntityFactory(tenant=tenant_b)
+    response = client_a.patch(
+        f"/api/legal-entities/{entity_b.id}/", {"name": "Hacked"}, format="json"
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_deactivate_other_tenant_customer_returns_404(tenant_b, client_a):
+    customer_b = CustomerFactory(tenant=tenant_b)
+    response = client_a.post(f"/api/customers/{customer_b.id}/deactivate/")
+    assert response.status_code == 404
+    customer_b.refresh_from_db()
+    assert customer_b.is_active is True
+
+
+@pytest.mark.django_db
+def test_deactivate_other_tenant_legal_entity_returns_404(tenant_b, client_a):
+    entity_b = LegalEntityFactory(tenant=tenant_b)
+    response = client_a.post(f"/api/legal-entities/{entity_b.id}/deactivate/")
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_deactivate_other_tenant_cost_center_returns_404(tenant_b, client_a):
+    center_b = CostCenterFactory(tenant=tenant_b)
+    response = client_a.post(f"/api/cost-centers/{center_b.id}/deactivate/")
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_void_other_tenant_invoice_returns_404(tenant_a, tenant_b, client_a, client_b):
+    customer_b = CustomerFactory(tenant=tenant_b)
+    product_b = ProductFactory(tenant=tenant_b)
+    created = client_b.post(
+        "/api/invoices/",
+        {
+            "customer": str(customer_b.id),
+            "lines": [{"product": str(product_b.id), "quantity": "1"}],
+        },
+        format="json",
+    )
+    assert created.status_code == 201
+    client_b.post(f"/api/invoices/{created.data['id']}/issue/")
+
+    response = client_a.post(f"/api/invoices/{created.data['id']}/void/")
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_patch_other_tenant_invoice_returns_404(tenant_a, tenant_b, client_a, client_b):
+    customer_b = CustomerFactory(tenant=tenant_b)
+    product_b = ProductFactory(tenant=tenant_b)
+    created = client_b.post(
+        "/api/invoices/",
+        {
+            "customer": str(customer_b.id),
+            "lines": [{"product": str(product_b.id), "quantity": "1"}],
+        },
+        format="json",
+    )
+    assert created.status_code == 201
+
+    response = client_a.patch(
+        f"/api/invoices/{created.data['id']}/",
+        {
+            "customer": str(customer_b.id),
+            "lines": [{"product": str(product_b.id), "quantity": "9"}],
+        },
+        format="json",
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_delete_other_tenant_customer_returns_404_not_409_or_204(tenant_b, client_a):
+    # A cross-tenant delete attempt must 404 (record invisible to this
+    # tenant) — it must never leak whether the other tenant's record
+    # has references (409) or not (204), since either would confirm
+    # the record's existence in a tenant the caller can't see.
+    customer_b = CustomerFactory(tenant=tenant_b)
+    response = client_a.delete(f"/api/customers/{customer_b.id}/")
+    assert response.status_code == 404

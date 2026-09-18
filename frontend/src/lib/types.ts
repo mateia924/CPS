@@ -12,6 +12,7 @@ export interface Customer {
   phone: string;
   tax_number: string;
   address: string;
+  is_active: boolean;
 }
 
 export interface Product {
@@ -117,6 +118,7 @@ export interface TenantUser {
   email: string;
   first_name: string;
   last_name: string;
+  is_active: boolean;
   role_ids: string[];
   role_names: string[];
   legal_entity_ids: string[];

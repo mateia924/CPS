@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { CostCenterTree } from "@/components/CostCenterTree";
+import { DataTable } from "@/components/DataTable";
 import { useLocale } from "@/lib/i18n";
 import type { CostCenter, CostCenterTreeNode, CostCenterType, Paginated } from "@/lib/types";
 
@@ -12,13 +13,15 @@ export default function CostCentersPage() {
   const { t } = useLocale();
   const [tree, setTree] = useState<CostCenterTreeNode[]>([]);
   const [flat, setFlat] = useState<CostCenter[]>([]);
+  const [editing, setEditing] = useState<CostCenter | null>(null);
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [centerType, setCenterType] = useState<CostCenterType>("general");
   const [parent, setParent] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState(0);
 
-  const load = async () => {
+  const loadTreeAndParents = async () => {
     const [treeData, flatData] = await Promise.all([
       api.get<CostCenterTreeNode[]>("/cost-centers/tree/"),
       api.get<Paginated<CostCenter>>("/cost-centers/"),
@@ -28,25 +31,39 @@ export default function CostCentersPage() {
   };
 
   useEffect(() => {
-    load();
-  }, []);
+    loadTreeAndParents();
+  }, [refreshToken]);
+
+  const startEdit = (center: CostCenter) => {
+    setEditing(center);
+    setCode(center.code);
+    setName(center.name);
+    setCenterType(center.center_type);
+    setParent(center.parent || "");
+  };
+
+  const cancelEdit = () => {
+    setEditing(null);
+    setCode("");
+    setName("");
+    setCenterType("general");
+    setParent("");
+  };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    const payload = { code, name, center_type: centerType, parent: parent || null };
     try {
-      await api.post("/cost-centers/", {
-        code,
-        name,
-        center_type: centerType,
-        parent: parent || null,
-      });
-      setCode("");
-      setName("");
-      setParent("");
-      await load();
+      if (editing) {
+        await api.patch(`/cost-centers/${editing.id}/`, payload);
+      } else {
+        await api.post("/cost-centers/", payload);
+      }
+      cancelEdit();
+      setRefreshToken((n) => n + 1);
     } catch {
-      setError("Could not create this cost center — check code uniqueness.");
+      setError("Could not save this cost center — check code uniqueness.");
     }
   };
 
@@ -82,19 +99,37 @@ export default function CostCentersPage() {
             <label>{t("parent")}</label>
             <select value={parent} onChange={(e) => setParent(e.target.value)}>
               <option value="">{t("none")}</option>
-              {flat.map((center) => (
-                <option key={center.id} value={center.id}>
-                  {center.code} — {center.name}
-                </option>
-              ))}
+              {flat
+                .filter((center) => center.id !== editing?.id)
+                .map((center) => (
+                  <option key={center.id} value={center.id}>
+                    {center.code} — {center.name}
+                  </option>
+                ))}
             </select>
           </div>
           {error && <p className="error-text">{error}</p>}
           <button className="primary" type="submit">
-            {t("add")}
+            {editing ? t("saveChanges") : t("add")}
           </button>
+          {editing && (
+            <button type="button" className="secondary" onClick={cancelEdit}>
+              {t("cancel")}
+            </button>
+          )}
         </form>
       </div>
+
+      <DataTable<CostCenter>
+        endpoint="/cost-centers/"
+        refreshToken={refreshToken}
+        onEdit={startEdit}
+        columns={[
+          { key: "code", label: t("code"), sortable: true },
+          { key: "name", label: t("name"), sortable: true },
+          { key: "center_type", label: t("type"), render: (row) => t(row.center_type) },
+        ]}
+      />
     </div>
   );
 }

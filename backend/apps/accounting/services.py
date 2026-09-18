@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.db import transaction
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from .models import Account, JournalEntry, JournalLine
@@ -71,3 +72,37 @@ def post_invoice_journal_entry(invoice):
         )
     JournalLine.objects.bulk_create(lines)
     return entry
+
+
+@transaction.atomic
+def void_invoice_journal_entry(invoice):
+    """Post a reversing journal entry for a voided (cancelled) invoice —
+    docs/SYSTEM_ANALYSIS.md section 4 rule 4: every journal entry stays
+    balanced, so voiding never edits or deletes the original entry, it
+    posts a mirror-image entry (debit <-> credit swapped per line, same
+    accounts and cost centers) that nets it to zero.
+    """
+    original = JournalEntry.objects.get(
+        tenant=invoice.tenant, source_type="invoice", source_id=invoice.id
+    )
+    reversal = JournalEntry.objects.create(
+        tenant=invoice.tenant,
+        legal_entity=invoice.legal_entity,
+        date=timezone.localdate(),
+        memo=f"Void of invoice {invoice.number}",
+        source_type="invoice_void",
+        source_id=invoice.id,
+    )
+    JournalLine.objects.bulk_create(
+        [
+            JournalLine(
+                entry=reversal,
+                account=line.account,
+                cost_center=line.cost_center,
+                debit=line.credit,
+                credit=line.debit,
+            )
+            for line in original.lines.all()
+        ]
+    )
+    return reversal

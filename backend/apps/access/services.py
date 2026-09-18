@@ -82,3 +82,17 @@ def user_is_owner(user):
     return Role.objects.filter(
         users=user, tenant_id=user.tenant_id, name="Owner", is_system=True
     ).exists()
+
+
+def active_owner_count(tenant, exclude_user_id=None):
+    """docs/SYSTEM_ANALYSIS.md section 4 rule 9 / sprint 1.5 rule 3: a
+    tenant must always keep at least one active Owner. Used to block
+    both deactivating the last one and stripping their Owner role."""
+    from apps.accounts.models import User
+
+    qs = User.objects.filter(
+        tenant=tenant, is_active=True, roles__name="Owner", roles__is_system=True
+    )
+    if exclude_user_id is not None:
+        qs = qs.exclude(id=exclude_user_id)
+    return qs.distinct().count()

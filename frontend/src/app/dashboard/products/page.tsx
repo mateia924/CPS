@@ -1,40 +1,46 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
-import type { Paginated, Product } from "@/lib/types";
+import { DataTable } from "@/components/DataTable";
+import type { Product } from "@/lib/types";
 
 export default function ProductsPage() {
   const { t } = useLocale();
-  const [products, setProducts] = useState<Product[]>([]);
+  const [editing, setEditing] = useState<Product | null>(null);
   const [sku, setSku] = useState("");
   const [name, setName] = useState("");
   const [unitPrice, setUnitPrice] = useState("");
   const [taxRate, setTaxRate] = useState("0");
+  const [refreshToken, setRefreshToken] = useState(0);
 
-  const load = async () => {
-    const data = await api.get<Paginated<Product>>("/products/");
-    setProducts(data.results);
+  const startEdit = (product: Product) => {
+    setEditing(product);
+    setSku(product.sku);
+    setName(product.name);
+    setUnitPrice(product.unit_price);
+    setTaxRate(product.tax_rate);
   };
 
-  useEffect(() => {
-    load();
-  }, []);
-
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await api.post("/products/", {
-      sku,
-      name,
-      unit_price: unitPrice,
-      tax_rate: taxRate,
-    });
+  const cancelEdit = () => {
+    setEditing(null);
     setSku("");
     setName("");
     setUnitPrice("");
     setTaxRate("0");
-    load();
+  };
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload = { sku, name, unit_price: unitPrice, tax_rate: taxRate };
+    if (editing) {
+      await api.patch(`/products/${editing.id}/`, payload);
+    } else {
+      await api.post("/products/", payload);
+    }
+    cancelEdit();
+    setRefreshToken((n) => n + 1);
   };
 
   return (
@@ -59,30 +65,27 @@ export default function ProductsPage() {
             <input type="number" step="0.01" value={taxRate} onChange={(e) => setTaxRate(e.target.value)} />
           </div>
           <button className="primary" type="submit">
-            {t("add")}
+            {editing ? t("saveChanges") : t("add")}
           </button>
+          {editing && (
+            <button type="button" className="secondary" onClick={cancelEdit}>
+              {t("cancel")}
+            </button>
+          )}
         </form>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>{t("sku")}</th>
-            <th>{t("name")}</th>
-            <th>{t("unitPrice")}</th>
-            <th>{t("taxRate")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {products.map((p) => (
-            <tr key={p.id}>
-              <td>{p.sku}</td>
-              <td>{p.name}</td>
-              <td>{p.unit_price}</td>
-              <td>{p.tax_rate}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+
+      <DataTable<Product>
+        endpoint="/products/"
+        refreshToken={refreshToken}
+        onEdit={startEdit}
+        columns={[
+          { key: "sku", label: t("sku"), sortable: true },
+          { key: "name", label: t("name"), sortable: true },
+          { key: "unit_price", label: t("unitPrice"), sortable: true },
+          { key: "tax_rate", label: t("taxRate") },
+        ]}
+      />
     </div>
   );
 }

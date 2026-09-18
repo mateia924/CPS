@@ -47,20 +47,10 @@ def recalculate_invoice(invoice):
     return invoice
 
 
-@transaction.atomic
-def create_invoice(tenant, customer, legal_entity, issue_date, line_inputs):
-    """Create a draft invoice with its lines, snapshot pricing from each
-    product, then compute totals. `line_inputs` is a list of
-    {"product": Product, "quantity": Decimal, "cost_center": CostCenter | None}.
-    """
-    invoice = Invoice.objects.create(
-        tenant=tenant,
-        customer=customer,
-        legal_entity=legal_entity,
-        number=generate_invoice_number(tenant),
-        issue_date=issue_date,
-        status=Invoice.Status.DRAFT,
-    )
+def _build_lines(invoice, line_inputs):
+    """`line_inputs` is a list of {"product": Product, "quantity":
+    Decimal, "cost_center": CostCenter | None}. Shared by create_invoice
+    and update_invoice so both snapshot pricing identically."""
     InvoiceLine.objects.bulk_create(
         [
             InvoiceLine(
@@ -75,4 +65,34 @@ def create_invoice(tenant, customer, legal_entity, issue_date, line_inputs):
             for item in line_inputs
         ]
     )
+
+
+@transaction.atomic
+def create_invoice(tenant, customer, legal_entity, issue_date, line_inputs):
+    """Create a draft invoice with its lines, snapshot pricing from each
+    product, then compute totals."""
+    invoice = Invoice.objects.create(
+        tenant=tenant,
+        customer=customer,
+        legal_entity=legal_entity,
+        number=generate_invoice_number(tenant),
+        issue_date=issue_date,
+        status=Invoice.Status.DRAFT,
+    )
+    _build_lines(invoice, line_inputs)
+    return recalculate_invoice(invoice)
+
+
+@transaction.atomic
+def update_invoice(invoice, customer, legal_entity, issue_date, line_inputs):
+    """Replace a DRAFT invoice's customer/entity/date/lines wholesale
+    (same shape as create — the edit form resubmits everything, not a
+    partial line patch) and recompute totals. Caller must have already
+    checked invoice.status == DRAFT."""
+    invoice.customer = customer
+    invoice.legal_entity = legal_entity
+    invoice.issue_date = issue_date
+    invoice.save(update_fields=["customer", "legal_entity", "issue_date"])
+    invoice.lines.all().delete()
+    _build_lines(invoice, line_inputs)
     return recalculate_invoice(invoice)

@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: CPS\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-18 21:46+0000\n"
+"POT-Creation-Date: 2026-09-18 22:22+0000\n"
 "PO-Revision-Date: 2026-09-19 00:00+0000\n"
 "Last-Translator: CPS\n"
 "Language-Team: Arabic\n"
@@ -67,6 +67,12 @@ msgstr "إدارة الأدوار والصلاحيات وتعيينها للمس
 
 msgid "System roles cannot be deleted."
 msgstr "لا يمكن حذف الأدوار النظامية."
+
+msgid "This role is assigned to at least one user and cannot be deleted."
+msgstr "هذا الدور مُسند لمستخدم واحد على الأقل ولا يمكن حذفه."
+
+msgid "At least one active Owner is required per tenant."
+msgstr "يجب وجود مالك (Owner) نشط واحد على الأقل لكل مستأجر."
 
 msgid "Asset"
 msgstr "أصول"
@@ -163,6 +169,11 @@ msgstr "النطاق الفرعي أو البريد الإلكتروني أو ك
 
 msgid "This account is inactive."
 msgstr "هذا الحساب غير نشط."
+
+msgid ""
+"This record is referenced elsewhere and cannot be deleted. Deactivate it "
+"instead."
+msgstr "هذا السجل مرتبط بسجلات أخرى ولا يمكن حذفه. عطّله بدلًا من ذلك."
 
 msgid "Holding"
 msgstr "قابضة"
@@ -287,6 +298,12 @@ msgstr "مركز التكلفة غير موجود."
 
 msgid "Only draft invoices can be issued."
 msgstr "يمكن اعتماد الفواتير في حالة المسودة فقط."
+
+msgid "Only draft invoices can be edited. Void it instead."
+msgstr "يمكن تعديل الفواتير في حالة المسودة فقط. ألغِ الفاتورة (Void) بدلًا من ذلك."
+
+msgid "Only issued invoices can be voided."
+msgstr "يمكن إلغاء (Void) الفواتير المعتمدة فقط."
 
 msgid "company name"
 msgstr "اسم الشركة"

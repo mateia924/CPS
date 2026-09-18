@@ -9,13 +9,13 @@ from apps.organization.models import CostCenter, LegalEntity
 from apps.organization.services import default_branch_for_tenant, get_accessible_entity_ids
 
 from .models import Customer, Invoice, InvoiceLine, Product
-from .services import create_invoice
+from .services import create_invoice, update_invoice
 
 
 class CustomerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Customer
-        fields = ("id", "name", "email", "phone", "tax_number", "address", "created_at")
+        fields = ("id", "name", "email", "phone", "tax_number", "address", "is_active", "created_at")
         read_only_fields = ("id", "created_at")
 
 
@@ -108,12 +108,9 @@ class InvoiceCreateSerializer(serializers.Serializer):
             attrs["legal_entity"] = default_branch
         return attrs
 
-    def create(self, validated_data):
-        request = self.context["request"]
-        tenant = request.user.tenant
-
-        resolved_lines = []
-        for line in validated_data["lines"]:
+    def _resolve_lines(self, tenant, raw_lines):
+        resolved = []
+        for line in raw_lines:
             try:
                 product = Product.objects.get(
                     tenant=tenant, id=line["product"], is_active=True
@@ -131,18 +128,33 @@ class InvoiceCreateSerializer(serializers.Serializer):
                     raise serializers.ValidationError(
                         {"lines": [_("Cost center not found.")]}
                     )
-            resolved_lines.append(
+            resolved.append(
                 {"product": product, "quantity": line["quantity"], "cost_center": cost_center}
             )
+        return resolved
 
-        invoice = create_invoice(
+    def create(self, validated_data):
+        request = self.context["request"]
+        tenant = request.user.tenant
+        resolved_lines = self._resolve_lines(tenant, validated_data["lines"])
+        return create_invoice(
             tenant=tenant,
             customer=validated_data["customer"],
             legal_entity=validated_data["legal_entity"],
             issue_date=validated_data.get("issue_date") or timezone.localdate(),
             line_inputs=resolved_lines,
         )
-        return invoice
+
+    def update(self, instance, validated_data):
+        tenant = self.context["request"].user.tenant
+        resolved_lines = self._resolve_lines(tenant, validated_data["lines"])
+        return update_invoice(
+            instance,
+            customer=validated_data["customer"],
+            legal_entity=validated_data["legal_entity"],
+            issue_date=validated_data.get("issue_date") or instance.issue_date,
+            line_inputs=resolved_lines,
+        )
 
 
 class InvoiceIssueSerializer(serializers.Serializer):

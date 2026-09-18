@@ -2,6 +2,7 @@ import pytest
 from rest_framework.test import APIClient
 
 from apps.access.services import seed_default_roles
+from apps.accounting.services import seed_chart_of_accounts
 from apps.organization.services import create_default_legal_entities
 
 from .factories import TenantFactory, UserFactory
@@ -11,6 +12,7 @@ from .factories import TenantFactory, UserFactory
 def tenant_a(db):
     tenant = TenantFactory(subdomain="tenant-a")
     create_default_legal_entities(tenant, tenant.name)
+    seed_chart_of_accounts(tenant)
     return tenant
 
 
@@ -18,6 +20,7 @@ def tenant_a(db):
 def tenant_b(db):
     tenant = TenantFactory(subdomain="tenant-b")
     create_default_legal_entities(tenant, tenant.name)
+    seed_chart_of_accounts(tenant)
     return tenant
 
 

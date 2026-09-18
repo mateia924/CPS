@@ -1,33 +1,42 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
-import type { Customer, Paginated } from "@/lib/types";
+import { DataTable } from "@/components/DataTable";
+import type { Customer } from "@/lib/types";
 
 export default function CustomersPage() {
   const { t } = useLocale();
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [editing, setEditing] = useState<Customer | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [refreshToken, setRefreshToken] = useState(0);
 
-  const load = async () => {
-    const data = await api.get<Paginated<Customer>>("/customers/");
-    setCustomers(data.results);
+  const startEdit = (customer: Customer) => {
+    setEditing(customer);
+    setName(customer.name);
+    setEmail(customer.email);
+    setPhone(customer.phone);
   };
 
-  useEffect(() => {
-    load();
-  }, []);
-
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await api.post("/customers/", { name, email, phone });
+  const cancelEdit = () => {
+    setEditing(null);
     setName("");
     setEmail("");
     setPhone("");
-    load();
+  };
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (editing) {
+      await api.patch(`/customers/${editing.id}/`, { name, email, phone });
+    } else {
+      await api.post("/customers/", { name, email, phone });
+    }
+    cancelEdit();
+    setRefreshToken((n) => n + 1);
   };
 
   return (
@@ -48,28 +57,26 @@ export default function CustomersPage() {
             <input value={phone} onChange={(e) => setPhone(e.target.value)} />
           </div>
           <button className="primary" type="submit">
-            {t("add")}
+            {editing ? t("saveChanges") : t("add")}
           </button>
+          {editing && (
+            <button type="button" className="secondary" onClick={cancelEdit}>
+              {t("cancel")}
+            </button>
+          )}
         </form>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>{t("name")}</th>
-            <th>{t("email")}</th>
-            <th>{t("phone")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {customers.map((c) => (
-            <tr key={c.id}>
-              <td>{c.name}</td>
-              <td>{c.email}</td>
-              <td>{c.phone}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+
+      <DataTable<Customer>
+        endpoint="/customers/"
+        refreshToken={refreshToken}
+        onEdit={startEdit}
+        columns={[
+          { key: "name", label: t("name"), sortable: true },
+          { key: "email", label: t("email") },
+          { key: "phone", label: t("phone") },
+        ]}
+      />
     </div>
   );
 }

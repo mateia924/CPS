@@ -1,5 +1,5 @@
 from django.utils.translation import gettext_lazy as _
-from rest_framework import viewsets
+from rest_framework import filters, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -15,6 +15,7 @@ from .serializers import (
     RoleSerializer,
     UserListSerializer,
 )
+from .services import active_owner_count, user_is_owner
 
 
 class PermissionViewSet(viewsets.ReadOnlyModelViewSet):
@@ -30,6 +31,9 @@ class RoleViewSet(TenantScopedViewSet):
     serializer_class = RoleSerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
     queryset = Role.objects.all()
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["name"]
+    ordering_fields = ["name", "created_at"]
     permission_map = {
         "list": "roles.manage",
         "retrieve": "roles.manage",
@@ -48,6 +52,15 @@ class RoleViewSet(TenantScopedViewSet):
         role = self.get_object()
         if role.is_system:
             return Response({"detail": _("System roles cannot be deleted.")}, status=400)
+        # Role.users is a plain M2M (no on_delete=PROTECT to lean on —
+        # that's FK-only), so "in use" needs an explicit check here
+        # rather than catching ProtectedError like SoftDeleteViewSetMixin
+        # does for FK-protected models.
+        if role.users.exists():
+            return Response(
+                {"detail": _("This role is assigned to at least one user and cannot be deleted.")},
+                status=409,
+            )
         return super().destroy(request, *args, **kwargs)
 
 
@@ -60,14 +73,22 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
 
     serializer_class = UserListSerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["email", "first_name", "last_name"]
+    ordering_fields = ["email", "date_joined"]
     permission_map = {
         "list": "roles.manage",
         "retrieve": "roles.manage",
         "assign": "roles.manage",
+        "deactivate": "roles.manage",
+        "activate": "roles.manage",
     }
 
     def get_queryset(self):
-        return User.objects.filter(tenant=self.request.user.tenant)
+        queryset = User.objects.filter(tenant=self.request.user.tenant)
+        if self.action == "list" and self.request.query_params.get("show_inactive") != "true":
+            queryset = queryset.filter(is_active=True)
+        return queryset
 
     @action(detail=True, methods=["post"])
     def assign(self, request, pk=None):
@@ -76,7 +97,17 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
         serializer.is_valid(raise_exception=True)
 
         if "role_ids" in serializer.validated_data:
-            user.roles.set(serializer.validated_data["role_ids"])
+            new_roles = serializer.validated_data["role_ids"]
+            still_owner = any(r.name == "Owner" and r.is_system for r in new_roles)
+            # sprint 1.5 rule 3: a tenant must always keep >= 1 active
+            # Owner — block removing the role from the last one.
+            if not still_owner and user_is_owner(user) and user.is_active:
+                if active_owner_count(user.tenant, exclude_user_id=user.id) == 0:
+                    return Response(
+                        {"detail": _("At least one active Owner is required per tenant.")},
+                        status=400,
+                    )
+            user.roles.set(new_roles)
 
         if "legal_entity_ids" in serializer.validated_data:
             UserEntityAccess.objects.filter(user=user).delete()
@@ -87,4 +118,22 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
                 ]
             )
 
+        return Response(UserListSerializer(user).data)
+
+    @action(detail=True, methods=["post"])
+    def deactivate(self, request, pk=None):
+        user = self.get_object()
+        if user_is_owner(user) and active_owner_count(user.tenant, exclude_user_id=user.id) == 0:
+            return Response(
+                {"detail": _("At least one active Owner is required per tenant.")}, status=400
+            )
+        user.is_active = False
+        user.save(update_fields=["is_active"])
+        return Response(UserListSerializer(user).data)
+
+    @action(detail=True, methods=["post"])
+    def activate(self, request, pk=None):
+        user = self.get_object()
+        user.is_active = True
+        user.save(update_fields=["is_active"])
         return Response(UserListSerializer(user).data)

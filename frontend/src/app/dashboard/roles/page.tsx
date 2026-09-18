@@ -3,120 +3,130 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
+import { DataTable } from "@/components/DataTable";
 import type { LegalEntity, Paginated, Role, TenantUser } from "@/lib/types";
-
-function UserRow({
-  user,
-  roles,
-  entities,
-  onSaved,
-}: {
-  user: TenantUser;
-  roles: Role[];
-  entities: LegalEntity[];
-  onSaved: () => void;
-}) {
-  const { t } = useLocale();
-  const [roleIds, setRoleIds] = useState<string[]>(user.role_ids);
-  const [entityIds, setEntityIds] = useState<string[]>(user.legal_entity_ids);
-  const [saving, setSaving] = useState(false);
-
-  const toggle = (list: string[], setList: (v: string[]) => void, id: string) => {
-    setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
-  };
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      await api.post(`/users/${user.id}/assign/`, {
-        role_ids: roleIds,
-        legal_entity_ids: entityIds,
-      });
-      onSaved();
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <tr>
-      <td>
-        {user.first_name} {user.last_name}
-        <br />
-        <span style={{ color: "var(--muted)", fontSize: "0.85rem" }}>{user.email}</span>
-      </td>
-      <td>
-        {roles.map((role) => (
-          <label key={role.id} style={{ display: "block", fontSize: "0.85rem" }}>
-            <input
-              type="checkbox"
-              checked={roleIds.includes(role.id)}
-              onChange={() => toggle(roleIds, setRoleIds, role.id)}
-            />{" "}
-            {role.name}
-          </label>
-        ))}
-      </td>
-      <td>
-        {entities.map((entity) => (
-          <label key={entity.id} style={{ display: "block", fontSize: "0.85rem" }}>
-            <input
-              type="checkbox"
-              checked={entityIds.includes(entity.id)}
-              onChange={() => toggle(entityIds, setEntityIds, entity.id)}
-            />{" "}
-            {entity.code}
-          </label>
-        ))}
-      </td>
-      <td>
-        <button className="secondary" onClick={save} disabled={saving}>
-          {t("save")}
-        </button>
-      </td>
-    </tr>
-  );
-}
 
 export default function RolesPage() {
   const { t } = useLocale();
-  const [users, setUsers] = useState<TenantUser[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [entities, setEntities] = useState<LegalEntity[]>([]);
+  const [editing, setEditing] = useState<TenantUser | null>(null);
+  const [roleIds, setRoleIds] = useState<string[]>([]);
+  const [entityIds, setEntityIds] = useState<string[]>([]);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState(0);
 
-  const load = async () => {
-    const [usersData, rolesData, entitiesData] = await Promise.all([
-      api.get<Paginated<TenantUser>>("/users/"),
+  const loadFormData = async () => {
+    const [rolesData, entitiesData] = await Promise.all([
       api.get<Paginated<Role>>("/roles/"),
       api.get<Paginated<LegalEntity>>("/legal-entities/"),
     ]);
-    setUsers(usersData.results);
     setRoles(rolesData.results);
     setEntities(entitiesData.results);
   };
 
   useEffect(() => {
-    load();
+    loadFormData();
   }, []);
+
+  const toggle = (list: string[], setList: (v: string[]) => void, id: string) => {
+    setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
+  };
+
+  const startEdit = (user: TenantUser) => {
+    setEditing(user);
+    setRoleIds(user.role_ids);
+    setEntityIds(user.legal_entity_ids);
+    setSaveError(null);
+  };
+
+  const cancelEdit = () => {
+    setEditing(null);
+    setRoleIds([]);
+    setEntityIds([]);
+    setSaveError(null);
+  };
+
+  const onSave = async () => {
+    if (!editing) return;
+    setSaveError(null);
+    try {
+      await api.post(`/users/${editing.id}/assign/`, { role_ids: roleIds, legal_entity_ids: entityIds });
+      cancelEdit();
+      setRefreshToken((n) => n + 1);
+    } catch {
+      setSaveError("Could not save — this may be the tenant's last active Owner.");
+    }
+  };
 
   return (
     <div>
       <h1>{t("rolesAndUsers")}</h1>
-      <table>
-        <thead>
-          <tr>
-            <th>{t("name")}</th>
-            <th>{t("roles")}</th>
-            <th>{t("entities")}</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {users.map((user) => (
-            <UserRow key={user.id} user={user} roles={roles} entities={entities} onSaved={load} />
-          ))}
-        </tbody>
-      </table>
+
+      {editing && (
+        <div className="card">
+          <h3>
+            {editing.first_name} {editing.last_name} — {editing.email}
+          </h3>
+          <div style={{ display: "flex", gap: "2rem", flexWrap: "wrap" }}>
+            <div>
+              <strong>{t("roles")}</strong>
+              {roles.map((role) => (
+                <label key={role.id} style={{ display: "block", fontSize: "0.9rem" }}>
+                  <input
+                    type="checkbox"
+                    checked={roleIds.includes(role.id)}
+                    onChange={() => toggle(roleIds, setRoleIds, role.id)}
+                  />{" "}
+                  {role.name}
+                </label>
+              ))}
+            </div>
+            <div>
+              <strong>{t("entities")}</strong>
+              {entities.map((entity) => (
+                <label key={entity.id} style={{ display: "block", fontSize: "0.9rem" }}>
+                  <input
+                    type="checkbox"
+                    checked={entityIds.includes(entity.id)}
+                    onChange={() => toggle(entityIds, setEntityIds, entity.id)}
+                  />{" "}
+                  {entity.code} — {entity.name}
+                </label>
+              ))}
+            </div>
+          </div>
+          {saveError && <p className="error-text">{saveError}</p>}
+          <div style={{ marginTop: "1rem" }}>
+            <button className="primary" onClick={onSave}>
+              {t("saveChanges")}
+            </button>
+            <button className="secondary" onClick={cancelEdit} style={{ marginInlineStart: "0.5rem" }}>
+              {t("cancel")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <DataTable<TenantUser>
+        endpoint="/users/"
+        refreshToken={refreshToken}
+        onEdit={startEdit}
+        columns={[
+          {
+            key: "name",
+            label: t("name"),
+            render: (row) => (
+              <>
+                {row.first_name} {row.last_name}
+                <br />
+                <span style={{ color: "var(--muted)", fontSize: "0.85rem" }}>{row.email}</span>
+              </>
+            ),
+          },
+          { key: "role_names", label: t("roles"), render: (row) => row.role_names.join(", ") },
+        ]}
+      />
     </div>
   );
 }

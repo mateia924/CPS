@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
+import { DataTable } from "@/components/DataTable";
 import type { Customer, CostCenter, Invoice, LegalEntity, Paginated, Product } from "@/lib/types";
 
 interface LineDraft {
@@ -12,36 +13,32 @@ interface LineDraft {
   costCenter: string;
 }
 
+const EMPTY_LINE: LineDraft = { product: "", quantity: "1", costCenter: "" };
+
 export default function InvoicesPage() {
   const { t } = useLocale();
   const { me } = useAuth();
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [entities, setEntities] = useState<LegalEntity[]>([]);
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
+  const [editing, setEditing] = useState<Invoice | null>(null);
   const [customerId, setCustomerId] = useState("");
   const [legalEntityId, setLegalEntityId] = useState("");
   const [showCostCenters, setShowCostCenters] = useState(false);
-  const [lines, setLines] = useState<LineDraft[]>([{ product: "", quantity: "1", costCenter: "" }]);
+  const [lines, setLines] = useState<LineDraft[]>([{ ...EMPTY_LINE }]);
+  const [refreshToken, setRefreshToken] = useState(0);
 
   // 3.13: legal_entity only needs a visible field once the tenant is out
   // of simplified mode — otherwise the server auto-fills the single branch.
   const needsEntityPicker = !!me && !me.simplified_mode;
   const showCostCenterUI = !!me && me.features.cost_centers;
 
-  const load = async () => {
-    const requests: [
-      Promise<Paginated<Invoice>>,
-      Promise<Paginated<Customer>>,
-      Promise<Paginated<Product>>,
-    ] = [
-      api.get<Paginated<Invoice>>("/invoices/"),
+  const loadFormData = async () => {
+    const [cust, prod] = await Promise.all([
       api.get<Paginated<Customer>>("/customers/"),
       api.get<Paginated<Product>>("/products/"),
-    ];
-    const [inv, cust, prod] = await Promise.all(requests);
-    setInvoices(inv.results);
+    ]);
     setCustomers(cust.results);
     setProducts(prod.results);
 
@@ -56,18 +53,39 @@ export default function InvoicesPage() {
   };
 
   useEffect(() => {
-    load();
+    loadFormData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needsEntityPicker, showCostCenterUI]);
 
-  const addLine = () => setLines([...lines, { product: "", quantity: "1", costCenter: "" }]);
+  const addLine = () => setLines([...lines, { ...EMPTY_LINE }]);
   const updateLine = (index: number, field: keyof LineDraft, value: string) => {
     setLines(lines.map((line, i) => (i === index ? { ...line, [field]: value } : line)));
   };
 
+  const startEdit = (invoice: Invoice) => {
+    setEditing(invoice);
+    setCustomerId(invoice.customer);
+    setLegalEntityId(invoice.legal_entity);
+    setLines(
+      invoice.lines.map((line) => ({
+        product: line.product,
+        quantity: line.quantity,
+        costCenter: line.cost_center || "",
+      }))
+    );
+    if (invoice.lines.some((line) => line.cost_center)) setShowCostCenters(true);
+  };
+
+  const cancelEdit = () => {
+    setEditing(null);
+    setCustomerId("");
+    setLegalEntityId("");
+    setLines([{ ...EMPTY_LINE }]);
+  };
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await api.post("/invoices/", {
+    const payload = {
       customer: customerId,
       ...(legalEntityId ? { legal_entity: legalEntityId } : {}),
       lines: lines
@@ -77,23 +95,21 @@ export default function InvoicesPage() {
           quantity: l.quantity,
           ...(l.costCenter ? { cost_center: l.costCenter } : {}),
         })),
-    });
-    setCustomerId("");
-    setLegalEntityId("");
-    setLines([{ product: "", quantity: "1", costCenter: "" }]);
-    load();
-  };
-
-  const issueInvoice = async (id: string) => {
-    await api.post(`/invoices/${id}/issue/`, {});
-    load();
+    };
+    if (editing) {
+      await api.patch(`/invoices/${editing.id}/`, payload);
+    } else {
+      await api.post("/invoices/", payload);
+    }
+    cancelEdit();
+    setRefreshToken((n) => n + 1);
   };
 
   return (
     <div>
       <h1>{t("invoices")}</h1>
       <div className="card">
-        <h3>{t("createInvoice")}</h3>
+        <h3>{editing ? t("editInvoice") : t("createInvoice")}</h3>
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
             <div className="form-field">
@@ -184,47 +200,60 @@ export default function InvoicesPage() {
           </button>
           <br />
           <button className="primary" type="submit">
-            {t("createInvoice")}
+            {editing ? t("saveChanges") : t("createInvoice")}
           </button>
+          {editing && (
+            <button type="button" className="secondary" onClick={cancelEdit} style={{ marginInlineStart: "0.5rem" }}>
+              {t("cancel")}
+            </button>
+          )}
         </form>
       </div>
 
-      <table>
-        <thead>
-          <tr>
-            <th>{t("number")}</th>
-            <th>{t("customer")}</th>
-            <th>{t("legalEntity")}</th>
-            <th>{t("status")}</th>
-            <th>{t("issueDate")}</th>
-            <th>{t("subtotal")}</th>
-            <th>{t("taxTotal")}</th>
-            <th>{t("total")}</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {invoices.map((inv) => (
-            <tr key={inv.id}>
-              <td>{inv.number}</td>
-              <td>{inv.customer_name}</td>
-              <td>{inv.legal_entity_name}</td>
-              <td>{t(inv.status)}</td>
-              <td>{inv.issue_date}</td>
-              <td>{inv.subtotal}</td>
-              <td>{inv.tax_total}</td>
-              <td>{inv.total}</td>
-              <td>
-                {inv.status === "draft" && (
-                  <button className="secondary" onClick={() => issueInvoice(inv.id)}>
-                    {t("issue")}
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <DataTable<Invoice>
+        endpoint="/invoices/"
+        refreshToken={refreshToken}
+        hasActiveToggle={false}
+        onEdit={startEdit}
+        canEdit={(row) => row.status === "draft"}
+        columns={[
+          { key: "number", label: t("number"), sortable: true },
+          { key: "customer_name", label: t("customer") },
+          { key: "legal_entity_name", label: t("legalEntity") },
+          { key: "status", label: t("status"), render: (row) => t(row.status) },
+          { key: "issue_date", label: t("issueDate"), sortable: true },
+          { key: "subtotal", label: t("subtotal") },
+          { key: "tax_total", label: t("taxTotal") },
+          { key: "total", label: t("total"), sortable: true },
+        ]}
+        renderExtraActions={(invoice, reload) => (
+          <>
+            {invoice.status === "draft" && (
+              <button
+                className="secondary"
+                onClick={async () => {
+                  await api.post(`/invoices/${invoice.id}/issue/`);
+                  reload();
+                }}
+              >
+                {t("issue")}
+              </button>
+            )}
+            {invoice.status === "issued" && (
+              <button
+                className="secondary"
+                onClick={async () => {
+                  if (!window.confirm(t("confirmVoid"))) return;
+                  await api.post(`/invoices/${invoice.id}/void/`);
+                  reload();
+                }}
+              >
+                {t("void")}
+              </button>
+            )}
+          </>
+        )}
+      />
     </div>
   );
 }
