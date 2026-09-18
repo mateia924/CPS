@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -43,6 +44,9 @@ class LoginView(APIView):
         serializer = TenantLoginSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         user = serializer.validated_data["user"]
+        # Drives the platform tenant list's "آخر نشاط" column (sprint 2).
+        user.last_login = timezone.now()
+        user.save(update_fields=["last_login"])
         return Response(
             {
                 "tenant": TenantSerializer(user.tenant).data,

@@ -1,3 +1,4 @@
+from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
 from apps.accounts.models import User
@@ -46,6 +47,36 @@ class UserListSerializer(serializers.ModelSerializer):
 
     def get_legal_entity_ids(self, obj):
         return list(obj.entity_access.values_list("legal_entity_id", flat=True))
+
+
+class CreateUserSerializer(serializers.Serializer):
+    """Adds a staff user to the caller's own tenant — see
+    apps/access/views.py: UserViewSet.create for the max_users plan-limit
+    check (sprint 2). Never creates an Owner; the tenant admin assigns a
+    role afterward via UserViewSet.assign, same as any other user."""
+
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, validators=[validate_password])
+    first_name = serializers.CharField(max_length=150, required=False, allow_blank=True, default="")
+    last_name = serializers.CharField(max_length=150, required=False, allow_blank=True, default="")
+
+    def validate_email(self, value):
+        tenant = self.context["request"].user.tenant
+        if User.objects.filter(tenant=tenant, email__iexact=value).exists():
+            raise serializers.ValidationError("A user with this email already exists in your company.")
+        return value
+
+    def create(self, validated_data):
+        tenant = self.context["request"].user.tenant
+        return User.objects.create_user(
+            tenant=tenant,
+            email=validated_data["email"],
+            password=validated_data["password"],
+            first_name=validated_data.get("first_name", ""),
+            last_name=validated_data.get("last_name", ""),
+            role=User.Role.STAFF,
+            is_staff=False,
+        )
 
 
 class RoleAssignmentSerializer(serializers.Serializer):

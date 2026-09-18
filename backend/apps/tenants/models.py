@@ -5,10 +5,22 @@ from django.utils.translation import gettext_lazy as _
 
 
 class Tenant(models.Model):
+    class Status(models.TextChoices):
+        TRIAL = "trial", _("Trial")
+        ACTIVE = "active", _("Active")
+        PAST_DUE = "past_due", _("Past due")
+        SUSPENDED = "suspended", _("Suspended")
+        ARCHIVED = "archived", _("Archived")
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(_("company name"), max_length=255)
     subdomain = models.SlugField(_("subdomain"), max_length=63, unique=True)
     is_active = models.BooleanField(_("active"), default=True)
+    # Mandatory per sprint 2, added nullable-then-backfilled-then-NOT-NULL
+    # (see apps/tenants/migrations/0004-0006) for tenants that predate it.
+    plan = models.ForeignKey("platform.Plan", on_delete=models.PROTECT, related_name="tenants")
+    status = models.CharField(_("status"), max_length=20, choices=Status.choices, default=Status.TRIAL)
+    trial_ends_at = models.DateTimeField(_("trial ends at"), null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -8,6 +8,9 @@ from apps.access.permissions import HasModulePermission
 from apps.accounting.services import void_invoice_journal_entry
 from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 from apps.organization.services import get_accessible_entity_ids
+from apps.platform.models import AuditLog
+from apps.platform.services import log_action
+from apps.tenants.services import TenantLimitExceeded, check_invoice_limit
 
 from .models import Customer, Invoice, Product
 from .serializers import (
@@ -89,6 +92,10 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         return InvoiceSerializer
 
     def create(self, request, *args, **kwargs):
+        try:
+            check_invoice_limit(request.user.tenant)
+        except TenantLimitExceeded as exc:
+            return Response({"detail": exc.message}, status=402)
         serializer = self.get_serializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         invoice = serializer.save()
@@ -124,4 +131,14 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         invoice.status = Invoice.Status.CANCELLED
         invoice.save(update_fields=["status"])
         void_invoice_journal_entry(invoice)
+        log_action(
+            actor_type=AuditLog.ActorType.TENANT_USER,
+            actor_id=request.user.id,
+            action="invoice.void",
+            target_type="sales.Invoice",
+            target_id=invoice.id,
+            tenant_id=request.user.tenant_id,
+            after={"number": invoice.number},
+            request=request,
+        )
         return Response(InvoiceSerializer(invoice).data)

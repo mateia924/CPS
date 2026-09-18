@@ -1,9 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api as customerApi } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import type { Paginated } from "@/lib/types";
+
+interface ApiClient {
+  get: <T>(path: string) => Promise<T>;
+  post: <T>(path: string, body?: unknown) => Promise<T>;
+}
 
 const PAGE_SIZE = 25; // matches backend REST_FRAMEWORK.PAGE_SIZE
 
@@ -38,6 +43,15 @@ interface DataTableProps<T extends DataTableRow> {
   /** Bump this (e.g. from a parent's useState counter) to force a reload
    * — typically after the "add" form outside this component succeeds. */
   refreshToken?: number;
+  /** Which API client to call through — defaults to the customer-facing
+   * `api` (cps_access token). The platform admin panel (sprint 2) passes
+   * `platformApi` here instead, so this same component works against
+   * both auth realms without any endpoint-specific branching. */
+  api?: ApiClient;
+  /** Extra fixed query params merged into every request (e.g. the
+   * platform tenants screen's status/plan dropdown filters) — separate
+   * from `search`, which stays a free-text box. */
+  extraParams?: Record<string, string>;
 }
 
 export function DataTable<T extends DataTableRow>({
@@ -49,6 +63,8 @@ export function DataTable<T extends DataTableRow>({
   renderExtraActions,
   emptyMessage,
   refreshToken,
+  api = customerApi,
+  extraParams,
 }: DataTableProps<T>) {
   const { t } = useLocale();
   const [rows, setRows] = useState<T[]>([]);
@@ -66,6 +82,11 @@ export function DataTable<T extends DataTableRow>({
     if (search) params.set("search", search);
     if (ordering) params.set("ordering", ordering);
     if (hasActiveToggle && showInactive) params.set("show_inactive", "true");
+    if (extraParams) {
+      for (const [key, value] of Object.entries(extraParams)) {
+        if (value) params.set(key, value);
+      }
+    }
     try {
       const data = await api.get<Paginated<T>>(`${endpoint}?${params.toString()}`);
       setRows(data.results);
@@ -73,7 +94,13 @@ export function DataTable<T extends DataTableRow>({
     } finally {
       setLoading(false);
     }
-  }, [endpoint, page, search, ordering, showInactive, hasActiveToggle]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [endpoint, page, search, ordering, showInactive, hasActiveToggle, api, JSON.stringify(extraParams)]);
+
+  useEffect(() => {
+    setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(extraParams)]);
 
   useEffect(() => {
     load();

@@ -6,6 +6,7 @@ from rest_framework.response import Response
 
 from apps.access.permissions import HasModulePermission
 from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
+from apps.tenants.services import TenantLimitExceeded, check_branch_limit
 
 from .models import CostCenter, LegalEntity
 from .serializers import (
@@ -39,6 +40,16 @@ class LegalEntityViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
     def get_queryset(self):
         accessible_ids = get_accessible_entity_ids(self.request.user)
         return super().get_queryset().filter(id__in=accessible_ids)
+
+    def create(self, request, *args, **kwargs):
+        # Sprint 2 (3.14): plan's max_branches only limits BRANCH-type
+        # nodes — holdings/companies are structural, not billable seats.
+        if request.data.get("entity_type") == LegalEntity.Type.BRANCH:
+            try:
+                check_branch_limit(request.user.tenant)
+            except TenantLimitExceeded as exc:
+                return Response({"detail": exc.message}, status=402)
+        return super().create(request, *args, **kwargs)
 
     @action(detail=False, methods=["get"])
     def tree(self, request):

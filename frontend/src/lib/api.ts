@@ -11,9 +11,9 @@ export class ApiError extends Error {
   }
 }
 
-function getAccessToken(): string | null {
+function getAccessToken(tokenKey: string): string | null {
   if (typeof window === "undefined") return null;
-  return window.localStorage.getItem("cps_access");
+  return window.localStorage.getItem(tokenKey);
 }
 
 function getLocale(): string {
@@ -24,7 +24,8 @@ function getLocale(): string {
 async function request<T>(
   path: string,
   options: RequestInit = {},
-  auth = true
+  auth = true,
+  tokenKey = "cps_access"
 ): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
@@ -34,7 +35,7 @@ async function request<T>(
   // language, instead of guessing from the browser's own Accept-Language.
   headers.set("Accept-Language", getLocale());
   if (auth) {
-    const token = getAccessToken();
+    const token = getAccessToken(tokenKey);
     if (token) headers.set("Authorization", `Bearer ${token}`);
   }
 
@@ -101,4 +102,28 @@ export const api = {
   patch: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+};
+
+/** Same request/error handling as `api`, but reads its bearer token from
+ * "cps_platform_access" instead of "cps_access" — sprint 2's platform
+ * admin panel has its own, cryptographically separate auth realm
+ * (apps/platform/auth.py on the backend), so it must never share a
+ * token with the customer-facing `api` above. */
+export const platformApi = {
+  get: <T>(path: string) => request<T>(path, { method: "GET" }, true, "cps_platform_access"),
+  post: <T>(path: string, body?: unknown, auth = true) =>
+    request<T>(
+      path,
+      { method: "POST", body: body ? JSON.stringify(body) : undefined },
+      auth,
+      "cps_platform_access"
+    ),
+  patch: <T>(path: string, body?: unknown) =>
+    request<T>(
+      path,
+      { method: "PATCH", body: body ? JSON.stringify(body) : undefined },
+      true,
+      "cps_platform_access"
+    ),
+  delete: <T>(path: string) => request<T>(path, { method: "DELETE" }, true, "cps_platform_access"),
 };

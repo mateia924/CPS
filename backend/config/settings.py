@@ -43,6 +43,7 @@ THIRD_PARTY_APPS = [
 ]
 
 LOCAL_APPS = [
+    "apps.platform",
     "apps.tenants",
     "apps.accounts",
     "apps.organization",
@@ -157,8 +158,14 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # ---------------------------------------------------------------------------
 
 REST_FRAMEWORK = {
+    # apps.tenants.authentication.TenantAwareJWTAuthentication wraps
+    # simplejwt to also enforce Tenant.status (sprint 2) — applies here
+    # globally since no customer ViewSet overrides authentication_classes
+    # (only permission_classes), unlike apps.platform.* ViewSets, which
+    # explicitly set their own (PlatformJWTAuthentication) and are never
+    # reachable via this default.
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "apps.tenants.authentication.TenantAwareJWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
@@ -179,6 +186,14 @@ SIMPLE_JWT = {
     "USER_ID_FIELD": "id",
     "USER_ID_CLAIM": "user_id",
 }
+
+# Platform auth (sprint 2, apps/platform/auth.py) — deliberately its own
+# signing key, never DJANGO_SECRET_KEY and never SIMPLE_JWT's key, so a
+# customer token and a platform token can never verify against each
+# other's key regardless of any application-level bug.
+PLATFORM_JWT_SIGNING_KEY = env("PLATFORM_JWT_SIGNING_KEY")
+PLATFORM_JWT_ACCESS_MINUTES = env.int("PLATFORM_JWT_ACCESS_MINUTES", default=30)
+PLATFORM_JWT_REFRESH_DAYS = env.int("PLATFORM_JWT_REFRESH_DAYS", default=7)
 
 # ---------------------------------------------------------------------------
 # CORS

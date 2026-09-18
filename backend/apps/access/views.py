@@ -1,15 +1,19 @@
 from django.utils.translation import gettext_lazy as _
-from rest_framework import filters, viewsets
+from rest_framework import filters, mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.accounts.models import User
 from apps.common.viewsets import TenantScopedViewSet
+from apps.platform.models import AuditLog
+from apps.platform.services import log_action
+from apps.tenants.services import TenantLimitExceeded, check_user_limit
 
 from .models import Permission, Role, UserEntityAccess
 from .permissions import HasModulePermission
 from .serializers import (
+    CreateUserSerializer,
     PermissionSerializer,
     RoleAssignmentSerializer,
     RoleSerializer,
@@ -64,14 +68,17 @@ class RoleViewSet(TenantScopedViewSet):
         return super().destroy(request, *args, **kwargs)
 
 
-class UserViewSet(viewsets.ReadOnlyModelViewSet):
+class UserViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
     """Tenant's users with their RBAC role and entity-access grants —
     backs the "roles & users" screen (3.14 / sprint 1 spec section 5).
-    Creating users happens via /api/auth/register/ (owner) only for now;
-    inviting additional users isn't in scope for this sprint.
+
+    Sprint 2 (3.14): `create` adds a Staff user to the caller's own
+    tenant, enforcing the plan's max_users limit (402 on exceed) — this
+    is the minimal "add user" endpoint needed to make that limit
+    testable at all; previously (sprint 1) users only ever came from
+    /api/auth/register/ (the Owner). Logged in the Decision Log.
     """
 
-    serializer_class = UserListSerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["email", "first_name", "last_name"]
@@ -79,16 +86,43 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
     permission_map = {
         "list": "roles.manage",
         "retrieve": "roles.manage",
+        "create": "roles.manage",
         "assign": "roles.manage",
         "deactivate": "roles.manage",
         "activate": "roles.manage",
     }
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            return CreateUserSerializer
+        return UserListSerializer
 
     def get_queryset(self):
         queryset = User.objects.filter(tenant=self.request.user.tenant)
         if self.action == "list" and self.request.query_params.get("show_inactive") != "true":
             queryset = queryset.filter(is_active=True)
         return queryset
+
+    def create(self, request, *args, **kwargs):
+        try:
+            check_user_limit(request.user.tenant)
+        except TenantLimitExceeded as exc:
+            return Response({"detail": exc.message}, status=402)
+
+        serializer = CreateUserSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        log_action(
+            actor_type=AuditLog.ActorType.TENANT_USER,
+            actor_id=request.user.id,
+            action="tenant_user.create",
+            target_type="accounts.User",
+            target_id=user.id,
+            tenant_id=request.user.tenant_id,
+            after={"email": user.email},
+            request=request,
+        )
+        return Response(UserListSerializer(user).data, status=201)
 
     @action(detail=True, methods=["post"])
     def assign(self, request, pk=None):
@@ -118,6 +152,21 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
                 ]
             )
 
+        log_action(
+            actor_type=AuditLog.ActorType.TENANT_USER,
+            actor_id=request.user.id,
+            action="tenant_user.role_assign",
+            target_type="accounts.User",
+            target_id=user.id,
+            tenant_id=request.user.tenant_id,
+            after={
+                "role_ids": [str(r.id) for r in serializer.validated_data.get("role_ids", [])],
+                "legal_entity_ids": [
+                    str(e.id) for e in serializer.validated_data.get("legal_entity_ids", [])
+                ],
+            },
+            request=request,
+        )
         return Response(UserListSerializer(user).data)
 
     @action(detail=True, methods=["post"])
@@ -129,6 +178,15 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
             )
         user.is_active = False
         user.save(update_fields=["is_active"])
+        log_action(
+            actor_type=AuditLog.ActorType.TENANT_USER,
+            actor_id=request.user.id,
+            action="tenant_user.deactivate",
+            target_type="accounts.User",
+            target_id=user.id,
+            tenant_id=request.user.tenant_id,
+            request=request,
+        )
         return Response(UserListSerializer(user).data)
 
     @action(detail=True, methods=["post"])
@@ -136,4 +194,13 @@ class UserViewSet(viewsets.ReadOnlyModelViewSet):
         user = self.get_object()
         user.is_active = True
         user.save(update_fields=["is_active"])
+        log_action(
+            actor_type=AuditLog.ActorType.TENANT_USER,
+            actor_id=request.user.id,
+            action="tenant_user.activate",
+            target_type="accounts.User",
+            target_id=user.id,
+            tenant_id=request.user.tenant_id,
+            request=request,
+        )
         return Response(UserListSerializer(user).data)

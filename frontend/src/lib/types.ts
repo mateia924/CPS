@@ -141,3 +141,61 @@ export interface MeResponse {
   features: MeFeatures;
   simplified_mode: boolean;
 }
+
+// --- Platform (sprint 2, docs/SYSTEM_ANALYSIS.md 3.14) ---
+
+export type PlatformRole = "super_admin" | "support" | "billing";
+
+export interface PlatformUser {
+  id: string;
+  email: string;
+  full_name: string;
+  role: PlatformRole;
+}
+
+export type TenantStatus = "trial" | "active" | "past_due" | "suspended" | "archived";
+
+export interface Plan {
+  id: number;
+  code: string;
+  name: string;
+  is_active: boolean;
+  max_users: number | null;
+  max_branches: number | null;
+  max_invoices_per_month: number | null;
+  storage_mb: number | null;
+  feature_organization: boolean;
+  feature_cost_centers: boolean;
+  feature_inventory: boolean;
+  feature_purchasing: boolean;
+  feature_hr: boolean;
+}
+
+export interface PlatformTenant {
+  id: string;
+  name: string;
+  subdomain: string;
+  plan: number;
+  plan_code: string;
+  status: TenantStatus;
+  trial_ends_at: string | null;
+  user_count: number;
+  invoice_count: number;
+  last_activity: string | null;
+  created_at: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  actor_type: "platform" | "tenant_user";
+  actor_id: string | null;
+  action: string;
+  target_type: string;
+  target_id: string | null;
+  tenant_id: string | null;
+  before: unknown;
+  after: unknown;
+  ip_address: string | null;
+  user_agent: string;
+  created_at: string;
+}

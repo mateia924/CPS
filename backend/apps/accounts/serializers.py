@@ -1,15 +1,23 @@
+from datetime import timedelta
+
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
 from apps.access.services import seed_default_roles
 from apps.accounting.services import seed_chart_of_accounts
 from apps.organization.services import create_default_legal_entities
-from apps.tenants.models import Tenant, TenantFeatures
+from apps.platform.models import AuditLog, Plan
+from apps.platform.services import log_action
+from apps.tenants.models import Tenant
+from apps.tenants.services import apply_plan_to_tenant
 
 from .models import User
+
+TRIAL_LENGTH_DAYS = 14
 
 
 class TenantSerializer(serializers.ModelSerializer):
@@ -42,9 +50,18 @@ class RegisterSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         with transaction.atomic():
+            # Sprint 2 (3.14): every new self-registered tenant starts on
+            # Free + Trial — not explicitly stated in the sprint spec
+            # (which only says pre-sprint-2 tenants get grandfathered
+            # onto Enterprise), but the obvious, industry-standard
+            # default for a brand-new signup; logged in the Decision Log.
+            free_plan = Plan.objects.get(code="free")
             tenant = Tenant.objects.create(
                 name=validated_data["company_name"],
                 subdomain=validated_data["subdomain"],
+                plan=free_plan,
+                status=Tenant.Status.TRIAL,
+                trial_ends_at=timezone.now() + timedelta(days=TRIAL_LENGTH_DAYS),
             )
             user = User.objects.create_user(
                 tenant=tenant,
@@ -64,7 +81,7 @@ class RegisterSerializer(serializers.Serializer):
             create_default_legal_entities(tenant, validated_data["company_name"])
             roles = seed_default_roles(tenant)
             user.roles.add(roles["Owner"])
-            TenantFeatures.objects.create(tenant=tenant, organization=True, cost_centers=True)
+            apply_plan_to_tenant(tenant, free_plan)
 
         return {"tenant": tenant, "user": user}
 
@@ -75,17 +92,39 @@ class TenantLoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
+        request = self.context.get("request")
         user = authenticate(
-            request=self.context.get("request"),
+            request=request,
             subdomain=attrs["subdomain"].lower(),
             email=attrs["email"],
             password=attrs["password"],
         )
-        if user is None:
-            raise serializers.ValidationError(
-                _("Invalid subdomain, email or password."), code="authorization"
+        if user is None or not user.is_active:
+            # Sprint 2 (3.14): "يُسجَّل تلقائيًا ... تسجيل الدخول/الفشل" —
+            # tenant_id is only known here if the subdomain itself
+            # resolved to a real tenant; a typo'd subdomain leaves it
+            # None rather than guessing.
+            tenant = Tenant.objects.filter(subdomain=attrs["subdomain"].lower()).first()
+            log_action(
+                actor_type=AuditLog.ActorType.TENANT_USER,
+                actor_id=None,
+                action="tenant_user.login_failed",
+                tenant_id=tenant.id if tenant else None,
+                after={"email": attrs["email"]},
+                request=request,
             )
-        if not user.is_active:
+            if user is None:
+                raise serializers.ValidationError(
+                    _("Invalid subdomain, email or password."), code="authorization"
+                )
             raise serializers.ValidationError(_("This account is inactive."), code="authorization")
+
         attrs["user"] = user
+        log_action(
+            actor_type=AuditLog.ActorType.TENANT_USER,
+            actor_id=user.id,
+            action="tenant_user.login",
+            tenant_id=user.tenant_id,
+            request=request,
+        )
         return attrs
