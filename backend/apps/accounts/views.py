@@ -3,6 +3,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from apps.access.models import Role
+from apps.organization.services import get_accessible_entity_ids, is_simplified_mode
+from apps.tenants.models import TenantFeatures
+
 from .serializers import RegisterSerializer, TenantLoginSerializer, TenantSerializer, UserSerializer
 
 
@@ -52,9 +56,36 @@ class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        user = request.user
+        tenant = user.tenant
+
+        permission_codes = sorted(
+            set(
+                Role.objects.filter(users=user)
+                .values_list("permissions__code", flat=True)
+                .exclude(permissions__code__isnull=True)
+            )
+        )
+
+        try:
+            features = tenant.features
+        except TenantFeatures.DoesNotExist:
+            features = TenantFeatures.objects.create(tenant=tenant)
+
         return Response(
             {
-                "tenant": TenantSerializer(request.user.tenant).data,
-                "user": UserSerializer(request.user).data,
+                "tenant": TenantSerializer(tenant).data,
+                "user": UserSerializer(user).data,
+                "roles": list(user.roles.values_list("name", flat=True)),
+                "permissions": permission_codes,
+                "legal_entity_ids": sorted(str(eid) for eid in get_accessible_entity_ids(user)),
+                "features": {
+                    "organization": features.organization,
+                    "cost_centers": features.cost_centers,
+                    "inventory": features.inventory,
+                    "purchasing": features.purchasing,
+                    "hr": features.hr,
+                },
+                "simplified_mode": is_simplified_mode(tenant),
             }
         )

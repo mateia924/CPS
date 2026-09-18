@@ -49,6 +49,12 @@ class Invoice(TenantScopedModel):
         CANCELLED = "cancelled", _("Cancelled")
 
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name="invoices")
+    # Mandatory per docs/SYSTEM_ANALYSIS.md section 4 rule 3. Went
+    # through the 3-step safe migration for pre-sprint-1 rows: nullable,
+    # backfill, then NOT NULL (apps/sales/migrations/0002-0004).
+    legal_entity = models.ForeignKey(
+        "organization.LegalEntity", on_delete=models.PROTECT, related_name="invoices"
+    )
     number = models.CharField(_("number"), max_length=32)
     status = models.CharField(_("status"), max_length=20, choices=Status.choices, default=Status.DRAFT)
     issue_date = models.DateField(_("issue date"))
@@ -75,6 +81,15 @@ class InvoiceLine(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name="lines")
     product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="invoice_lines")
+    # Optional, line-level (3.2/3.3 in section 2 of the sprint spec) —
+    # never on the document, only the line.
+    cost_center = models.ForeignKey(
+        "organization.CostCenter",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="invoice_lines",
+    )
 
     # Snapshots taken from the product at invoicing time so historical
     # invoices don't change if the product is edited later.

@@ -4,8 +4,10 @@ from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
+from apps.access.services import seed_default_roles
 from apps.accounting.services import seed_chart_of_accounts
-from apps.tenants.models import Tenant
+from apps.organization.services import create_default_legal_entities
+from apps.tenants.models import Tenant, TenantFeatures
 
 from .models import User
 
@@ -54,6 +56,16 @@ class RegisterSerializer(serializers.Serializer):
                 is_staff=True,
             )
             seed_chart_of_accounts(tenant)
+
+            # Sprint 1 (docs/SYSTEM_ANALYSIS.md 3.1, 3.13, 3.14): default
+            # legal structure, system roles, and feature flags for every
+            # new tenant. The registering user always gets the Owner
+            # role, which bypasses entity-access scoping entirely.
+            create_default_legal_entities(tenant, validated_data["company_name"])
+            roles = seed_default_roles(tenant)
+            user.roles.add(roles["Owner"])
+            TenantFeatures.objects.create(tenant=tenant, organization=True, cost_centers=True)
+
         return {"tenant": tenant, "user": user}
 
 

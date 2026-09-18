@@ -16,7 +16,9 @@ class JournalLineSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = JournalLine
-        fields = ("id", "account", "account_code", "account_name", "debit", "credit")
+        fields = (
+            "id", "account", "account_code", "account_name", "cost_center", "debit", "credit",
+        )
         read_only_fields = fields
 
 
@@ -25,5 +27,8 @@ class JournalEntrySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = JournalEntry
-        fields = ("id", "date", "memo", "source_type", "source_id", "created_at", "lines")
+        fields = (
+            "id", "legal_entity", "date", "memo", "source_type", "source_id",
+            "created_at", "lines",
+        )
         read_only_fields = fields

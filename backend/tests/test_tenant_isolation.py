@@ -22,9 +22,18 @@ import pytest
 from django.conf import settings
 from rest_framework.test import APIClient
 
+from apps.organization.models import LegalEntity
 from apps.sales.models import Customer, Product
 
-from .factories import CustomerFactory, ProductFactory, TenantFactory, UserFactory
+from .factories import (
+    CostCenterFactory,
+    CustomerFactory,
+    LegalEntityFactory,
+    ProductFactory,
+    RoleFactory,
+    TenantFactory,
+    UserFactory,
+)
 
 # ---------------------------------------------------------------------
 # Regression: cross-tenant login bypass (ModelBackend)
@@ -232,3 +241,80 @@ def test_create_invoice_with_other_tenant_product_rejected(tenant_a, tenant_b, c
         format="json",
     )
     assert response.status_code == 400
+
+
+# ---------------------------------------------------------------------
+# Sprint 1 models (LegalEntity, CostCenter, Role) go through the same
+# isolation guarantees as everything else in this file.
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_legal_entity_list_excludes_other_tenant(tenant_a, tenant_b, client_a):
+    LegalEntityFactory(tenant=tenant_b, code="B-ONLY")
+
+    response = client_a.get("/api/legal-entities/")
+    assert response.status_code == 200
+    codes = [e["code"] for e in response.data["results"]]
+    assert "B-ONLY" not in codes
+
+
+@pytest.mark.django_db
+def test_get_other_tenant_legal_entity_returns_404(tenant_b, client_a):
+    entity_b = LegalEntityFactory(tenant=tenant_b)
+    response = client_a.get(f"/api/legal-entities/{entity_b.id}/")
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_delete_other_tenant_legal_entity_returns_404_and_does_not_deactivate(tenant_b, client_a):
+    entity_b = LegalEntityFactory(tenant=tenant_b)
+    response = client_a.delete(f"/api/legal-entities/{entity_b.id}/")
+    assert response.status_code == 404
+    entity_b.refresh_from_db()
+    assert entity_b.is_active is True
+
+
+@pytest.mark.django_db
+def test_create_legal_entity_with_other_tenant_parent_rejected(tenant_a, tenant_b, client_a):
+    other_parent = LegalEntityFactory(tenant=tenant_b, entity_type=LegalEntity.Type.COMPANY)
+    response = client_a.post(
+        "/api/legal-entities/",
+        {"code": "NEW", "name": "New Co", "entity_type": "branch", "parent": str(other_parent.id)},
+        format="json",
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_cost_center_list_excludes_other_tenant(tenant_a, tenant_b, client_a):
+    CostCenterFactory(tenant=tenant_b, code="B-CC")
+
+    response = client_a.get("/api/cost-centers/")
+    assert response.status_code == 200
+    codes = [c["code"] for c in response.data["results"]]
+    assert "B-CC" not in codes
+
+
+@pytest.mark.django_db
+def test_get_other_tenant_cost_center_returns_404(tenant_b, client_a):
+    center_b = CostCenterFactory(tenant=tenant_b)
+    response = client_a.get(f"/api/cost-centers/{center_b.id}/")
+    assert response.status_code == 404
+
+
+@pytest.mark.django_db
+def test_role_list_excludes_other_tenant(tenant_a, tenant_b, client_a):
+    RoleFactory(tenant=tenant_b, name="B-Only-Role")
+
+    response = client_a.get("/api/roles/")
+    assert response.status_code == 200
+    names = [r["name"] for r in response.data["results"]]
+    assert "B-Only-Role" not in names
+
+
+@pytest.mark.django_db
+def test_get_other_tenant_role_returns_404(tenant_b, client_a):
+    role_b = RoleFactory(tenant=tenant_b)
+    response = client_a.get(f"/api/roles/{role_b.id}/")
+    assert response.status_code == 404

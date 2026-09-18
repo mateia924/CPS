@@ -31,6 +31,11 @@ class Account(TenantScopedModel):
 
 
 class JournalEntry(TenantScopedModel):
+    # Same 3-step migration story as Invoice.legal_entity — see
+    # apps/accounting/migrations/0002-0004.
+    legal_entity = models.ForeignKey(
+        "organization.LegalEntity", on_delete=models.PROTECT, related_name="journal_entries"
+    )
     date = models.DateField(_("date"))
     memo = models.CharField(_("memo"), max_length=255, blank=True)
     source_type = models.CharField(_("source type"), max_length=50, blank=True)
@@ -48,6 +53,13 @@ class JournalLine(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     entry = models.ForeignKey(JournalEntry, on_delete=models.CASCADE, related_name="lines")
     account = models.ForeignKey(Account, on_delete=models.PROTECT, related_name="journal_lines")
+    cost_center = models.ForeignKey(
+        "organization.CostCenter",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="journal_lines",
+    )
     debit = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     credit = models.DecimalField(max_digits=14, decimal_places=2, default=0)
 

@@ -3,7 +3,9 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from apps.access.permissions import HasModulePermission
 from apps.common.viewsets import TenantScopedViewSet
+from apps.organization.services import get_accessible_entity_ids
 
 from .models import Customer, Invoice, Product
 from .serializers import (
@@ -17,24 +19,47 @@ from .serializers import (
 
 class CustomerViewSet(TenantScopedViewSet):
     serializer_class = CustomerSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModulePermission]
     queryset = Customer.objects.all()
+    permission_map = {
+        "list": "customers.view",
+        "retrieve": "customers.view",
+        "create": "customers.manage",
+        "update": "customers.manage",
+        "partial_update": "customers.manage",
+        "destroy": "customers.manage",
+    }
 
 
 class ProductViewSet(TenantScopedViewSet):
     serializer_class = ProductSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModulePermission]
     queryset = Product.objects.all()
+    permission_map = {
+        "list": "products.view",
+        "retrieve": "products.view",
+        "create": "products.manage",
+        "update": "products.manage",
+        "partial_update": "products.manage",
+        "destroy": "products.manage",
+    }
 
 
 class InvoiceViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasModulePermission]
     http_method_names = ["get", "post", "head", "options"]
+    permission_map = {
+        "list": "invoices.view",
+        "retrieve": "invoices.view",
+        "create": "invoices.create",
+        "issue": "invoices.approve",
+    }
 
     def get_queryset(self):
+        accessible_ids = get_accessible_entity_ids(self.request.user)
         return (
-            Invoice.objects.filter(tenant=self.request.user.tenant)
-            .select_related("customer")
+            Invoice.objects.filter(tenant=self.request.user.tenant, legal_entity_id__in=accessible_ids)
+            .select_related("customer", "legal_entity")
             .prefetch_related("lines", "lines__product")
         )
 

@@ -17,3 +17,23 @@ class Tenant(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class TenantFeatures(models.Model):
+    """Feature flags per tenant (3.13). Sprint 2 will wire this up to
+    packages; for now it's just a table, defaulting to whatever this
+    sprint actually built enabled and everything else off."""
+
+    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name="features")
+    organization = models.BooleanField(_("organization structure"), default=True)
+    cost_centers = models.BooleanField(_("cost centers"), default=True)
+    inventory = models.BooleanField(_("inventory"), default=False)
+    purchasing = models.BooleanField(_("purchasing"), default=False)
+    hr = models.BooleanField(_("HR"), default=False)
+
+    class Meta:
+        verbose_name = _("tenant features")
+        verbose_name_plural = _("tenant features")
+
+    def __str__(self):
+        return f"features for {self.tenant_id}"

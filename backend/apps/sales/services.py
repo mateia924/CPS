@@ -48,14 +48,15 @@ def recalculate_invoice(invoice):
 
 
 @transaction.atomic
-def create_invoice(tenant, customer, issue_date, line_inputs):
+def create_invoice(tenant, customer, legal_entity, issue_date, line_inputs):
     """Create a draft invoice with its lines, snapshot pricing from each
     product, then compute totals. `line_inputs` is a list of
-    {"product": Product, "quantity": Decimal}.
+    {"product": Product, "quantity": Decimal, "cost_center": CostCenter | None}.
     """
     invoice = Invoice.objects.create(
         tenant=tenant,
         customer=customer,
+        legal_entity=legal_entity,
         number=generate_invoice_number(tenant),
         issue_date=issue_date,
         status=Invoice.Status.DRAFT,
@@ -65,6 +66,7 @@ def create_invoice(tenant, customer, issue_date, line_inputs):
             InvoiceLine(
                 invoice=invoice,
                 product=item["product"],
+                cost_center=item.get("cost_center"),
                 description=item["product"].name,
                 quantity=item["quantity"],
                 unit_price=item["product"].unit_price,

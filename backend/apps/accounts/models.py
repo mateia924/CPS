@@ -27,6 +27,13 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_staff = models.BooleanField(_("staff status"), default=False)
     date_joined = models.DateTimeField(_("date joined"), auto_now_add=True)
 
+    # RBAC (sprint 1, docs/SYSTEM_ANALYSIS.md 3.14). Independent of the
+    # legacy `role` field above (kept as-is from Sprint 0 for is_staff/
+    # admin-site bypass purposes) — "owner" in the RBAC sense means
+    # holding the tenant's system Owner Role via this M2M, checked by
+    # apps.access.services.user_is_owner(), not by `role == OWNER`.
+    roles = models.ManyToManyField("access.Role", related_name="users", blank=True)
+
     objects = UserManager()
 
     USERNAME_FIELD = "email"

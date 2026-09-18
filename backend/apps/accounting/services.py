@@ -38,6 +38,14 @@ def post_invoice_journal_entry(invoice):
     Debits Accounts Receivable for the invoice total, credits Sales
     Revenue for the subtotal and Tax Payable for the tax — always
     balanced by construction since credit total == debit total.
+
+    TECH DEBT (README "Technical debt"): the revenue/tax lines here are
+    aggregated across all invoice lines, so JournalLine.cost_center is
+    never populated by this function even when individual InvoiceLines
+    carry one — distributing revenue per invoice-line cost center into
+    separate journal lines is deferred to the reporting sprint (10),
+    when cost-center P&L actually needs it. JournalLine.cost_center is
+    usable today for manual journal entries.
     """
     tenant = invoice.tenant
     ar = Account.objects.get(tenant=tenant, code=ACCOUNTS_RECEIVABLE_CODE)
@@ -45,6 +53,7 @@ def post_invoice_journal_entry(invoice):
 
     entry = JournalEntry.objects.create(
         tenant=tenant,
+        legal_entity=invoice.legal_entity,
         date=invoice.issue_date,
         memo=f"Invoice {invoice.number}",
         source_type="invoice",

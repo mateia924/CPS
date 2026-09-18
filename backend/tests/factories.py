@@ -1,7 +1,9 @@
 import factory
 from factory.django import DjangoModelFactory
 
+from apps.access.models import Role
 from apps.accounts.models import User
+from apps.organization.models import CostCenter, LegalEntity
 from apps.sales.models import Customer, Product
 from apps.tenants.models import Tenant
 
@@ -51,3 +53,32 @@ class ProductFactory(DjangoModelFactory):
     name = factory.Sequence(lambda n: f"Product {n}")
     unit_price = "100.00"
     tax_rate = "14.00"
+
+
+class LegalEntityFactory(DjangoModelFactory):
+    class Meta:
+        model = LegalEntity
+
+    tenant = factory.SubFactory(TenantFactory)
+    code = factory.Sequence(lambda n: f"LE-{n}")
+    name = factory.Sequence(lambda n: f"Legal Entity {n}")
+    entity_type = LegalEntity.Type.COMPANY
+
+
+class CostCenterFactory(DjangoModelFactory):
+    class Meta:
+        model = CostCenter
+
+    tenant = factory.SubFactory(TenantFactory)
+    code = factory.Sequence(lambda n: f"CC-{n}")
+    name = factory.Sequence(lambda n: f"Cost Center {n}")
+    center_type = CostCenter.Type.GENERAL
+
+
+class RoleFactory(DjangoModelFactory):
+    class Meta:
+        model = Role
+
+    tenant = factory.SubFactory(TenantFactory)
+    name = factory.Sequence(lambda n: f"Role {n}")
+    is_system = False

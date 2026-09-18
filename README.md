@@ -10,23 +10,32 @@
 
 ## الحالة الحالية
 
-- **سبرنت 0 (التحصين):** ✅ مكتمل — انظر "GitHub / CI" و"كيف تشغّل
-  الاختبارات" أدناه. 18 اختبار pytest ضد Postgres حقيقي، حاويات backend
-  و celery_worker non-root، ruff نظيف، CI يفشل فعليًا عند أي خطأ.
-- **المرحلة صفر/1 من العمل السابق (أساس تجاري أولي، قبل اعتماد خارطة
-  الـ 13 سبرنت في SYSTEM_ANALYSIS.md):** Tenant/User، تسجيل شركة جديدة،
-  تسجيل دخول JWT (subdomain + email + password)، دليل حسابات أولي،
-  عملاء/منتجات/فواتير بحساب خادمي كامل وترحيل قيد متوازن عند الاعتماد.
-  هذا **هيكل عظمي أولي فقط** — التقدير الواقعي في SYSTEM_ANALYSIS.md
-  قسم 2: ≈5-7% من نطاق الـ ERP الكامل. الشجرتان (قانونية/مراكز تكلفة)،
-  Party الموحّد، الفترات المالية، المستودعات، المشتريات، إلخ — **لم
-  تُبنَ بعد**؛ هي خارطة سبرنتات 1-12 القادمة.
+- **سبرنت 0 (التحصين):** ✅ مكتمل — pytest ضد Postgres حقيقي، حاويات
+  backend/celery_worker non-root، ruff نظيف، CI يفشل فعليًا عند أي خطأ.
+- **سبرنت 1 (الهيكل التنظيمي + الصلاحيات + الوضع المبسّط):** ✅ مكتمل —
+  شجرة قانونية (`LegalEntity`: holding/company/branch، عمق غير محدود)،
+  شجرة مراكز تكلفة (`CostCenter`)، RBAC كامل (`Role`/`Permission`/
+  `UserEntityAccess`) مطبّق على كل ViewSet موجود، `TenantFeatures` +
+  `simplified_mode` في `/api/auth/me/`. `Invoice`/`JournalEntry` يحملان
+  `legal_entity` إلزامي، `InvoiceLine`/`JournalLine` يحملان `cost_center`
+  اختياري على مستوى السطر. تسجيل شركة جديدة يُنشئ COMPANY+BRANCH + الأدوار
+  الأربعة (Owner/Accountant/Sales/Viewer) تلقائيًا. بيانات ما قبل هذا
+  السبرنت هوجرت بـ data migrations حقيقية (تحقّق منها ضد بيانات فعلية،
+  ليس فقط قاعدة اختبار فارغة). 36 اختبار pytest إجمالًا. تفاصيل كاملة في
+  "كيف تشغّل الاختبارات" أدناه وفي `docs/SYSTEM_ANALYSIS.md` قسم 11.
+- **العمل السابق لاعتماد خارطة الـ 13 سبرنت:** Tenant/User، تسجيل شركة،
+  تسجيل دخول JWT، دليل حسابات أولي، عملاء/منتجات/فواتير بحساب خادمي كامل
+  وترحيل قيد متوازن عند الاعتماد.
+- **التقدير الواقعي** (`docs/SYSTEM_ANALYSIS.md` قسم 2): ≈12-15% من نطاق
+  الـ ERP الكامل. Master Data الموحّد (Party)، الدليل الشجري الكامل،
+  السندات، الفترات المالية، المستودعات، المشتريات — **لم تُبنَ بعد**؛ هي
+  خارطة سبرنتات 2-12 القادمة.
 
 ## البنية
 
 ```
-backend/    Django 5.2 LTS + DRF — apps: tenants, accounts, accounting, sales
-            + tests/ (pytest) + pyproject.toml (pytest/ruff config)
+backend/    Django 5.2 LTS + DRF — apps: tenants, accounts, organization,
+            access, accounting, sales + tests/ (pytest) + pyproject.toml
 frontend/   Next.js 16 + TypeScript (App Router) — عربي/RTL افتراضيًا
 infra/      docker-compose.yml (أساسي) + .dev.yml/.prod.yml (overlays) + nginx
 .github/    workflows/ci.yml
@@ -37,9 +46,13 @@ docs/       SYSTEM_ANALYSIS.md (المرجع الملزم) + CPS_Technical_Archi
 
 ### التطبيقات الخلفية (backend/apps)
 
-- `tenants` — نموذج Tenant (subdomain, name).
+- `tenants` — نموذج Tenant، و`TenantFeatures` (وحدات مفعّلة لكل مستأجر).
 - `accounts` — نموذج User مخصص (email فريد **ضمن** المستأجر لا عالميًا)،
-  auth backend مخصص (`TenantEmailBackend`)، تسجيل/دخول/JWT.
+  auth backend مخصص (`TenantEmailBackend`)، تسجيل/دخول/JWT، `/api/auth/me/`.
+- `organization` — الشجرة القانونية (`LegalEntity`) وشجرة مراكز التكلفة
+  (`CostCenter`)، كل منهما بعمق غير محدود عبر `parent` self-FK.
+- `access` — RBAC: `Permission` (كتالوج ثابت عالمي)، `Role` (لكل مستأجر،
+  قابل للتعديل)، `UserEntityAccess` (نطاق الكيانات لكل مستخدم).
 - `accounting` — دليل الحسابات (Account) وقيود اليومية (JournalEntry/Line).
 - `sales` — العملاء، المنتجات، الفواتير وبنودها.
 
@@ -53,6 +66,25 @@ docs/       SYSTEM_ANALYSIS.md (المرجع الملزم) + CPS_Technical_Archi
 البريد/كلمة المرور صحيحين لمستخدم في **أي** مستأجر آخر، لأن ModelBackend
 يبحث عن المستخدم بالبريد عالميًا بدون تصفية بالمستأجر. تم حذفه نهائيًا من
 الإعدادات — `TenantEmailBackend` هو الوحيد المعتمد. **لا تُرجعه أبدًا.**
+
+## الصلاحيات (RBAC) ونطاق الكيانات
+
+طبقة فوق عزل المستأجر، لا بديلًا عنه (`docs/SYSTEM_ANALYSIS.md` قسم 3):
+
+- **الصلاحيات**: `Permission` كتالوج عالمي ثابت بصيغة `<module>.<action>`
+  (مثال: `invoices.create`)، مرتبط بـ `Role` (لكل مستأجر) عبر M2M.
+  `apps/access/permissions.py: HasModulePermission` تُطبَّق على كل
+  ViewSet موجود عبر `permission_map = {action: "code"}` — ViewSet بدون
+  `permission_map` غير مقيّد بها إطلاقًا (opt-in لا افتراضي-رفض).
+- **نطاق الكيانات**: `UserEntityAccess` يحدد أي كيانات قانونية يرى
+  المستخدم؛ الوصول لكيان يشمل كل أبنائه تلقائيًا
+  (`apps/organization/services.py: get_accessible_entity_ids`).
+  المستخدم الحائز على دور "Owner" النظامي يتجاوز هذا القيد ويرى كل
+  كيانات مستأجره (`apps.access.services.user_is_owner`) — **هذا منفصل
+  تمامًا عن حقل `User.role` القديم من سبرنت 0**، انظر سجل القرارات.
+- **الأدوار النظامية الأربعة** (Owner/Accountant/Sales/Viewer) تُنشأ
+  تلقائيًا مع كل مستأجر جديد بصلاحيات افتراضية معقولة، وقابلة للتعديل
+  لكل مستأجر عبر `/api/roles/` (لا تمس مستأجرين آخرين — كل نسخة منفصلة).
 
 ## قرار البنية التحتية: هذا السيرفر للتطوير فقط
 
@@ -147,31 +179,55 @@ make lint    # ruff check .
 البناء فعليًا لو أي اختبار أو مخالفة lint فشلت — لا `continue-on-error`
 ولا إخفاء لأخطاء في أي مكان.
 
-**18 اختبارًا حاليًا** في `backend/tests/`:
+**36 اختبارًا حاليًا** في `backend/tests/`:
 
 - `test_health.py` (1): health check بسيط.
 - `test_migrations.py` (1): طلب `db` fixture يُجبر pytest-django على بناء
-  قاعدة الاختبار كاملة، فيفشل تلقائيًا لو أي migration معطوبة.
+  قاعدة الاختبار كاملة، فيفشل تلقائيًا لو أي migration معطوبة (بما فيها
+  كل الـ data migrations — لكن على قاعدة فارغة؛ انظر ملاحظة أدناه عن حدود
+  هذا الاختبار).
 - `test_invoicing_e2e.py` (1): تحويل سيناريو الـ curl اليدوي القديم إلى
   اختبار دائم — تسجيل شركة ← دخول ← عميل ← منتجَين ← فاتورة ببندين
   (تحقق من subtotal/tax_total/total محسوبة خادميًا بالضبط: 531.00 /
   74.34 / 605.34) ← اعتماد الفاتورة ← تحقق أن قيد اليومية متوازن (مجموع
   المدين = مجموع الدائن = 605.34) وموزّع على الحسابات الصحيحة.
-- `test_tenant_isolation.py` (15) — **أهم ملف اختبار في المشروع**:
+- `test_organization_tree.py` (4): منع BRANCH من امتلاك أبناء، منع الدورات
+  (entity كأب لنفسه، وأب غير مباشر)، وendpoint `/tree/` يُرجع تعشيشًا
+  صحيحًا لعمق 4 مستويات (Holding→Company→Company→Branch).
+- `test_rbac.py` (4): دور Viewer لا يقدر ينشئ فاتورة (403 — داخل نفس
+  المستأجر فالـ403 هنا صحيح ومختلف عن قاعدة الـ404 لعزل المستأجر)، لكنه
+  يقدر يشوفها؛ مستخدم مقيّد بفرع A لا يرى تفاصيل ولا قائمة فواتير فرع B؛
+  Owner يتجاوز القيد ويرى الفرعين معًا.
+- `test_simplified_mode.py` (2): مستأجر جديد → `simplified_mode=true`
+  فورًا بعد التسجيل؛ إضافة فرع ثانٍ عبر API → `false`.
+- `test_tenant_isolation.py` (23) — **أهم ملف اختبار في المشروع**، يغطي
+  كل نموذج قابل للوصول عبر API (عملاء، منتجات، فواتير، LegalEntity،
+  CostCenter، Role):
   - رجعة (regression) لثغرة ModelBackend: تأكيد أن `AUTHENTICATION_BACKENDS`
     لا يحتوي عليها أبدًا، ودخول بـ subdomain خاطئ + بيانات صحيحة لمستأجر
     آخر يُرفض (400)، ودخول صحيح ينجح.
-  - `list` (عملاء/منتجات/فواتير): مستأجر B لا يرى بيانات A إطلاقًا.
-  - وصول مباشر بـ ID لسجل مستأجر آخر (GET/PATCH/DELETE على عميل، GET
-    على منتج، GET/issue على فاتورة) → **404 دائمًا لا 403** بدون أي
-    تعديل فعلي على السجل.
-  - إنشاء فاتورة بـ `customer` أو `product` يخص مستأجر آخر → 400
-    (السيرفر يحلّ كل id ضد `request.user.tenant`؛ لا حقل `tenant_id`
-    موجود أصلًا ليُستغل).
+  - `list` لكل نموذج: مستأجر B لا يرى بيانات A إطلاقًا.
+  - وصول مباشر بـ ID لسجل مستأجر آخر (GET/PATCH/DELETE) → **404 دائمًا
+    لا 403** بدون أي تعديل أو تعطيل فعلي على السجل.
+  - إنشاء فاتورة/كيان قانوني بمرجع (customer/product/parent) يخص مستأجر
+    آخر → 400 (السيرفر يحلّ كل id ضد `request.user.tenant`؛ لا حقل
+    `tenant_id` موجود أصلًا ليُستغل).
 
 `backend/tests/factories.py` (factory-boy): `TenantFactory`,
-`UserFactory`, `CustomerFactory`, `ProductFactory` لبناء بيانات الاختبار
-بسرعة دون المرور بكل الـ API لكل حالة.
+`UserFactory`, `CustomerFactory`, `ProductFactory`, `LegalEntityFactory`,
+`CostCenterFactory`, `RoleFactory` لبناء بيانات الاختبار بسرعة دون المرور
+بكل الـ API لكل حالة.
+
+**حدود معروفة في التغطية الآلية:** لم أكتب اختبار pytest آلي لمنطق
+الـ backfill نفسه في data migrations (`organization/migrations/0002...`,
+`sales/migrations/0003...`, إلخ) — يحتاج ذلك Django's `MigrationExecutor`
+للرجوع لحالة تاريخية عبر 5 تطبيقات متشابكة التبعيات (organization،
+accounts، access، sales، accounting)، وهو تعقيد حقيقي لم أعتبره يستاهل
+الهشاشة الناتجة. بدلًا من ذلك: **تحققت يدويًا وفعليًا ضد بيانات حقيقية
+موجودة من سبرنت 0** (مستأجر Acme Trading وفاتورته INV-0001) وتأكدت أنها
+حصلت على `legal_entity=MAIN-01` الصحيح بعد تشغيل الـ migration فعليًا —
+ليس فقط على قاعدة اختبار فارغة. التفاصيل في سجل القرارات
+(`docs/SYSTEM_ANALYSIS.md` قسم 11، أو اسأل لرؤية سجل الجلسة).
 
 ## GitHub / CI
 
@@ -181,11 +237,11 @@ make lint    # ruff check .
   بعد** — بانتظار رابط الـ repository.
 - `.github/workflows/ci.yml` يعمل على كل push، ويفشل فعليًا عند أي خطأ
   (لا إخفاء لأي فشل):
-  - **backend**: `ruff check .` + `pytest -v` (18 اختبارًا، تفصيلها في
+  - **backend**: `ruff check .` + `pytest -v` (36 اختبارًا، تفصيلها في
     "كيف تشغّل الاختبارات" أعلاه) ضد خدمة Postgres حقيقية داخل الـ CI
     نفسه (service container، ليست SQLite).
-  - **frontend**: `npm install` + `npm run build` فقط (بدون lint/tests
-    بعد — خارج نطاق سبرنت 0).
+  - **frontend**: `npm install` + `npm run build` فقط (بما فيه فحص أنواع
+    TypeScript كامل عبر `next build`؛ بدون lint/tests مخصصة بعد).
 
 ## ديون تقنية يجب معالجتها قبل الإنتاج
 
@@ -210,7 +266,18 @@ make lint    # ruff check .
   ```
   وترجم ملفات `.po` الناتجة في `backend/locale/`.
 - **الفرونت إند**: لا توجد شاشة تعديل/حذف بعد لأي كيان (عملاء/منتجات/
-  فواتير) — فقط عرض وإضافة، بما يكفي لاختبار السيناريو الأساسي.
+  فواتير) — فقط عرض وإضافة، بما يكفي لاختبار السيناريو الأساسي. شاشات
+  سبرنت 1 (الهيكل التنظيمي، مراكز التكلفة، الأدوار) نفس الشيء: عرض/إضافة
+  فقط، بدون تعديل/حذف من الواجهة (الـ API يدعم PATCH وsoft-delete، لكن
+  الشاشات لا تعرضهما بعد).
+- **ترحيل قيد الفاتورة لا يوزّع `cost_center`** من بنود الفاتورة على
+  سطور القيد بعد (`apps/accounting/services.py: post_invoice_journal_entry`)
+  — القيد الحالي مجمّع (سطر إيراد واحد). التوزيع الدقيق لكل مركز تكلفة
+  مؤجل لسبرنت التقارير (10). موثّق أيضًا كتعليق في الكود.
+- **حذف LegalEntity/CostCenter عبر الـ API هو soft-deactivate دائمًا**
+  (`is_active=False`)، حتى لو لم توجد أي معاملات عليه — قرار متعمد للبساطة
+  والأمان (انظر سجل القرارات)، وليس تنفيذًا حرفيًا لصياغة "لا حذف لكيان
+  عليه معاملات" التي تسمح ضمنيًا بحذف فعلي لكيان بلا معاملات.
 - **Celery**: الـ worker يعمل ومتصل بـ Redis لكن لا توجد مهام (tasks)
   مُعرّفة بعد — سيُستخدم لاحقًا لتوليد PDF والإشعارات وإرسال الفوترة
   الإلكترونية كما هو مخطط.
@@ -226,7 +293,8 @@ make lint    # ruff check .
 
 ## الخطوة التالية
 
-**سبرنت 1** حسب خارطة `docs/SYSTEM_ANALYSIS.md` قسم 5: الهيكل التنظيمي
-والصلاحيات — الشجرة القانونية (عمق غير محدود)، شجرة مراكز التكلفة
-بالأنواع والربط، RBAC على مستوى الشركة/الفرع/الشاشة، الوضع المبسّط.
-معيار القبول: مستأجر بشركة واحدة لا يرى الهيكل التنظيمي إطلاقًا.
+**سبرنت 2** حسب خارطة `docs/SYSTEM_ANALYSIS.md` قسم 5: إدارة المنصة
+الأساسية — Super Admin بجدول مستخدمين منفصل تمامًا عن مستخدمي المستأجرين
++ 2FA إلزامي، لوحة المستأجرين (حالة/باقة/نشاط/تعليق/تفعيل)، الباقات
+والحدود (تربط بـ `TenantFeatures` الموجود بالفعل)، سجل تدقيق غير قابل
+للتعديل. معيار القبول: تغيير باقة يفعّل/يخفي وحدات فورًا.
