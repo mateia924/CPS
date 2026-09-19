@@ -18,6 +18,17 @@ DEFAULT_PERMISSIONS = [
     ("costcenters.view", _("View cost centers")),
     ("costcenters.manage", _("Create, edit and deactivate cost centers")),
     ("roles.manage", _("Manage roles, permissions and user assignments")),
+    # Sprint 3 (3.3): parties.* supersedes customers.* as the permission
+    # gate for the unified "Party" master-data screen (customers is now
+    # just one role/tab within it) — customers.* stays in the catalog,
+    # unused going forward, never deleted (no permission is ever
+    # deleted from the catalog; see the Decision Log).
+    ("parties.view", _("View parties (customers, suppliers, employees, affiliates)")),
+    ("parties.manage", _("Create, edit and deactivate parties and their roles")),
+    ("treasury.view", _("View banks, cash boxes and custodies")),
+    ("treasury.manage", _("Create, edit and deactivate banks, cash boxes and custodies")),
+    ("assets.view", _("View fixed assets")),
+    ("assets.manage", _("Create, edit and deactivate fixed assets")),
 ]
 
 # Reasonable, editable defaults per system role — not specified in full
@@ -35,6 +46,9 @@ SYSTEM_ROLES = {
         "accounting.view",
         "organization.view",
         "costcenters.view",
+        "parties.view",
+        "treasury.view",
+        "assets.view",
     ],
     "Sales": [
         "customers.view",
@@ -42,6 +56,8 @@ SYSTEM_ROLES = {
         "products.view",
         "invoices.view",
         "invoices.create",
+        "parties.view",
+        "parties.manage",
     ],
     "Viewer": [
         "customers.view",
@@ -50,6 +66,9 @@ SYSTEM_ROLES = {
         "accounting.view",
         "organization.view",
         "costcenters.view",
+        "parties.view",
+        "treasury.view",
+        "assets.view",
     ],
 }
 

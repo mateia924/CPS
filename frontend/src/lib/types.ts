@@ -130,6 +130,8 @@ export interface MeFeatures {
   inventory: boolean;
   purchasing: boolean;
   hr: boolean;
+  treasury: boolean;
+  assets: boolean;
 }
 
 export interface MeResponse {
@@ -197,5 +199,94 @@ export interface AuditLogEntry {
   after: unknown;
   ip_address: string | null;
   user_agent: string;
+  created_at: string;
+}
+
+// --- Master data (sprint 3, docs/SYSTEM_ANALYSIS.md 3.3) ---
+
+export type PartyRoleType = "customer" | "supplier" | "employee" | "affiliate" | "bank";
+
+export interface PartyRole {
+  id: string;
+  role: PartyRoleType;
+  is_active: boolean;
+  details: Record<string, unknown>;
+  legal_entity: string | null;
+  created_at: string;
+}
+
+export type PartyType = "individual" | "organization";
+
+export interface Party {
+  id: string;
+  code: string;
+  name: string;
+  name_en: string;
+  party_type: PartyType;
+  tax_number: string;
+  national_id_or_cr: string;
+  phone: string;
+  email: string;
+  address: Record<string, unknown>;
+  country_code: string;
+  default_currency: string;
+  notes: string;
+  is_active: boolean;
+  roles: PartyRole[];
+  created_at: string;
+}
+
+export interface Bank {
+  id: string;
+  legal_entity: string;
+  name: string;
+  bank_name: string;
+  account_number: string;
+  iban: string;
+  swift: string;
+  currency: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface CashBox {
+  id: string;
+  legal_entity: string;
+  name: string;
+  currency: string;
+  custodian: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface Custody {
+  id: string;
+  legal_entity: string;
+  employee: string;
+  name: string;
+  currency: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export type AssetCategory = "vehicle" | "equipment" | "building" | "furniture" | "it" | "other";
+export type AssetStatus = "active" | "disposed" | "under_maintenance";
+
+export interface Asset {
+  id: string;
+  legal_entity: string;
+  code: string;
+  name: string;
+  category: AssetCategory;
+  purchase_date: string;
+  purchase_cost: string;
+  currency: string;
+  useful_life_months: number | null;
+  salvage_value: string;
+  depreciation_method: "straight_line";
+  custodian: string | null;
+  cost_center: string | null;
+  status: AssetStatus;
+  is_active: boolean;
   created_at: string;
 }

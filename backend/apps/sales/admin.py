@@ -24,7 +24,7 @@ class InvoiceLineInline(admin.TabularInline):
 
 @admin.register(Invoice)
 class InvoiceAdmin(admin.ModelAdmin):
-    list_display = ("number", "tenant", "customer", "status", "issue_date", "total")
+    list_display = ("number", "tenant", "party", "status", "issue_date", "total")
     list_filter = ("tenant", "status")
     search_fields = ("number",)
     inlines = [InvoiceLineInline]

@@ -27,7 +27,7 @@ class SoftDeleteViewSetMixin:
 
     - DELETE attempts a real delete. Every relationship that should
       block it is already `on_delete=PROTECT` at the model level
-      (Invoice.customer, InvoiceLine.product, LegalEntity/CostCenter's
+      (Invoice.party, InvoiceLine.product, LegalEntity/CostCenter's
       self-FK parent, etc.) — this mixin's only job is turning the
       resulting ProtectedError into a clean 409 instead of a 500. An
       entity with zero references really is deleted.

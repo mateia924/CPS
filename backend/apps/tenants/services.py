@@ -25,6 +25,8 @@ def apply_plan_to_tenant(tenant, plan):
     features.inventory = plan.feature_inventory
     features.purchasing = plan.feature_purchasing
     features.hr = plan.feature_hr
+    features.treasury = plan.feature_treasury
+    features.assets = plan.feature_assets
     features.save()
 
 

@@ -8,7 +8,7 @@ from decimal import Decimal
 
 import pytest
 
-from .factories import CustomerFactory, ProductFactory
+from .factories import PartyFactory, ProductFactory
 
 
 def _create_invoice(client, customer, product, quantity="1"):
@@ -24,7 +24,7 @@ def _create_invoice(client, customer, product, quantity="1"):
 
 @pytest.mark.django_db
 def test_patch_draft_invoice_recalculates_totals(tenant_a, client_a):
-    customer = CustomerFactory(tenant=tenant_a)
+    customer = PartyFactory(tenant=tenant_a)
     product = ProductFactory(tenant=tenant_a, unit_price="100.00", tax_rate="10.00")
     invoice = _create_invoice(client_a, customer, product, "2").data
     assert invoice["total"] == "220.00"
@@ -47,7 +47,7 @@ def test_patch_draft_invoice_recalculates_totals(tenant_a, client_a):
 
 @pytest.mark.django_db
 def test_patch_issued_invoice_rejected(tenant_a, client_a):
-    customer = CustomerFactory(tenant=tenant_a)
+    customer = PartyFactory(tenant=tenant_a)
     product = ProductFactory(tenant=tenant_a)
     invoice = _create_invoice(client_a, customer, product).data
     client_a.post(f"/api/invoices/{invoice['id']}/issue/")
@@ -62,7 +62,7 @@ def test_patch_issued_invoice_rejected(tenant_a, client_a):
 
 @pytest.mark.django_db
 def test_void_draft_invoice_rejected(tenant_a, client_a):
-    customer = CustomerFactory(tenant=tenant_a)
+    customer = PartyFactory(tenant=tenant_a)
     product = ProductFactory(tenant=tenant_a)
     invoice = _create_invoice(client_a, customer, product).data
 
@@ -72,7 +72,7 @@ def test_void_draft_invoice_rejected(tenant_a, client_a):
 
 @pytest.mark.django_db
 def test_void_issued_invoice_posts_balanced_reversing_entry(tenant_a, client_a):
-    customer = CustomerFactory(tenant=tenant_a)
+    customer = PartyFactory(tenant=tenant_a)
     product = ProductFactory(tenant=tenant_a, unit_price="150.00", tax_rate="14.00")
     invoice = _create_invoice(client_a, customer, product, "3").data
     client_a.post(f"/api/invoices/{invoice['id']}/issue/")
@@ -111,7 +111,7 @@ def test_void_issued_invoice_posts_balanced_reversing_entry(tenant_a, client_a):
 
 @pytest.mark.django_db
 def test_void_already_cancelled_invoice_rejected(tenant_a, client_a):
-    customer = CustomerFactory(tenant=tenant_a)
+    customer = PartyFactory(tenant=tenant_a)
     product = ProductFactory(tenant=tenant_a)
     invoice = _create_invoice(client_a, customer, product).data
     client_a.post(f"/api/invoices/{invoice['id']}/issue/")

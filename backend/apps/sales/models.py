@@ -49,7 +49,14 @@ class Invoice(TenantScopedModel):
         PAID = "paid", _("Paid")
         CANCELLED = "cancelled", _("Cancelled")
 
-    customer = models.ForeignKey(Customer, on_delete=models.PROTECT, related_name="invoices")
+    # Sprint 3 (3.3): superseded by `party` below (FK to parties.Party,
+    # role=CUSTOMER) — kept, untouched, purely for historical reference;
+    # no code reads or writes this field going forward. See the Decision
+    # Log for why the column is kept rather than dropped.
+    legacy_customer = models.ForeignKey(
+        Customer, null=True, blank=True, on_delete=models.PROTECT, related_name="invoices"
+    )
+    party = models.ForeignKey("parties.Party", on_delete=models.PROTECT, related_name="invoices")
     # Mandatory per docs/SYSTEM_ANALYSIS.md section 4 rule 3. Went
     # through the 3-step safe migration for pre-sprint-1 rows: nullable,
     # backfill, then NOT NULL (apps/sales/migrations/0002-0004).

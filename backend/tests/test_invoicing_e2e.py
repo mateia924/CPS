@@ -3,6 +3,11 @@ during initial development: register -> login -> customer -> product ->
 invoice with fully server-computed totals -> issue -> balanced journal
 entry posted to the chart of accounts. docs/SYSTEM_ANALYSIS.md rules 2
 (server-side money) and 4 (every journal entry balanced) apply here.
+
+Sprint 3 (3.3): the customer step now goes through POST /api/parties/
+with role=customer — the unified Party screen superseding the old
+/api/customers/ endpoint as the real, current path to an invoiceable
+customer (see the Decision Log on Invoice.legacy_customer).
 """
 
 from decimal import Decimal
@@ -42,8 +47,8 @@ def test_register_login_customer_product_invoice_issue_balanced_journal():
     client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
 
     customer = client.post(
-        "/api/customers/",
-        {"name": "Nile Retail Co", "email": "billing@nileretail.test"},
+        "/api/parties/",
+        {"name": "Nile Retail Co", "email": "billing@nileretail.test", "role": "customer"},
         format="json",
     )
     assert customer.status_code == 201

@@ -96,6 +96,8 @@ class Plan(models.Model):
     feature_inventory = models.BooleanField(_("inventory"), default=False)
     feature_purchasing = models.BooleanField(_("purchasing"), default=False)
     feature_hr = models.BooleanField(_("HR"), default=False)
+    feature_treasury = models.BooleanField(_("treasury"), default=False)
+    feature_assets = models.BooleanField(_("fixed assets"), default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
 

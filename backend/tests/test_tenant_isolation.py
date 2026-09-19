@@ -29,6 +29,7 @@ from .factories import (
     CostCenterFactory,
     CustomerFactory,
     LegalEntityFactory,
+    PartyFactory,
     ProductFactory,
     RoleFactory,
     TenantFactory,
@@ -104,7 +105,7 @@ def test_product_list_excludes_other_tenant(tenant_a, tenant_b, client_a):
 
 @pytest.mark.django_db
 def test_invoice_list_excludes_other_tenant(tenant_a, tenant_b, client_a, client_b):
-    customer_b = CustomerFactory(tenant=tenant_b)
+    customer_b = PartyFactory(tenant=tenant_b)
     product_b = ProductFactory(tenant=tenant_b)
     created = client_b.post(
         "/api/invoices/",
@@ -169,7 +170,7 @@ def test_delete_other_tenant_product_returns_404_and_does_not_delete(tenant_b, c
 
 @pytest.mark.django_db
 def test_get_other_tenant_invoice_returns_404(tenant_a, tenant_b, client_a, client_b):
-    customer_b = CustomerFactory(tenant=tenant_b)
+    customer_b = PartyFactory(tenant=tenant_b)
     product_b = ProductFactory(tenant=tenant_b)
     created = client_b.post(
         "/api/invoices/",
@@ -187,7 +188,7 @@ def test_get_other_tenant_invoice_returns_404(tenant_a, tenant_b, client_a, clie
 
 @pytest.mark.django_db
 def test_issue_other_tenant_invoice_returns_404(tenant_a, tenant_b, client_a, client_b):
-    customer_b = CustomerFactory(tenant=tenant_b)
+    customer_b = PartyFactory(tenant=tenant_b)
     product_b = ProductFactory(tenant=tenant_b)
     created = client_b.post(
         "/api/invoices/",
@@ -213,7 +214,7 @@ def test_issue_other_tenant_invoice_returns_404(tenant_a, tenant_b, client_a, cl
 
 @pytest.mark.django_db
 def test_create_invoice_with_other_tenant_customer_rejected(tenant_a, tenant_b, client_a):
-    other_customer = CustomerFactory(tenant=tenant_b)
+    other_customer = PartyFactory(tenant=tenant_b)
     own_product = ProductFactory(tenant=tenant_a)
 
     response = client_a.post(
@@ -229,7 +230,7 @@ def test_create_invoice_with_other_tenant_customer_rejected(tenant_a, tenant_b, 
 
 @pytest.mark.django_db
 def test_create_invoice_with_other_tenant_product_rejected(tenant_a, tenant_b, client_a):
-    own_customer = CustomerFactory(tenant=tenant_a)
+    own_customer = PartyFactory(tenant=tenant_a)
     other_product = ProductFactory(tenant=tenant_b)
 
     response = client_a.post(
@@ -360,7 +361,7 @@ def test_deactivate_other_tenant_cost_center_returns_404(tenant_b, client_a):
 
 @pytest.mark.django_db
 def test_void_other_tenant_invoice_returns_404(tenant_a, tenant_b, client_a, client_b):
-    customer_b = CustomerFactory(tenant=tenant_b)
+    customer_b = PartyFactory(tenant=tenant_b)
     product_b = ProductFactory(tenant=tenant_b)
     created = client_b.post(
         "/api/invoices/",
@@ -379,7 +380,7 @@ def test_void_other_tenant_invoice_returns_404(tenant_a, tenant_b, client_a, cli
 
 @pytest.mark.django_db
 def test_patch_other_tenant_invoice_returns_404(tenant_a, tenant_b, client_a, client_b):
-    customer_b = CustomerFactory(tenant=tenant_b)
+    customer_b = PartyFactory(tenant=tenant_b)
     product_b = ProductFactory(tenant=tenant_b)
     created = client_b.post(
         "/api/invoices/",

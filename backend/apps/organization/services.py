@@ -1,8 +1,9 @@
+from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import gettext_lazy as _
 
 from apps.access.services import user_is_owner
 
-from .models import LegalEntity
+from .models import CostCenter, LegalEntity
 
 
 def create_default_legal_entities(tenant, company_name):
@@ -47,6 +48,29 @@ def default_branch_for_tenant(tenant):
     return LegalEntity.objects.filter(
         tenant=tenant, entity_type=LegalEntity.Type.BRANCH, is_active=True
     ).first()
+
+
+def get_or_create_linked_cost_center(tenant, linked_object, code, name, center_type):
+    """docs/SYSTEM_ANALYSIS.md 3.2/sprint 3 section 4: "مركز التكلفة
+    المرتبط يأخذ نفس الاسم ونوعه المناسب ولا يُنشأ مرتين" — looked up by
+    (tenant, content type, object id) first, using CostCenter.linked_object
+    (a GenericFK seeded in sprint 1 as forward-compatible plumbing, first
+    actually used here). `code` must already be unique per tenant (the
+    caller derives it from the linked object's own code)."""
+    content_type = ContentType.objects.get_for_model(linked_object)
+    existing = CostCenter.objects.filter(
+        tenant=tenant, linked_content_type=content_type, linked_object_id=linked_object.id
+    ).first()
+    if existing is not None:
+        return existing
+    return CostCenter.objects.create(
+        tenant=tenant,
+        code=code,
+        name=name,
+        center_type=center_type,
+        linked_content_type=content_type,
+        linked_object_id=linked_object.id,
+    )
 
 
 def get_accessible_entity_ids(user):

@@ -89,6 +89,8 @@ class MeView(APIView):
                     "inventory": features.inventory,
                     "purchasing": features.purchasing,
                     "hr": features.hr,
+                    "treasury": features.treasury,
+                    "assets": features.assets,
                 },
                 "simplified_mode": is_simplified_mode(tenant),
             }

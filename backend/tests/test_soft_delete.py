@@ -7,9 +7,16 @@ deactivate/activate always work regardless of references.
 import pytest
 
 from apps.organization.models import CostCenter, LegalEntity
+from apps.parties.models import Party
 from apps.sales.models import Customer, Product
 
-from .factories import CostCenterFactory, CustomerFactory, LegalEntityFactory, ProductFactory
+from .factories import (
+    CostCenterFactory,
+    CustomerFactory,
+    LegalEntityFactory,
+    PartyFactory,
+    ProductFactory,
+)
 
 
 @pytest.mark.django_db
@@ -51,8 +58,12 @@ def test_customer_list_hides_inactive_by_default(tenant_a, client_a):
 
 
 @pytest.mark.django_db
-def test_delete_customer_with_invoice_returns_409(tenant_a, client_a):
-    customer = CustomerFactory(tenant=tenant_a)
+def test_delete_party_with_invoice_returns_409(tenant_a, client_a):
+    # Sprint 3: invoices reference a Party (role=CUSTOMER) now, not the
+    # legacy Customer model — see test_delete_customer_without_invoice_
+    # actually_deletes below for the (still-live, unaffected) old
+    # Customer endpoint.
+    customer = PartyFactory(tenant=tenant_a)
     product = ProductFactory(tenant=tenant_a)
     created = client_a.post(
         "/api/invoices/",
@@ -61,9 +72,9 @@ def test_delete_customer_with_invoice_returns_409(tenant_a, client_a):
     )
     assert created.status_code == 201
 
-    response = client_a.delete(f"/api/customers/{customer.id}/")
+    response = client_a.delete(f"/api/parties/{customer.id}/")
     assert response.status_code == 409
-    assert Customer.objects.filter(id=customer.id).exists()
+    assert Party.objects.filter(id=customer.id).exists()
 
 
 @pytest.mark.django_db
@@ -76,7 +87,7 @@ def test_delete_customer_without_invoice_actually_deletes(tenant_a, client_a):
 
 @pytest.mark.django_db
 def test_delete_product_used_in_invoice_line_returns_409(tenant_a, client_a):
-    customer = CustomerFactory(tenant=tenant_a)
+    customer = PartyFactory(tenant=tenant_a)
     product = ProductFactory(tenant=tenant_a)
     created = client_a.post(
         "/api/invoices/",
@@ -106,7 +117,7 @@ def test_delete_legal_entity_used_by_invoice_returns_409(tenant_a, client_a):
     branch = LegalEntityFactory(
         tenant=tenant_a, entity_type=LegalEntity.Type.BRANCH, parent=company
     )
-    customer = CustomerFactory(tenant=tenant_a)
+    customer = PartyFactory(tenant=tenant_a)
     product = ProductFactory(tenant=tenant_a)
     created = client_a.post(
         "/api/invoices/",
@@ -156,7 +167,7 @@ def test_delete_unused_legal_entity_actually_deletes(tenant_a, client_a):
 
 @pytest.mark.django_db
 def test_delete_cost_center_used_by_invoice_line_returns_409(tenant_a, client_a):
-    customer = CustomerFactory(tenant=tenant_a)
+    customer = PartyFactory(tenant=tenant_a)
     product = ProductFactory(tenant=tenant_a)
     cost_center = CostCenterFactory(tenant=tenant_a)
     created = client_a.post(

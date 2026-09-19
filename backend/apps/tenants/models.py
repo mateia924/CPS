@@ -42,6 +42,11 @@ class TenantFeatures(models.Model):
     inventory = models.BooleanField(_("inventory"), default=False)
     purchasing = models.BooleanField(_("purchasing"), default=False)
     hr = models.BooleanField(_("HR"), default=False)
+    # Sprint 3 (3.3): "Free لا يراها، Business+ يراها" — synced from
+    # Plan.feature_treasury/feature_assets the same way as the fields
+    # above (see apps/tenants/services.py: apply_plan_to_tenant).
+    treasury = models.BooleanField(_("treasury"), default=False)
+    assets = models.BooleanField(_("fixed assets"), default=False)
 
     class Meta:
         verbose_name = _("tenant features")

@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
-import type { Customer, CostCenter, Invoice, LegalEntity, Paginated, Product } from "@/lib/types";
+import type { CostCenter, Invoice, LegalEntity, Paginated, Party, Product } from "@/lib/types";
 
 interface LineDraft {
   product: string;
@@ -18,7 +18,7 @@ const EMPTY_LINE: LineDraft = { product: "", quantity: "1", costCenter: "" };
 export default function InvoicesPage() {
   const { t } = useLocale();
   const { me } = useAuth();
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customers, setCustomers] = useState<Party[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [entities, setEntities] = useState<LegalEntity[]>([]);
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
@@ -35,8 +35,10 @@ export default function InvoicesPage() {
   const showCostCenterUI = !!me && me.features.cost_centers;
 
   const loadFormData = async () => {
+    // Sprint 3 (3.3): the customer picker now lists parties holding the
+    // CUSTOMER role, not the superseded /api/customers/ endpoint.
     const [cust, prod] = await Promise.all([
-      api.get<Paginated<Customer>>("/customers/"),
+      api.get<Paginated<Party>>("/parties/?role=customer"),
       api.get<Paginated<Product>>("/products/"),
     ]);
     setCustomers(cust.results);

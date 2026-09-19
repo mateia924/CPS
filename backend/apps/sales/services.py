@@ -68,12 +68,12 @@ def _build_lines(invoice, line_inputs):
 
 
 @transaction.atomic
-def create_invoice(tenant, customer, legal_entity, issue_date, line_inputs):
+def create_invoice(tenant, party, legal_entity, issue_date, line_inputs):
     """Create a draft invoice with its lines, snapshot pricing from each
     product, then compute totals."""
     invoice = Invoice.objects.create(
         tenant=tenant,
-        customer=customer,
+        party=party,
         legal_entity=legal_entity,
         number=generate_invoice_number(tenant),
         issue_date=issue_date,
@@ -84,15 +84,15 @@ def create_invoice(tenant, customer, legal_entity, issue_date, line_inputs):
 
 
 @transaction.atomic
-def update_invoice(invoice, customer, legal_entity, issue_date, line_inputs):
-    """Replace a DRAFT invoice's customer/entity/date/lines wholesale
+def update_invoice(invoice, party, legal_entity, issue_date, line_inputs):
+    """Replace a DRAFT invoice's party/entity/date/lines wholesale
     (same shape as create — the edit form resubmits everything, not a
     partial line patch) and recompute totals. Caller must have already
     checked invoice.status == DRAFT."""
-    invoice.customer = customer
+    invoice.party = party
     invoice.legal_entity = legal_entity
     invoice.issue_date = issue_date
-    invoice.save(update_fields=["customer", "legal_entity", "issue_date"])
+    invoice.save(update_fields=["party", "legal_entity", "issue_date"])
     invoice.lines.all().delete()
     _build_lines(invoice, line_inputs)
     return recalculate_invoice(invoice)

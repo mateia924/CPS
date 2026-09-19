@@ -82,7 +82,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         accessible_ids = get_accessible_entity_ids(self.request.user)
         return (
             Invoice.objects.filter(tenant=self.request.user.tenant, legal_entity_id__in=accessible_ids)
-            .select_related("customer", "legal_entity")
+            .select_related("party", "legal_entity")
             .prefetch_related("lines", "lines__product")
         )
 

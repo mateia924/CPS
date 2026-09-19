@@ -26,17 +26,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const showOrganization = !!me && !me.simplified_mode && me.features.organization;
   const showCostCenters = !!me && me.features.cost_centers && me.permissions.includes("costcenters.view");
   const showRoles = !!me && me.permissions.includes("roles.manage");
+  // Sprint 3 (3.3): Free hides both; Business+ shows them.
+  const showTreasury = !!me && me.features.treasury;
+  const showAssets = !!me && me.features.assets;
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <h2>{tenant?.name}</h2>
         <Link href="/dashboard">{t("dashboard")}</Link>
-        <Link href="/dashboard/customers">{t("customers")}</Link>
+        <Link href="/dashboard/parties">{t("parties")}</Link>
         <Link href="/dashboard/products">{t("products")}</Link>
         <Link href="/dashboard/invoices">{t("invoices")}</Link>
         {showOrganization && <Link href="/dashboard/organization">{t("organization")}</Link>}
         {showCostCenters && <Link href="/dashboard/cost-centers">{t("costCenters")}</Link>}
+        {showTreasury && <Link href="/dashboard/treasury/banks">{t("banks")}</Link>}
+        {showTreasury && <Link href="/dashboard/treasury/cash-boxes">{t("cashBoxes")}</Link>}
+        {showTreasury && <Link href="/dashboard/treasury/custodies">{t("custodies")}</Link>}
+        {showAssets && <Link href="/dashboard/assets">{t("assets")}</Link>}
         {showRoles && <Link href="/dashboard/roles">{t("rolesAndUsers")}</Link>}
         <div style={{ marginTop: "auto", paddingTop: "1rem" }}>
           <LocaleSwitcher />

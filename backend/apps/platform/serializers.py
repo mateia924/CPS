@@ -25,7 +25,7 @@ class PlanSerializer(serializers.ModelSerializer):
             "id", "code", "name", "is_active", "max_users", "max_branches",
             "max_invoices_per_month", "storage_mb", "feature_organization",
             "feature_cost_centers", "feature_inventory", "feature_purchasing",
-            "feature_hr",
+            "feature_hr", "feature_treasury", "feature_assets",
         )
         read_only_fields = ("id",)
 

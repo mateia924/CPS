@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: CPS\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-18 23:24+0000\n"
+"POT-Creation-Date: 2026-09-19 00:34+0000\n"
 "PO-Revision-Date: 2026-09-19 00:00+0000\n"
 "Last-Translator: CPS\n"
 "Language-Team: Arabic\n"
@@ -15,18 +15,22 @@ msgstr ""
 "&& n%100<=10 ? 3 : n%100>=11 && n%100<=99 ? 4 : 5;\n"
 
 #: apps/access/models.py:14 apps/accounting/models.py:17
-#: apps/organization/models.py:25 apps/organization/models.py:81
+#: apps/assets/models.py:31 apps/organization/models.py:25
+#: apps/organization/models.py:81 apps/parties/models.py:23
 #: apps/platform/models.py:83
 msgid "code"
 msgstr "الكود"
 
-#: apps/access/models.py:15 apps/sales/models.py:97
+#: apps/access/models.py:15 apps/sales/models.py:104
 msgid "description"
 msgstr "الوصف"
 
 #: apps/access/models.py:29 apps/accounting/models.py:18
-#: apps/organization/models.py:26 apps/organization/models.py:82
+#: apps/assets/models.py:32 apps/organization/models.py:26
+#: apps/organization/models.py:82 apps/parties/models.py:24
 #: apps/platform/models.py:84 apps/sales/models.py:10 apps/sales/models.py:27
+#: apps/treasury/models.py:15 apps/treasury/models.py:38
+#: apps/treasury/models.py:70
 msgid "name"
 msgstr "الاسم"
 
@@ -85,6 +89,30 @@ msgstr "إنشاء وتعديل وتعطيل مراكز التكلفة"
 #: apps/access/services.py:20
 msgid "Manage roles, permissions and user assignments"
 msgstr "إدارة الأدوار والصلاحيات وتعيينها للمستخدمين"
+
+#: apps/access/services.py:26
+msgid "View parties (customers, suppliers, employees, affiliates)"
+msgstr "عرض الأطراف (عملاء، موردون، موظفون، شركات شقيقة)"
+
+#: apps/access/services.py:27
+msgid "Create, edit and deactivate parties and their roles"
+msgstr "إنشاء وتعديل وتعطيل الأطراف وأدوارها"
+
+#: apps/access/services.py:28
+msgid "View banks, cash boxes and custodies"
+msgstr "عرض البنوك والصناديق والعُهد"
+
+#: apps/access/services.py:29
+msgid "Create, edit and deactivate banks, cash boxes and custodies"
+msgstr "إنشاء وتعديل وتعطيل البنوك والصناديق والعُهد"
+
+#: apps/access/services.py:30
+msgid "View fixed assets"
+msgstr "عرض الأصول الثابتة"
+
+#: apps/access/services.py:31
+msgid "Create, edit and deactivate fixed assets"
+msgstr "إنشاء وتعديل وتعطيل الأصول الثابتة"
 
 #: apps/access/views.py:58
 msgid "System roles cannot be deleted."
@@ -191,14 +219,18 @@ msgstr "الاسم الأول"
 msgid "last name"
 msgstr "اسم العائلة"
 
-#: apps/accounts/models.py:24 apps/platform/models.py:29
+#: apps/accounts/models.py:24 apps/parties/models.py:76
+#: apps/platform/models.py:29
 msgid "role"
 msgstr "الدور"
 
-#: apps/accounts/models.py:26 apps/organization/models.py:31
-#: apps/organization/models.py:94 apps/platform/models.py:30
-#: apps/platform/models.py:85 apps/sales/models.py:15 apps/sales/models.py:32
-#: apps/tenants/models.py:18
+#: apps/accounts/models.py:26 apps/assets/models.py:52
+#: apps/organization/models.py:31 apps/organization/models.py:94
+#: apps/parties/models.py:37 apps/parties/models.py:77
+#: apps/platform/models.py:30 apps/platform/models.py:85
+#: apps/sales/models.py:15 apps/sales/models.py:32 apps/tenants/models.py:18
+#: apps/treasury/models.py:24 apps/treasury/models.py:49
+#: apps/treasury/models.py:75
 msgid "active"
 msgstr "نشط"
 
@@ -230,6 +262,80 @@ msgstr "النطاق الفرعي أو البريد الإلكتروني أو ك
 msgid "This account is inactive."
 msgstr "هذا الحساب غير نشط."
 
+#: apps/assets/models.py:13 apps/organization/models.py:72
+msgid "Vehicle"
+msgstr "سيارة"
+
+#: apps/assets/models.py:14
+msgid "Equipment"
+msgstr "معدات"
+
+#: apps/assets/models.py:15
+msgid "Building"
+msgstr "مبنى"
+
+#: apps/assets/models.py:16
+msgid "Furniture"
+msgstr "أثاث"
+
+#: apps/assets/models.py:17
+msgid "IT"
+msgstr "تقنية معلومات"
+
+#: apps/assets/models.py:18
+msgid "Other"
+msgstr "أخرى"
+
+#: apps/assets/models.py:21
+msgid "Straight line"
+msgstr "القسط الثابت"
+
+#: apps/assets/models.py:24 apps/tenants/models.py:10
+msgid "Active"
+msgstr "نشط"
+
+#: apps/assets/models.py:25
+msgid "Disposed"
+msgstr "مستبعد"
+
+#: apps/assets/models.py:26
+msgid "Under maintenance"
+msgstr "تحت الصيانة"
+
+#: apps/assets/models.py:33
+msgid "category"
+msgstr "الفئة"
+
+#: apps/assets/models.py:34
+msgid "purchase date"
+msgstr "تاريخ الشراء"
+
+#: apps/assets/models.py:35
+msgid "purchase cost"
+msgstr "تكلفة الشراء"
+
+#: apps/assets/models.py:36 apps/parties/models.py:35
+#: apps/treasury/models.py:20 apps/treasury/models.py:39
+#: apps/treasury/models.py:71
+msgid "currency"
+msgstr "العملة"
+
+#: apps/assets/models.py:37
+msgid "useful life (months)"
+msgstr "العمر الإنتاجي (بالشهور)"
+
+#: apps/assets/models.py:39
+msgid "salvage value"
+msgstr "قيمة الخردة"
+
+#: apps/assets/models.py:42
+msgid "depreciation method"
+msgstr "طريقة الإهلاك"
+
+#: apps/assets/models.py:51 apps/sales/models.py:67 apps/tenants/models.py:22
+msgid "status"
+msgstr "الحالة"
+
 #: apps/common/viewsets.py:58
 msgid ""
 "This record is referenced elsewhere and cannot be deleted. Deactivate it "
@@ -248,11 +354,12 @@ msgstr "شركة"
 msgid "Branch"
 msgstr "فرع"
 
-#: apps/organization/models.py:28
+#: apps/organization/models.py:28 apps/parties/models.py:34
 msgid "country code"
 msgstr "رمز الدولة"
 
-#: apps/organization/models.py:29 apps/sales/models.py:13
+#: apps/organization/models.py:29 apps/parties/models.py:29
+#: apps/sales/models.py:13
 msgid "tax number"
 msgstr "الرقم الضريبي"
 
@@ -276,15 +383,11 @@ msgstr "هذا سيُنشئ دورة في شجرة الكيانات القانو
 msgid "Department"
 msgstr "إدارة"
 
-#: apps/organization/models.py:72
-msgid "Vehicle"
-msgstr "سيارة"
-
 #: apps/organization/models.py:73
 msgid "Warehouse"
 msgstr "مستودع"
 
-#: apps/organization/models.py:74
+#: apps/organization/models.py:74 apps/parties/models.py:70
 msgid "Employee"
 msgstr "موظف"
 
@@ -309,9 +412,73 @@ msgstr "هذا سيُنشئ دورة في شجرة مراكز التكلفة."
 msgid "This would create a cycle in the %(label)s tree."
 msgstr "هذا سيُنشئ دورة في شجرة %(label)s."
 
-#: apps/organization/services.py:22
+#: apps/organization/services.py:23
 msgid "Main Branch"
 msgstr "الفرع الرئيسي"
+
+#: apps/parties/models.py:20
+msgid "Individual"
+msgstr "فرد"
+
+#: apps/parties/models.py:21
+msgid "Organization"
+msgstr "مؤسسة"
+
+#: apps/parties/models.py:25
+msgid "name (English)"
+msgstr "الاسم (بالإنجليزية)"
+
+#: apps/parties/models.py:27
+msgid "party type"
+msgstr "نوع الطرف"
+
+#: apps/parties/models.py:30
+msgid "national ID / commercial registration"
+msgstr "الهوية الوطنية / السجل التجاري"
+
+#: apps/parties/models.py:31 apps/sales/models.py:12
+msgid "phone"
+msgstr "الهاتف"
+
+#: apps/parties/models.py:32 apps/platform/models.py:27 apps/sales/models.py:11
+msgid "email"
+msgstr "البريد الإلكتروني"
+
+#: apps/parties/models.py:33 apps/sales/models.py:14
+msgid "address"
+msgstr "العنوان"
+
+#: apps/parties/models.py:36
+msgid "notes"
+msgstr "ملاحظات"
+
+#: apps/parties/models.py:68
+msgid "Customer"
+msgstr "عميل"
+
+#: apps/parties/models.py:69
+msgid "Supplier"
+msgstr "مورّد"
+
+#: apps/parties/models.py:71
+msgid "Affiliate company"
+msgstr "شركة شقيقة"
+
+#: apps/parties/models.py:72
+msgid "Bank"
+msgstr "بنك"
+
+#: apps/parties/models.py:83
+msgid "role details"
+msgstr "تفاصيل الدور"
+
+#: apps/parties/serializers.py:42 apps/parties/serializers.py:91
+msgid "An affiliate role requires a matching legal entity."
+msgstr "دور الشركة الشقيقة يتطلب كيانًا قانونيًا مطابقًا."
+
+#: apps/parties/views.py:52
+msgid "This party already has this role."
+msgstr "هذا الطرف يحمل هذا الدور بالفعل."
 
 #: apps/platform/auth.py:103
 msgid "Not found."
@@ -328,10 +495,6 @@ msgstr "الدعم"
 #: apps/platform/models.py:24
 msgid "Billing"
 msgstr "الفوترة"
-
-#: apps/platform/models.py:27 apps/sales/models.py:11
-msgid "email"
-msgstr "البريد الإلكتروني"
 
 #: apps/platform/models.py:28
 msgid "full name"
@@ -381,11 +544,19 @@ msgstr "المشتريات"
 msgid "HR"
 msgstr "الموارد البشرية"
 
-#: apps/platform/models.py:119
+#: apps/platform/models.py:99 apps/tenants/models.py:48
+msgid "treasury"
+msgstr "الخزينة"
+
+#: apps/platform/models.py:100 apps/tenants/models.py:49
+msgid "fixed assets"
+msgstr "الأصول الثابتة"
+
+#: apps/platform/models.py:121
 msgid "Platform"
 msgstr "المنصة"
 
-#: apps/platform/models.py:120
+#: apps/platform/models.py:122
 msgid "Tenant user"
 msgstr "مستخدم المستأجر"
 
@@ -401,23 +572,15 @@ msgstr "رمز TOTP أو رمز احتياطي مطلوب."
 msgid "Invalid or expired code."
 msgstr "الرمز غير صحيح أو منتهي الصلاحية."
 
-#: apps/sales/models.py:12
-msgid "phone"
-msgstr "الهاتف"
-
-#: apps/sales/models.py:14
-msgid "address"
-msgstr "العنوان"
-
 #: apps/sales/models.py:26
 msgid "SKU"
 msgstr "رمز المنتج"
 
-#: apps/sales/models.py:28 apps/sales/models.py:99
+#: apps/sales/models.py:28 apps/sales/models.py:106
 msgid "unit price"
 msgstr "سعر الوحدة"
 
-#: apps/sales/models.py:30 apps/sales/models.py:100
+#: apps/sales/models.py:30 apps/sales/models.py:107
 msgid "tax rate (%)"
 msgstr "نسبة الضريبة (%)"
 
@@ -437,51 +600,47 @@ msgstr "مدفوعة"
 msgid "Cancelled"
 msgstr "ملغاة"
 
-#: apps/sales/models.py:59
+#: apps/sales/models.py:66
 msgid "number"
 msgstr "الرقم"
 
-#: apps/sales/models.py:60 apps/tenants/models.py:22
-msgid "status"
-msgstr "الحالة"
-
-#: apps/sales/models.py:61
+#: apps/sales/models.py:68
 msgid "issue date"
 msgstr "تاريخ الإصدار"
 
-#: apps/sales/models.py:64
+#: apps/sales/models.py:71
 msgid "subtotal"
 msgstr "الإجمالي قبل الضريبة"
 
-#: apps/sales/models.py:65
+#: apps/sales/models.py:72
 msgid "tax total"
 msgstr "إجمالي الضريبة"
 
-#: apps/sales/models.py:66
+#: apps/sales/models.py:73
 msgid "total"
 msgstr "الإجمالي"
 
-#: apps/sales/models.py:98
+#: apps/sales/models.py:105
 msgid "quantity"
 msgstr "الكمية"
 
-#: apps/sales/serializers.py:97
+#: apps/sales/serializers.py:110
 msgid "At least one invoice line is required."
 msgstr "مطلوب بند واحد على الأقل في الفاتورة."
 
-#: apps/sales/serializers.py:106
+#: apps/sales/serializers.py:119
 msgid "This field is required."
 msgstr "هذا الحقل مطلوب."
 
-#: apps/sales/serializers.py:120
+#: apps/sales/serializers.py:133
 msgid "Product not found."
 msgstr "المنتج غير موجود."
 
-#: apps/sales/serializers.py:129
+#: apps/sales/serializers.py:142
 msgid "Cost center not found."
 msgstr "مركز التكلفة غير موجود."
 
-#: apps/sales/serializers.py:166
+#: apps/sales/serializers.py:179
 msgid "Only draft invoices can be issued."
 msgstr "يمكن اعتماد الفواتير في حالة المسودة فقط."
 
@@ -505,10 +664,6 @@ msgstr "هذا الحساب معلّق."
 #: apps/tenants/models.py:9
 msgid "Trial"
 msgstr "تجريبي"
-
-#: apps/tenants/models.py:10
-msgid "Active"
-msgstr "نشط"
 
 #: apps/tenants/models.py:11
 msgid "Past due"
@@ -542,29 +697,29 @@ msgstr "المستأجر"
 msgid "tenants"
 msgstr "المستأجرون"
 
-#: apps/tenants/models.py:47 apps/tenants/models.py:48
+#: apps/tenants/models.py:52 apps/tenants/models.py:53
 msgid "tenant features"
 msgstr "وحدات المستأجر"
 
-#: apps/tenants/services.py:38
+#: apps/tenants/services.py:40
 #, python-format
 msgid ""
 "You've reached the maximum number of users allowed by your current plan "
 "(%(max)s). Upgrade your plan to add more."
 msgstr ""
-"لقد بلغت الحد الأقصى لعدد المستخدمين المسموح به في باقتك الحالية "
-"(%(max)s). قم بترقية باقتك لإضافة المزيد."
+"لقد بلغت الحد الأقصى لعدد المستخدمين المسموح به في باقتك الحالية (%(max)s). "
+"قم بترقية باقتك لإضافة المزيد."
 
-#: apps/tenants/services.py:56
+#: apps/tenants/services.py:58
 #, python-format
 msgid ""
 "You've reached the maximum number of branches allowed by your current plan "
 "(%(max)s). Upgrade your plan to add more."
 msgstr ""
-"لقد بلغت الحد الأقصى لعدد الفروع المسموح به في باقتك الحالية "
-"(%(max)s). قم بترقية باقتك لإضافة المزيد."
+"لقد بلغت الحد الأقصى لعدد الفروع المسموح به في باقتك الحالية (%(max)s). قم "
+"بترقية باقتك لإضافة المزيد."
 
-#: apps/tenants/services.py:77
+#: apps/tenants/services.py:79
 #, python-format
 msgid ""
 "You've reached the maximum number of invoices per month allowed by your "
@@ -572,3 +727,19 @@ msgid ""
 msgstr ""
 "لقد بلغت الحد الأقصى لعدد الفواتير الشهرية المسموح به في باقتك الحالية "
 "(%(max)s). قم بترقية باقتك لإنشاء المزيد."
+
+#: apps/treasury/models.py:16
+msgid "bank name"
+msgstr "اسم البنك"
+
+#: apps/treasury/models.py:17
+msgid "account number"
+msgstr "رقم الحساب"
+
+#: apps/treasury/models.py:18
+msgid "IBAN"
+msgstr "رقم الآيبان (IBAN)"
+
+#: apps/treasury/models.py:19
+msgid "SWIFT"
+msgstr "رمز السويفت (SWIFT)"

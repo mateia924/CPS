@@ -3,11 +3,14 @@ from factory.django import DjangoModelFactory
 
 from apps.access.models import Role
 from apps.accounts.models import User
+from apps.assets.models import Asset
 from apps.organization.models import CostCenter, LegalEntity
+from apps.parties.models import Party, PartyRole
 from apps.platform.models import Plan, PlatformUser
 from apps.platform.services import generate_totp_secret
 from apps.sales.models import Customer, Product
 from apps.tenants.models import Tenant
+from apps.treasury.models import Bank, CashBox, Custody
 
 
 class PlanFactory(DjangoModelFactory):
@@ -66,6 +69,36 @@ class CustomerFactory(DjangoModelFactory):
     email = factory.Sequence(lambda n: f"customer{n}@example.test")
 
 
+class PartyFactory(DjangoModelFactory):
+    """Sprint 3: a Party that already holds the CUSTOMER role — the
+    direct drop-in replacement for the pre-sprint-3 CustomerFactory
+    wherever a test just needs something invoiceable. Build a bare
+    Party + PartyRoleFactory manually for any other role."""
+
+    class Meta:
+        model = Party
+        skip_postgeneration_save = True
+
+    tenant = factory.SubFactory(TenantFactory)
+    code = factory.Sequence(lambda n: f"P-{n:04d}")
+    name = factory.Sequence(lambda n: f"Party {n}")
+    email = factory.Sequence(lambda n: f"party{n}@example.test")
+    party_type = Party.Type.ORGANIZATION
+
+    @factory.post_generation
+    def customer_role(obj, create, extracted, **kwargs):
+        if create:
+            PartyRole.objects.create(party=obj, role=PartyRole.Role.CUSTOMER)
+
+
+class PartyRoleFactory(DjangoModelFactory):
+    class Meta:
+        model = PartyRole
+
+    party = factory.SubFactory(PartyFactory)
+    role = PartyRole.Role.EMPLOYEE
+
+
 class ProductFactory(DjangoModelFactory):
     class Meta:
         model = Product
@@ -95,6 +128,47 @@ class CostCenterFactory(DjangoModelFactory):
     code = factory.Sequence(lambda n: f"CC-{n}")
     name = factory.Sequence(lambda n: f"Cost Center {n}")
     center_type = CostCenter.Type.GENERAL
+
+
+class BankFactory(DjangoModelFactory):
+    class Meta:
+        model = Bank
+
+    tenant = factory.SubFactory(TenantFactory)
+    legal_entity = factory.SubFactory(LegalEntityFactory)
+    name = factory.Sequence(lambda n: f"Bank Account {n}")
+
+
+class CashBoxFactory(DjangoModelFactory):
+    class Meta:
+        model = CashBox
+
+    tenant = factory.SubFactory(TenantFactory)
+    legal_entity = factory.SubFactory(LegalEntityFactory)
+    name = factory.Sequence(lambda n: f"Cash Box {n}")
+
+
+class CustodyFactory(DjangoModelFactory):
+    class Meta:
+        model = Custody
+
+    tenant = factory.SubFactory(TenantFactory)
+    legal_entity = factory.SubFactory(LegalEntityFactory)
+    employee = factory.SubFactory(PartyFactory)
+    name = factory.Sequence(lambda n: f"Custody {n}")
+
+
+class AssetFactory(DjangoModelFactory):
+    class Meta:
+        model = Asset
+
+    tenant = factory.SubFactory(TenantFactory)
+    legal_entity = factory.SubFactory(LegalEntityFactory)
+    code = factory.Sequence(lambda n: f"AST-{n:04d}")
+    name = factory.Sequence(lambda n: f"Asset {n}")
+    category = Asset.Category.EQUIPMENT
+    purchase_date = "2026-01-01"
+    purchase_cost = "1000.00"
 
 
 class RoleFactory(DjangoModelFactory):

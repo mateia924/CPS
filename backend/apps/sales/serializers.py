@@ -7,6 +7,7 @@ from rest_framework import serializers
 from apps.accounting.services import post_invoice_journal_entry
 from apps.organization.models import CostCenter, LegalEntity
 from apps.organization.services import default_branch_for_tenant, get_accessible_entity_ids
+from apps.parties.models import Party, PartyRole
 
 from .models import Customer, Invoice, InvoiceLine, Product
 from .services import create_invoice, update_invoice
@@ -38,7 +39,12 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
 
 class InvoiceSerializer(serializers.ModelSerializer):
     lines = InvoiceLineSerializer(many=True, read_only=True)
-    customer_name = serializers.CharField(source="customer.name", read_only=True)
+    # Sprint 3 (3.3): the underlying model field is `party` (FK to
+    # parties.Party, role=CUSTOMER) — the API keeps the "customer" name
+    # for continuity with the existing invoice screens/tests, since
+    # conceptually it's still "who this invoice is billed to".
+    customer = serializers.PrimaryKeyRelatedField(source="party", read_only=True)
+    customer_name = serializers.CharField(source="party.name", read_only=True)
     legal_entity_name = serializers.CharField(source="legal_entity.name", read_only=True)
 
     class Meta:
@@ -71,7 +77,12 @@ class InvoiceLineInputSerializer(serializers.Serializer):
 
 
 class InvoiceCreateSerializer(serializers.Serializer):
-    customer = serializers.PrimaryKeyRelatedField(queryset=Customer.objects.none())
+    # Sprint 3 (3.3): "في الفاتورة: اختيار العميل من الأطراف بدور
+    # CUSTOMER فقط" — the queryset below (set per-request in __init__)
+    # only offers parties holding an active CUSTOMER role, so a party
+    # without that role 400s exactly like any other invalid id, same as
+    # picking another tenant's party.
+    customer = serializers.PrimaryKeyRelatedField(source="party", queryset=Party.objects.none())
     # Mandatory (rule 3) but may be omitted by the client when the
     # tenant is in simplified mode (3.13) — auto-filled server-side with
     # the tenant's single branch in that case; see validate() below.
@@ -86,7 +97,9 @@ class InvoiceCreateSerializer(serializers.Serializer):
         request = self.context.get("request")
         if request is not None and request.user.is_authenticated:
             tenant = request.user.tenant
-            self.fields["customer"].queryset = Customer.objects.filter(tenant=tenant)
+            self.fields["customer"].queryset = Party.objects.filter(
+                tenant=tenant, roles__role=PartyRole.Role.CUSTOMER, roles__is_active=True
+            )
             accessible_ids = get_accessible_entity_ids(request.user)
             self.fields["legal_entity"].queryset = LegalEntity.objects.filter(
                 tenant=tenant, id__in=accessible_ids
@@ -139,7 +152,7 @@ class InvoiceCreateSerializer(serializers.Serializer):
         resolved_lines = self._resolve_lines(tenant, validated_data["lines"])
         return create_invoice(
             tenant=tenant,
-            customer=validated_data["customer"],
+            party=validated_data["party"],
             legal_entity=validated_data["legal_entity"],
             issue_date=validated_data.get("issue_date") or timezone.localdate(),
             line_inputs=resolved_lines,
@@ -150,7 +163,7 @@ class InvoiceCreateSerializer(serializers.Serializer):
         resolved_lines = self._resolve_lines(tenant, validated_data["lines"])
         return update_invoice(
             instance,
-            customer=validated_data["customer"],
+            party=validated_data["party"],
             legal_entity=validated_data["legal_entity"],
             issue_date=validated_data.get("issue_date") or instance.issue_date,
             line_inputs=resolved_lines,

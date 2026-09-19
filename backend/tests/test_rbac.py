@@ -12,7 +12,7 @@ from apps.access.models import UserEntityAccess
 from apps.access.services import seed_default_roles
 from apps.organization.models import LegalEntity
 
-from .factories import CustomerFactory, ProductFactory, TenantFactory, UserFactory
+from .factories import PartyFactory, ProductFactory, TenantFactory, UserFactory
 
 
 @pytest.fixture
@@ -41,7 +41,7 @@ def test_viewer_role_cannot_create_invoice(tenant_with_two_branches):
     client = APIClient()
     client.force_authenticate(user=user)
 
-    customer = CustomerFactory(tenant=tenant)
+    customer = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant)
     response = client.post(
         "/api/invoices/",
@@ -80,7 +80,7 @@ def test_entity_restricted_user_cannot_see_other_branch_invoices(tenant_with_two
     owner_client = APIClient()
     owner_client.force_authenticate(user=owner)
 
-    customer = CustomerFactory(tenant=tenant)
+    customer = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant)
     created = owner_client.post(
         "/api/invoices/",
@@ -118,7 +118,7 @@ def test_owner_bypasses_entity_access_and_sees_both_branches(tenant_with_two_bra
     client = APIClient()
     client.force_authenticate(user=owner)
 
-    customer = CustomerFactory(tenant=tenant)
+    customer = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant)
     for branch in (branch_a, branch_b):
         response = client.post(
