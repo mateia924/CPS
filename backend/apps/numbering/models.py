@@ -17,6 +17,20 @@ class DocumentNumberingSetting(TenantScopedModel):
     doc_type = models.CharField(_("document type"), max_length=30)
     prefix = models.CharField(_("prefix"), max_length=10)
     reset_yearly = models.BooleanField(_("reset numbering every year"), default=True)
+    # Correction after 4.1 (Decision Log, SYSTEM_ANALYSIS.md §11): the
+    # *sequence* stays scoped per (tenant, doc_type, legal_entity, year)
+    # — each branch keeps its own independent counter — but the
+    # *displayed* number must stay unique tenant-wide (ZATCA requires a
+    # unique number per tax registration, and branches normally share
+    # one tax number), so two branches' independently-incrementing
+    # "00001" would otherwise collide as the same string. None (the
+    # default) means "decide automatically": include the entity code
+    # whenever the tenant is not in simplified mode (more than one
+    # branch/company) — see services.next_document_number. True/False
+    # override the automatic choice explicitly per doc_type.
+    include_entity_code = models.BooleanField(
+        _("include entity code in the number"), null=True, blank=True, default=None
+    )
 
     class Meta:
         constraints = [

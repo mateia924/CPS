@@ -68,6 +68,107 @@ def test_sequence_does_not_reset_when_reset_yearly_is_false(db):
 
 
 @pytest.mark.django_db
+def test_two_branches_issuing_first_invoice_get_different_numbers(db):
+    """Correction after sprint 4.1 (Decision Log): ZATCA needs a unique
+    number per tax registration, which branches normally share, so two
+    branches' independently-scoped sequences must not collide as the
+    same displayed string."""
+    from apps.organization.models import LegalEntity
+
+    tenant = TenantFactory()
+    company = LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.COMPANY)
+    branch_a = LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.BRANCH, parent=company)
+    branch_b = LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.BRANCH, parent=company)
+
+    first_a = next_document_number(tenant, "invoice", legal_entity=branch_a, date=date(2026, 1, 1))
+    first_b = next_document_number(tenant, "invoice", legal_entity=branch_b, date=date(2026, 1, 1))
+
+    assert first_a != first_b
+    assert first_a == f"INV-{branch_a.code}-2026-00001"
+    assert first_b == f"INV-{branch_b.code}-2026-00001"
+
+
+@pytest.mark.django_db
+def test_single_branch_tenant_keeps_the_simple_format(db):
+    from apps.organization.models import LegalEntity
+
+    tenant = TenantFactory()
+    company = LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.COMPANY)
+    branch = LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.BRANCH, parent=company)
+
+    number = next_document_number(tenant, "invoice", legal_entity=branch, date=date(2026, 1, 1))
+
+    assert number == "INV-2026-00001"
+
+
+@pytest.mark.django_db
+def test_include_entity_code_setting_can_force_it_on(db):
+    tenant = TenantFactory()
+    entity = LegalEntityFactory(tenant=tenant)  # a single, standalone company — auto would be False
+    DocumentNumberingSetting.objects.create(
+        tenant=tenant, doc_type="invoice", prefix="INV", include_entity_code=True
+    )
+
+    number = next_document_number(tenant, "invoice", legal_entity=entity, date=date(2026, 1, 1))
+
+    assert number == f"INV-{entity.code}-2026-00001"
+
+
+@pytest.mark.django_db
+def test_include_entity_code_setting_can_force_it_off(db):
+    from apps.organization.models import LegalEntity
+
+    tenant = TenantFactory()
+    company = LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.COMPANY)
+    branch_a = LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.BRANCH, parent=company)
+    LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.BRANCH, parent=company)
+    DocumentNumberingSetting.objects.create(
+        tenant=tenant, doc_type="invoice", prefix="INV", include_entity_code=False
+    )
+
+    number = next_document_number(tenant, "invoice", legal_entity=branch_a, date=date(2026, 1, 1))
+
+    assert number == "INV-2026-00001"
+
+
+@pytest.mark.django_db
+def test_two_branches_first_real_invoices_via_api_get_different_numbers(db):
+    """End-to-end version of the required test, through the real
+    invoice-creation path, not just the numbering service directly."""
+    from rest_framework.test import APIClient
+
+    from apps.access.models import UserEntityAccess
+    from apps.access.services import seed_default_roles
+    from apps.organization.models import LegalEntity
+
+    tenant = TenantFactory()
+    company = LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.COMPANY)
+    branch_a = LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.BRANCH, parent=company)
+    branch_b = LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.BRANCH, parent=company)
+    roles = seed_default_roles(tenant)
+    owner = UserFactory(tenant=tenant, email="owner@two-branch-inv.test")
+    owner.roles.add(roles["Owner"])
+    UserEntityAccess.objects.create(user=owner, legal_entity=branch_a)
+    UserEntityAccess.objects.create(user=owner, legal_entity=branch_b)
+    party = PartyFactory(tenant=tenant)
+    product = ProductFactory(tenant=tenant, unit_price="10.00", tax_rate="0")
+
+    client = APIClient()
+    client.force_authenticate(user=owner)
+    payload = lambda entity_id: {  # noqa: E731
+        "customer": str(party.id),
+        "legal_entity": entity_id,
+        "lines": [{"product": str(product.id), "quantity": "1"}],
+    }
+    inv_a = client.post("/api/invoices/", payload(str(branch_a.id)), format="json")
+    inv_b = client.post("/api/invoices/", payload(str(branch_b.id)), format="json")
+
+    assert inv_a.status_code == 201
+    assert inv_b.status_code == 201
+    assert inv_a.data["number"] != inv_b.data["number"]
+
+
+@pytest.mark.django_db
 def test_custom_prefix_is_honored(db):
     tenant = TenantFactory()
     entity = LegalEntityFactory(tenant=tenant)

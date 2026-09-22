@@ -118,14 +118,21 @@ class Invoice(TenantScopedModel):
     class Meta:
         ordering = ["-issue_date", "-created_at"]
         constraints = [
-            # Sprint 4.1: numbers are now generated per (tenant,
-            # legal_entity, year) — apps.numbering.services.
-            # next_document_number — not per tenant alone, so two
-            # branches legitimately both issue "INV-2026-00001" as
-            # their first invoice. The constraint must match that scope.
+            # Correction after 4.1 (Decision Log, SYSTEM_ANALYSIS.md
+            # §11): reverted to tenant-wide uniqueness — ZATCA requires
+            # a unique invoice number per tax registration, and
+            # branches normally share one tax number under the same
+            # tenant, so "INV-2026-00001" issued by two different
+            # branches would violate that even though this project's
+            # own DB allowed it. apps.numbering.services.
+            # next_document_number now folds the branch's code into the
+            # string whenever the tenant has more than one branch/
+            # company, so the sequence can still stay scoped per
+            # legal_entity without two branches' numbers colliding as
+            # text.
             models.UniqueConstraint(
-                fields=["tenant", "legal_entity", "number"],
-                name="unique_invoice_number_per_tenant_and_entity",
+                fields=["tenant", "number"],
+                name="unique_invoice_number_per_tenant",
             )
         ]
 
