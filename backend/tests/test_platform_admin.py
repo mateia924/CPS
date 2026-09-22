@@ -23,7 +23,14 @@ from apps.platform.services import generate_backup_codes
 from apps.tenants.models import Tenant
 from apps.tenants.services import apply_plan_to_tenant
 
-from .factories import PlanFactory, PlatformUserFactory, TenantFactory, UserFactory
+from .factories import (
+    PartyFactory,
+    PlanFactory,
+    PlatformUserFactory,
+    ProductFactory,
+    TenantFactory,
+    UserFactory,
+)
 
 CUSTOMER_PASSWORD = "TestPass!2026"
 
@@ -365,3 +372,156 @@ def test_support_role_sees_all_tenants(db):
     assert response.status_code == 200
     subdomains = {t["subdomain"] for t in response.data["results"]}
     assert {tenant_x.subdomain, tenant_y.subdomain} <= subdomains
+
+
+# ---------------------------------------------------------------------
+# Sprint 4.0: check_branch_limit / check_invoice_limit coverage
+# (apps/tenants/services.py) — the third plan limit, check_user_limit,
+# was already covered above (test_exceeding_max_users_returns_402 etc).
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_exceeding_max_branches_returns_402(db):
+    # Every tenant starts with exactly 1 BRANCH already
+    # (create_default_legal_entities) — max_branches=1 means it's at the
+    # limit from creation, so the very next branch creation must 402.
+    limited_plan = PlanFactory(code="limited-branches-test", max_branches=1)
+    tenant = TenantFactory(subdomain="limited-branches", plan=limited_plan)
+    company, _branch = create_default_legal_entities(tenant, tenant.name)
+    seed_chart_of_accounts(tenant)
+    roles = seed_default_roles(tenant)
+    owner = UserFactory(tenant=tenant, email="owner@limited-branches.test")
+    owner.roles.add(roles["Owner"])
+
+    client = APIClient()
+    client.force_authenticate(user=owner)
+
+    response = client.post(
+        "/api/legal-entities/",
+        {"code": "MAIN-02", "name": "Second Branch", "entity_type": "branch", "parent": str(company.id)},
+        format="json",
+    )
+    assert response.status_code == 402
+
+
+@pytest.mark.django_db
+def test_below_max_branches_succeeds(db):
+    roomy_plan = PlanFactory(code="roomy-branches-test", max_branches=5)
+    tenant = TenantFactory(subdomain="roomy-branches", plan=roomy_plan)
+    company, _branch = create_default_legal_entities(tenant, tenant.name)
+    seed_chart_of_accounts(tenant)
+    roles = seed_default_roles(tenant)
+    owner = UserFactory(tenant=tenant, email="owner@roomy-branches.test")
+    owner.roles.add(roles["Owner"])
+
+    client = APIClient()
+    client.force_authenticate(user=owner)
+
+    response = client.post(
+        "/api/legal-entities/",
+        {"code": "MAIN-02", "name": "Second Branch", "entity_type": "branch", "parent": str(company.id)},
+        format="json",
+    )
+    assert response.status_code == 201
+
+
+@pytest.mark.django_db
+def test_max_branches_does_not_count_companies_or_holdings(db):
+    # 3.14 decision: max_branches only limits BRANCH nodes — a company
+    # with several sibling companies but only 1 branch stays under a
+    # max_branches=1 plan.
+    limited_plan = PlanFactory(code="limited-branches-companies-test", max_branches=1)
+    tenant = TenantFactory(subdomain="limited-branches-companies", plan=limited_plan)
+    company, _branch = create_default_legal_entities(tenant, tenant.name)
+    seed_chart_of_accounts(tenant)
+    roles = seed_default_roles(tenant)
+    owner = UserFactory(tenant=tenant, email="owner@limited-branches-companies.test")
+    owner.roles.add(roles["Owner"])
+
+    client = APIClient()
+    client.force_authenticate(user=owner)
+
+    response = client.post(
+        "/api/legal-entities/",
+        {"code": "SIB-01", "name": "Sibling Company", "entity_type": "company"},
+        format="json",
+    )
+    assert response.status_code == 201
+
+
+@pytest.mark.django_db
+def test_exceeding_max_invoices_per_month_returns_402(db):
+    limited_plan = PlanFactory(code="limited-invoices-test", max_invoices_per_month=1)
+    tenant = TenantFactory(subdomain="limited-invoices", plan=limited_plan)
+    create_default_legal_entities(tenant, tenant.name)
+    seed_chart_of_accounts(tenant)
+    roles = seed_default_roles(tenant)
+    owner = UserFactory(tenant=tenant, email="owner@limited-invoices.test")
+    owner.roles.add(roles["Owner"])
+    customer = PartyFactory(tenant=tenant)
+    product = ProductFactory(tenant=tenant)
+
+    client = APIClient()
+    client.force_authenticate(user=owner)
+    payload = {
+        "customer": str(customer.id),
+        "lines": [{"product": str(product.id), "quantity": "1.00"}],
+    }
+
+    first = client.post("/api/invoices/", payload, format="json")
+    assert first.status_code == 201
+
+    second = client.post("/api/invoices/", payload, format="json")
+    assert second.status_code == 402
+
+
+@pytest.mark.django_db
+def test_below_max_invoices_per_month_succeeds(db):
+    roomy_plan = PlanFactory(code="roomy-invoices-test", max_invoices_per_month=5)
+    tenant = TenantFactory(subdomain="roomy-invoices", plan=roomy_plan)
+    create_default_legal_entities(tenant, tenant.name)
+    seed_chart_of_accounts(tenant)
+    roles = seed_default_roles(tenant)
+    owner = UserFactory(tenant=tenant, email="owner@roomy-invoices.test")
+    owner.roles.add(roles["Owner"])
+    customer = PartyFactory(tenant=tenant)
+    product = ProductFactory(tenant=tenant)
+
+    client = APIClient()
+    client.force_authenticate(user=owner)
+    payload = {
+        "customer": str(customer.id),
+        "lines": [{"product": str(product.id), "quantity": "1.00"}],
+    }
+
+    response = client.post("/api/invoices/", payload, format="json")
+    assert response.status_code == 201
+
+
+# ---------------------------------------------------------------------
+# Sprint 4.0: TenantAdminSerializer N+1 fix (ARCH_REVIEW_1.md §5.1 #1) —
+# a page of tenants must load in a small, fixed number of queries
+# regardless of how many tenants/users/invoices exist.
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_tenant_list_is_not_n_plus_1(db, django_assert_max_num_queries):
+    for i in range(5):
+        t = TenantFactory(subdomain=f"nplus1-{i}")
+        create_default_legal_entities(t, t.name)
+        seed_chart_of_accounts(t)
+        roles = seed_default_roles(t)
+        owner = UserFactory(tenant=t, email=f"owner@nplus1-{i}.test")
+        owner.roles.add(roles["Owner"])
+
+    platform_user = PlatformUserFactory(password="PlatformPass!2026")
+    client = APIClient()
+    login = _platform_login(client, platform_user, password="PlatformPass!2026")
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+
+    with django_assert_max_num_queries(6):
+        response = client.get("/api/platform/tenants/")
+    assert response.status_code == 200
+    assert len(response.data["results"]) >= 5

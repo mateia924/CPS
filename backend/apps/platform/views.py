@@ -1,3 +1,4 @@
+from django.db.models import Count, Max, Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework.decorators import action
@@ -5,6 +6,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.ratelimit import check_auth_ratelimit
 from apps.tenants.models import Tenant
 from apps.tenants.services import apply_plan_to_tenant
 
@@ -27,6 +29,9 @@ class PlatformLoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+        limited = check_auth_ratelimit(request, "platform-auth-login", request.data.get("email"))
+        if limited:
+            return limited
         serializer = PlatformLoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -96,7 +101,24 @@ class TenantAdminViewSet(PlatformViewSet):
     http_method_names = ["get", "post", "head", "options"]
     permission_classes = [IsAuthenticated]
     serializer_class = TenantAdminSerializer
-    queryset = Tenant.objects.select_related("plan").order_by("-created_at")
+    # Arch review #1 §5.1 finding #1 (the worst N+1 in the project): the
+    # 3 SerializerMethodFields this queryset used to back (user_count/
+    # invoice_count/last_activity) each queried once per row — up to 75
+    # extra queries for a 25-row page. annotate() computes all three in
+    # the single list query instead; distinct=True on both Counts is
+    # required because combining two Count() aggregates over different
+    # reverse relations (users, invoices) in one query otherwise inflates
+    # each count by the other relation's row multiplicity (a well-known
+    # Django ORM join-fanout gotcha, not optional here).
+    queryset = (
+        Tenant.objects.select_related("plan")
+        .annotate(
+            user_count=Count("users", filter=Q(users__is_active=True), distinct=True),
+            invoice_count=Count("invoices", distinct=True),
+            last_activity=Max("users__last_login"),
+        )
+        .order_by("-created_at")
+    )
     filter_backends = []
     search_fields = ["name", "subdomain"]
 

@@ -7,10 +7,14 @@
 
 services:
   backend:
+    build:
+      target: dev
     volumes:
       - ../backend:/app:Z
 
   celery_worker:
+    build:
+      target: dev
     volumes:
       - ../backend:/app:Z
 

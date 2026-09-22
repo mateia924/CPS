@@ -5,6 +5,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.access.models import Role
+from apps.common.ratelimit import check_auth_ratelimit
 from apps.organization.services import get_accessible_entity_ids, is_simplified_mode
 from apps.tenants.models import TenantFeatures
 
@@ -23,6 +24,9 @@ class RegisterView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+        limited = check_auth_ratelimit(request, "auth-register", request.data.get("email"))
+        if limited:
+            return limited
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         result = serializer.save()
@@ -41,6 +45,9 @@ class LoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+        limited = check_auth_ratelimit(request, "auth-login", request.data.get("email"))
+        if limited:
+            return limited
         serializer = TenantLoginSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         user = serializer.validated_data["user"]

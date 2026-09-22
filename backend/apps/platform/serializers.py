@@ -32,9 +32,11 @@ class PlanSerializer(serializers.ModelSerializer):
 
 class TenantAdminSerializer(serializers.ModelSerializer):
     plan_code = serializers.CharField(source="plan.code", read_only=True)
-    user_count = serializers.SerializerMethodField()
-    invoice_count = serializers.SerializerMethodField()
-    last_activity = serializers.SerializerMethodField()
+    # Backed by TenantAdminViewSet.get_queryset()'s annotate() (Count/Max)
+    # instead of SerializerMethodField — see the comment there.
+    user_count = serializers.IntegerField(read_only=True)
+    invoice_count = serializers.IntegerField(read_only=True)
+    last_activity = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = Tenant
@@ -46,16 +48,6 @@ class TenantAdminSerializer(serializers.ModelSerializer):
         read_only_fields = (
             "id", "plan_code", "user_count", "invoice_count", "last_activity", "created_at",
         )
-
-    def get_user_count(self, tenant):
-        return tenant.users.filter(is_active=True).count()
-
-    def get_invoice_count(self, tenant):
-        return tenant.invoices.count()
-
-    def get_last_activity(self, tenant):
-        last_login = tenant.users.filter(last_login__isnull=False).order_by("-last_login").first()
-        return last_login.last_login if last_login else None
 
 
 class ChangePlanSerializer(serializers.Serializer):

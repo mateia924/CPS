@@ -8,6 +8,15 @@ from apps.organization.services import create_default_legal_entities
 from .factories import TenantFactory, UserFactory
 
 
+@pytest.fixture(autouse=True)
+def _disable_ratelimit_by_default(settings):
+    # Sprint 4.0: the suite calls /api/auth/login/ and
+    # /api/platform/auth/login/ far more than 5 times/minute across many
+    # tests. Off by default here; test_rate_limiting.py turns it back on
+    # per-test via the same `settings` fixture.
+    settings.RATELIMIT_ENABLE = False
+
+
 @pytest.fixture
 def tenant_a(db):
     tenant = TenantFactory(subdomain="tenant-a")

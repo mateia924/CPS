@@ -214,3 +214,23 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
+
+# ---------------------------------------------------------------------------
+# Cache / rate limiting (sprint 4.0, ARCH_REVIEW_1.md debt #9)
+# ---------------------------------------------------------------------------
+
+# Must be a shared cache (not the per-process LocMemCache default) since
+# gunicorn runs multiple workers — apps.common.ratelimit's counters need
+# to be visible across all of them to actually limit anything.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": env("REDIS_URL", default="redis://redis:6379/0"),
+    }
+}
+
+# tests/conftest.py flips this off by default (an autouse fixture) so the
+# rest of the suite's many /api/auth/login/ and /api/platform/auth/login/
+# calls don't trip it; the rate-limiting tests themselves turn it back on
+# via the `settings` fixture for just that test.
+RATELIMIT_ENABLE = env.bool("DJANGO_RATELIMIT_ENABLE", default=True)
