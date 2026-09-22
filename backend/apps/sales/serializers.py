@@ -5,9 +5,13 @@ from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
 from apps.accounting.services import post_invoice_journal_entry
+from apps.common.constants import RATE_DECIMAL_PLACES, RATE_MAX_DIGITS
 from apps.organization.models import CostCenter, LegalEntity
 from apps.organization.services import default_branch_for_tenant, get_accessible_entity_ids
 from apps.parties.models import Party, PartyRole
+from apps.platform.models import AuditLog
+from apps.platform.services import log_action
+from apps.treasury.services import ExchangeRateNotFound, get_rate
 
 from .models import Customer, Invoice, InvoiceLine, Product
 from .services import create_invoice, update_invoice
@@ -51,12 +55,13 @@ class InvoiceSerializer(serializers.ModelSerializer):
         model = Invoice
         fields = (
             "id", "number", "status", "issue_date", "customer", "customer_name",
-            "legal_entity", "legal_entity_name",
-            "subtotal", "tax_total", "total", "lines", "created_at", "updated_at",
+            "legal_entity", "legal_entity_name", "currency", "exchange_rate",
+            "subtotal", "tax_total", "total", "base_total", "lines", "created_at", "updated_at",
         )
         read_only_fields = (
-            "id", "number", "status", "customer_name", "legal_entity_name", "subtotal",
-            "tax_total", "total", "lines", "created_at", "updated_at",
+            "id", "number", "status", "customer_name", "legal_entity_name", "currency",
+            "exchange_rate", "subtotal", "tax_total", "total", "base_total", "lines",
+            "created_at", "updated_at",
         )
 
 
@@ -90,6 +95,17 @@ class InvoiceCreateSerializer(serializers.Serializer):
         queryset=LegalEntity.objects.none(), required=False
     )
     issue_date = serializers.DateField(required=False)
+    # Sprint 4.2 (3.11/3.15.3): both optional. currency defaults to the
+    # invoice's legal_entity's base currency (the common, single-
+    # currency case for most small clients never needs either field);
+    # exchange_rate, if omitted, is auto-pulled from ExchangeRate by
+    # issue_date — see validate() below, which is where both actually
+    # get resolved (legal_entity/issue_date must already be resolved
+    # first).
+    currency = serializers.CharField(max_length=3, required=False)
+    exchange_rate = serializers.DecimalField(
+        max_digits=RATE_MAX_DIGITS, decimal_places=RATE_DECIMAL_PLACES, required=False
+    )
     lines = InvoiceLineInputSerializer(many=True)
 
     def __init__(self, *args, **kwargs):
@@ -119,7 +135,44 @@ class InvoiceCreateSerializer(serializers.Serializer):
                     {"legal_entity": [_("This field is required.")]}
                 )
             attrs["legal_entity"] = default_branch
+
+        legal_entity = attrs["legal_entity"]
+        currency = attrs.get("currency") or legal_entity.base_currency
+        attrs["currency"] = currency
+        issue_date = attrs.get("issue_date") or timezone.localdate()
+
+        if currency == legal_entity.base_currency:
+            # Same currency is always rate 1 — an explicit override
+            # here would be meaningless, so it's ignored rather than
+            # honored (never silently wrong money, just a no-op field).
+            attrs["exchange_rate"] = Decimal("1")
+            attrs["_rate_overridden"] = False
+        elif "exchange_rate" in attrs:
+            attrs["_rate_overridden"] = True
+        else:
+            tenant = self.context["request"].user.tenant
+            try:
+                attrs["exchange_rate"] = get_rate(tenant, currency, legal_entity.base_currency, issue_date)
+            except ExchangeRateNotFound as exc:
+                raise serializers.ValidationError({"exchange_rate": [str(exc.message)]})
+            attrs["_rate_overridden"] = False
+
         return attrs
+
+    def _log_rate_override_if_needed(self, invoice, attrs):
+        if not attrs.pop("_rate_overridden", False):
+            return
+        request = self.context["request"]
+        log_action(
+            actor_type=AuditLog.ActorType.TENANT_USER,
+            actor_id=request.user.id,
+            action="invoice.exchange_rate_overridden",
+            target_type="invoice",
+            target_id=invoice.id,
+            tenant_id=request.user.tenant_id,
+            after={"currency": invoice.currency, "exchange_rate": str(invoice.exchange_rate)},
+            request=request,
+        )
 
     def _resolve_lines(self, tenant, raw_lines):
         resolved = []
@@ -150,24 +203,32 @@ class InvoiceCreateSerializer(serializers.Serializer):
         request = self.context["request"]
         tenant = request.user.tenant
         resolved_lines = self._resolve_lines(tenant, validated_data["lines"])
-        return create_invoice(
+        invoice = create_invoice(
             tenant=tenant,
             party=validated_data["party"],
             legal_entity=validated_data["legal_entity"],
             issue_date=validated_data.get("issue_date") or timezone.localdate(),
             line_inputs=resolved_lines,
+            currency=validated_data["currency"],
+            exchange_rate=validated_data["exchange_rate"],
         )
+        self._log_rate_override_if_needed(invoice, validated_data)
+        return invoice
 
     def update(self, instance, validated_data):
         tenant = self.context["request"].user.tenant
         resolved_lines = self._resolve_lines(tenant, validated_data["lines"])
-        return update_invoice(
+        invoice = update_invoice(
             instance,
             party=validated_data["party"],
             legal_entity=validated_data["legal_entity"],
             issue_date=validated_data.get("issue_date") or instance.issue_date,
             line_inputs=resolved_lines,
+            currency=validated_data["currency"],
+            exchange_rate=validated_data["exchange_rate"],
         )
+        self._log_rate_override_if_needed(invoice, validated_data)
+        return invoice
 
 
 class InvoiceIssueSerializer(serializers.Serializer):

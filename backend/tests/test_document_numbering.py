@@ -113,7 +113,10 @@ def test_50_concurrent_invoice_creations_get_50_unique_gapless_numbers():
 
     def worker(index):
         try:
-            invoice = create_invoice(tenant, party, entity, date(2026, 6, 1), line_inputs)
+            invoice = create_invoice(
+                tenant, party, entity, date(2026, 6, 1), line_inputs,
+                currency="SAR", exchange_rate=Decimal("1"),
+            )
             results[index] = invoice.number
         except Exception as exc:  # noqa: BLE001 — surfaced via `errors` for the assertion below
             errors.append(exc)

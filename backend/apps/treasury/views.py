@@ -4,8 +4,13 @@ from rest_framework.permissions import IsAuthenticated
 from apps.access.permissions import HasModulePermission
 from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 
-from .models import Bank, CashBox, Custody
-from .serializers import BankSerializer, CashBoxSerializer, CustodySerializer
+from .models import Bank, CashBox, Custody, ExchangeRate
+from .serializers import (
+    BankSerializer,
+    CashBoxSerializer,
+    CustodySerializer,
+    ExchangeRateSerializer,
+)
 
 _PERMISSION_MAP = {
     "list": "treasury.view",
@@ -55,3 +60,24 @@ class CustodyViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         if employee_id:
             queryset = queryset.filter(employee_id=employee_id)
         return queryset
+
+
+class ExchangeRateViewSet(TenantScopedViewSet):
+    """الخزينة ← "أسعار الصرف" (3.15.3): جدول + إضافة فقط — لا
+    تعديل/حذف، سجل تاريخي لا يُصحَّح إلا بإضافة سطر جديد (نفس مبدأ عدم
+    تعديل قيد مُرحَّل)."""
+
+    http_method_names = ["get", "post", "head", "options"]
+    serializer_class = ExchangeRateSerializer
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    queryset = ExchangeRate.objects.all()
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ["date", "created_at"]
+    permission_map = {
+        "list": "treasury.view",
+        "retrieve": "treasury.view",
+        "create": "treasury.manage",
+    }
+
+    def perform_create(self, serializer):
+        serializer.save(tenant=self.request.user.tenant, created_by=self.request.user)

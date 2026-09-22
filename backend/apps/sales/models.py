@@ -12,6 +12,8 @@ from apps.common.constants import (
     PRICE_MAX_DIGITS,
     QUANTITY_DECIMAL_PLACES,
     QUANTITY_MAX_DIGITS,
+    RATE_DECIMAL_PLACES,
+    RATE_MAX_DIGITS,
 )
 from apps.common.models import TenantScopedModel
 
@@ -82,6 +84,16 @@ class Invoice(TenantScopedModel):
     status = models.CharField(_("status"), max_length=20, choices=Status.choices, default=Status.DRAFT)
     issue_date = models.DateField(_("issue date"))
 
+    # Sprint 4.2 (3.11/3.15.3): defaults keep every pre-4.2 invoice
+    # unchanged (currency=base, rate=1, base_total=total) — see the
+    # migration backfill. `currency` is the invoice's own currency (line
+    # amounts below are in this currency); `exchange_rate` converts 1
+    # unit of it into legal_entity.base_currency.
+    currency = models.CharField(_("currency"), max_length=3, default="SAR")
+    exchange_rate = models.DecimalField(
+        _("exchange rate"), max_digits=RATE_MAX_DIGITS, decimal_places=RATE_DECIMAL_PLACES, default=1
+    )
+
     # Always computed server-side from the lines — never accepted as API input.
     subtotal = models.DecimalField(
         _("subtotal"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
@@ -91,6 +103,13 @@ class Invoice(TenantScopedModel):
     )
     total = models.DecimalField(
         _("total"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
+    )
+    # total * exchange_rate, in legal_entity.base_currency — for reports
+    # that must aggregate across invoices in different currencies
+    # (docs/SYSTEM_ANALYSIS.md 3.15.3's spec: "base_total محسوب على
+    # الفاتورة للتقارير").
+    base_total = models.DecimalField(
+        _("base total"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
     )
 
     created_at = models.DateTimeField(auto_now_add=True)

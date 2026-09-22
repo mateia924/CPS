@@ -3,7 +3,7 @@ from rest_framework import serializers
 from apps.organization.models import LegalEntity
 from apps.parties.models import Party, PartyRole
 
-from .models import Bank, CashBox, Custody
+from .models import Bank, CashBox, Custody, ExchangeRate
 
 
 def _employee_party_queryset(tenant):
@@ -60,3 +60,19 @@ class CustodySerializer(_TenantScopedRelationsMixin, serializers.ModelSerializer
             "id", "legal_entity", "employee", "name", "currency", "is_active", "created_at",
         )
         read_only_fields = ("id", "created_at")
+
+
+class ExchangeRateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExchangeRate
+        fields = (
+            "id", "from_currency", "to_currency", "date", "rate", "source", "created_by", "created_at",
+        )
+        read_only_fields = ("id", "created_by", "created_at")
+
+    def validate(self, attrs):
+        if attrs.get("from_currency") == attrs.get("to_currency"):
+            raise serializers.ValidationError(
+                {"to_currency": ["From/to currency must be different — same-currency rate is always 1."]}
+            )
+        return attrs

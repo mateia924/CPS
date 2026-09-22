@@ -21,3 +21,10 @@ QUANTITY_DECIMAL_PLACES = 2
 
 PERCENTAGE_MAX_DIGITS = 5
 PERCENTAGE_DECIMAL_PLACES = 2
+
+# Sprint 4.2 (docs/SYSTEM_ANALYSIS.md 3.11/3.15.3) — exchange rates need
+# far more precision than money amounts (e.g. some currency pairs run to
+# 6+ decimal places), predicted and reserved from the start in
+# ARCH_REVIEW_1.md §1.3.
+RATE_MAX_DIGITS = 18
+RATE_DECIMAL_PLACES = 8
