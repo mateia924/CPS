@@ -6,6 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.access.permissions import HasModulePermission
+from apps.accounting.services import get_or_create_party_role_account
 from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 
 from .models import Party, PartyRole
@@ -95,6 +96,7 @@ class PartyViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
             details=serializer.validated_data.get("details", {}),
             legal_entity=serializer.validated_data.get("legal_entity"),
         )
+        get_or_create_party_role_account(party, role)
         if role == PartyRole.Role.EMPLOYEE and serializer.validated_data.get("create_linked_cost_center"):
             link_employee_cost_center(party)
         # `party` was fetched via get_object() through a queryset with

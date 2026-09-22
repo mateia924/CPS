@@ -4,6 +4,7 @@ from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
+from apps.accounting.services import get_or_create_party_role_account
 from apps.common.constants import MONEY_DECIMAL_PLACES, MONEY_MAX_DIGITS
 from apps.organization.models import LegalEntity
 
@@ -138,6 +139,7 @@ class PartySerializer(serializers.ModelSerializer):
         PartyRole.objects.create(
             party=party, role=role, details=role_details, legal_entity=role_legal_entity
         )
+        get_or_create_party_role_account(party, role)
         if role == PartyRole.Role.EMPLOYEE and create_linked_cost_center:
             link_employee_cost_center(party)
         return party
@@ -186,6 +188,7 @@ class _RoleDetailsMixin:
         tenant = validated_data["tenant"]
         party = Party.objects.create(code=generate_party_code(tenant, self.role_const), **validated_data)
         PartyRole.objects.create(party=party, role=self.role_const, details=details)
+        get_or_create_party_role_account(party, self.role_const)
         return party
 
     @transaction.atomic
@@ -307,6 +310,7 @@ class EmployeePartySerializer(serializers.ModelSerializer):
         PartyRole.objects.create(
             party=party, role=PartyRole.Role.EMPLOYEE, details=details, legal_entity=branch
         )
+        get_or_create_party_role_account(party, PartyRole.Role.EMPLOYEE)
         if create_linked:
             link_employee_cost_center(party)
         return party
@@ -373,6 +377,7 @@ class AffiliatePartySerializer(serializers.ModelSerializer):
             code=generate_party_code(tenant, PartyRole.Role.AFFILIATE), **validated_data
         )
         PartyRole.objects.create(party=party, role=PartyRole.Role.AFFILIATE, legal_entity=legal_entity)
+        get_or_create_party_role_account(party, PartyRole.Role.AFFILIATE)
         return party
 
     @transaction.atomic

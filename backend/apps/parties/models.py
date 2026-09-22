@@ -36,12 +36,12 @@ class Party(TenantScopedModel):
     notes = models.TextField(_("notes"), blank=True)
     is_active = models.BooleanField(_("active"), default=True)
 
-    # Design-only for now (docs/SYSTEM_ANALYSIS.md 3.3/3.4): sprint 3
-    # explicitly defers building the full chart-of-accounts tree and
-    # auto-created running (جاري) accounts to sprint 4 — "صمّم النماذج
-    # بحيث يربطوا بها" — same nullable-for-now pattern as
-    # treasury.Bank/CashBox/Custody.gl_account below. Nothing sets this
-    # yet.
+    # Sprint 3: designed nullable-for-now, meant to be set in sprint 4.
+    # SUPERSEDED by accounting.Account.party (sprint 4.3) — a single FK
+    # here can't represent "one party, two roles, two accounts"
+    # (customer + supplier), which 3.4 explicitly requires. Kept,
+    # untouched, unused going forward — see the Decision Log, same
+    # never-delete pattern as Invoice.legacy_customer.
     gl_account = models.ForeignKey(
         "accounting.Account", null=True, blank=True, on_delete=models.SET_NULL, related_name="parties"
     )

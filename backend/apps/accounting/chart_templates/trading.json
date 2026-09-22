@@ -1,0 +1,33 @@
+[
+  {"code": "1000", "name": "الأصول", "type": "asset", "children": [
+    {"code": "1100", "name": "الصناديق", "type": "asset", "system_key": "CASH"},
+    {"code": "1110", "name": "البنوك", "type": "asset", "system_key": "BANKS"},
+    {"code": "1200", "name": "العملاء", "type": "asset", "system_key": "CUSTOMERS"},
+    {"code": "1300", "name": "عُهد الموظفين", "type": "asset", "system_key": "CUSTODIES"},
+    {"code": "1400", "name": "المخزون", "type": "asset"},
+    {"code": "1500", "name": "جاري الشركات الشقيقة", "type": "asset", "system_key": "AFFILIATES", "is_intercompany": true},
+    {"code": "1900", "name": "أصول أخرى", "type": "asset"}
+  ]},
+  {"code": "2000", "name": "الالتزامات", "type": "liability", "children": [
+    {"code": "2100", "name": "الموردون", "type": "liability", "system_key": "SUPPLIERS"},
+    {"code": "2150", "name": "رواتب الموظفين المستحقة", "type": "liability", "system_key": "EMPLOYEES"},
+    {"code": "2200", "name": "ضريبة المخرجات", "type": "liability", "system_key": "VAT_OUTPUT"},
+    {"code": "2300", "name": "ضريبة المدخلات", "type": "liability", "system_key": "VAT_INPUT"},
+    {"code": "2350", "name": "ضريبة غير قابلة للخصم", "type": "liability", "system_key": "VAT_NON_DEDUCTIBLE"}
+  ]},
+  {"code": "3000", "name": "حقوق الملكية", "type": "equity", "children": [
+    {"code": "3100", "name": "رأس المال", "type": "equity"},
+    {"code": "3200", "name": "الأرباح المرحّلة", "type": "equity", "system_key": "RETAINED_EARNINGS"},
+    {"code": "3900", "name": "الأرصدة الافتتاحية", "type": "equity", "system_key": "OPENING_BALANCE"}
+  ]},
+  {"code": "4000", "name": "الإيرادات", "type": "revenue", "children": [
+    {"code": "4100", "name": "إيرادات المبيعات", "type": "revenue", "system_key": "SALES"}
+  ]},
+  {"code": "5000", "name": "المصروفات", "type": "expense", "children": [
+    {"code": "5050", "name": "تكلفة البضاعة المباعة", "type": "expense", "system_key": "COGS"},
+    {"code": "5100", "name": "مصروفات عمومية وإدارية", "type": "expense"},
+    {"code": "5900", "name": "فروق تقريب العملة", "type": "expense", "system_key": "ROUNDING"},
+    {"code": "5910", "name": "فروق عملة محققة", "type": "expense", "system_key": "FX_REALIZED"},
+    {"code": "5920", "name": "فروق عملة غير محققة", "type": "expense", "system_key": "FX_UNREALIZED"}
+  ]}
+]

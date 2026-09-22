@@ -41,6 +41,12 @@ class RegisterSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True, validators=[validate_password])
     first_name = serializers.CharField(max_length=150, required=False, allow_blank=True, default="")
     last_name = serializers.CharField(max_length=150, required=False, allow_blank=True, default="")
+    # Sprint 4.3 (3.4): "نوع النشاط" — basic field at registration,
+    # selects which chart-of-accounts template seed_chart_of_accounts
+    # applies. Defaults to the small-client-first persona (3.13).
+    business_type = serializers.ChoiceField(
+        choices=Tenant.BusinessType.choices, required=False, default=Tenant.BusinessType.SERVICE
+    )
 
     def validate_subdomain(self, value):
         value = value.lower()
@@ -62,6 +68,7 @@ class RegisterSerializer(serializers.Serializer):
                 plan=free_plan,
                 status=Tenant.Status.TRIAL,
                 trial_ends_at=timezone.now() + timedelta(days=TRIAL_LENGTH_DAYS),
+                business_type=validated_data["business_type"],
             )
             user = User.objects.create_user(
                 tenant=tenant,

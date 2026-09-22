@@ -61,4 +61,26 @@
 
 ---
 
+---
+
+## الكتلة 4.3 — الدليل الشجري وقوالب النشاط والحسابات التلقائية ✅
+
+**Commit:** `Sprint 4.3: hierarchical chart of accounts, activity templates, auto sub-ledger accounts`
+
+- `Account` أُعيد بناؤه جزئيًا: `parent`(self-FK)، `level` (محسوب)، `is_leaf`/`can_post` (خاصيتان)، `normal_balance` (صريح، افتراضي من `type`)، `allow_posting`، `is_intercompany`، `system_key`، `party` (FK — الحساب الجاري لطرف)، `is_active`. `clean()` يمنع الدورات ويُلزم تطابق نوع الأب/الابن (نفس نمط `LegalEntity`/`CostCenter`).
+- 4 قوالب JSON (`apps/accounting/chart_templates/`): `service`(~19 حسابًا)، `trading`، `manufacturing`، `holding` — كل حساب نظام مُعلَّم بـ `system_key`. `Tenant.business_type` حقل جديد (أساسي في فورم التسجيل)، `seed_chart_of_accounts(tenant)` يقرأه تلقائيًا.
+- **الحسابات التلقائية:** `get_or_create_party_role_account(party, role)` (idempotent) تحت `system_key` المطابق (CUSTOMERS/SUPPLIERS/EMPLOYEES/AFFILIATES) — طرف بدورين = حسابان، مُختبَر فعليًا. `get_or_create_treasury_account` تملأ `Bank/CashBox/Custody.gl_account` (يحل الدين #20).
+- **قرار تفصيلي (Decision Log، 4.7):** `Party.gl_account` (سبرنت 3) استُبدل فعليًا بـ `Account.party` (الاتجاه المعاكس: من الحساب للطرف، يسمح بحسابين لنفس الطرف) — `Party.gl_account` باقٍ، غير مُستخدَم، موثّق (نفس نمط `legacy_customer`).
+- **قرار تفصيلي:** ترحيل الفاتورة إلى AR أصبح على **حساب العميل الجاري الخاص به** (وليس حساب "1100" مشترك) — نتيجة مباشرة لبناء الحسابات الفرعية؛ `JournalLine.party` يُملأ تلقائيًا من `account.party`.
+- **قرار تفصيلي:** Migration المستأجرين الحاليين تُعلِّم الحسابات المطابقة بـ `system_key` (1000→CASH، 1100→CUSTOMERS، 2100→VAT_OUTPUT، 4000→SALES، 9100→ROUNDING) **دون** إعادة هيكلة/نقل أي حساب — أكثر أمانًا من بناء شجرة موازية فوق حسابات قد تحمل قيودًا فعلية بالفعل؛ "3000"/"5000" بلا مفتاح مطابق (بمثابة "حسابات أخرى" ضمنيًا).
+- `build_journal_lines_with_fx_rounding` (من 4.2) صار يتحقق من `can_post` قبل أي ترحيل (لا حساب أب، لا `allow_posting=False`) ويرفع `ValidationError` — لا شاشة تفاعلية بعد لاختبارها كـ 400 حقيقي (القيود اليدوية في 4.4)، فاختُبرت مباشرة على مستوى الخدمة.
+- `FX_ROUNDING_ACCOUNT_CODE`/الأكواد الثابتة الأخرى في `accounting/services.py` رُقّيت فعليًا إلى بحث بـ `system_key` (TODO سبرنت 4.2 أُغلق الآن).
+- شاشة "دليل الحسابات" (API): CRUD + `/tree` + حماية 400/409 (لا حذف/تغيير نوع/أب لحساب عليه سطور — القاعدة موجودة أصلًا عبر `on_delete=PROTECT` للحذف، وتحقّق صريح في `update()` للنوع/الأب). صلاحية جديدة `accounting.manage` (Owner + Accountant).
+
+**الاختبارات:** 200/200 (179 + 21 جديدة). `ruff`/`manage.py check`/`makemigrations --check` نظيفة. تحقّق فعلي على بيانات Acme (الحسابات القديمة السبعة موجودة، مُعلَّمة، بلا حذف).
+
+**لم يكتمل:** شاشة دليل الحسابات في الفرونت-إند (كتلة 4.7)؛ استخدام الحسابات الفرعية الجديدة في السندات (لا سندات بعد — سبرنت 5).
+
+---
+
 *(تُضاف الكتل التالية هنا بعد إغلاق كل واحدة.)*

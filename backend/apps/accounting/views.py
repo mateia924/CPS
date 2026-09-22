@@ -1,23 +1,42 @@
-from rest_framework import viewsets
+from rest_framework import filters, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 
 from apps.access.permissions import HasModulePermission
+from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 from apps.organization.services import get_accessible_entity_ids
 
 from .models import Account, JournalEntry
-from .serializers import AccountSerializer, JournalEntrySerializer
+from .serializers import AccountSerializer, AccountTreeSerializer, JournalEntrySerializer
 
 
-class AccountViewSet(viewsets.ReadOnlyModelViewSet):
-    """Read-only chart of accounts — accounts are seeded per tenant at
-    registration; editing the chart is out of scope for this phase."""
+class AccountViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
+    """دليل الحسابات (3.4/3.18): إضافة ابن، تعديل، تعطيل، بحث بالكود/
+    الاسم. Sprint 4.3 — was read-only before this."""
 
     serializer_class = AccountSerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
-    permission_map = {"list": "accounting.view", "retrieve": "accounting.view"}
+    queryset = Account.objects.all()
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["code", "name"]
+    ordering_fields = ["code", "name", "created_at"]
+    permission_map = {
+        "list": "accounting.view",
+        "retrieve": "accounting.view",
+        "tree": "accounting.view",
+        "create": "accounting.manage",
+        "update": "accounting.manage",
+        "partial_update": "accounting.manage",
+        "destroy": "accounting.manage",
+        "deactivate": "accounting.manage",
+        "activate": "accounting.manage",
+    }
 
-    def get_queryset(self):
-        return Account.objects.filter(tenant=self.request.user.tenant)
+    @action(detail=False, methods=["get"])
+    def tree(self, request):
+        roots = Account.objects.filter(tenant=request.user.tenant, parent__isnull=True).order_by("code")
+        return Response(AccountTreeSerializer(roots, many=True).data)
 
 
 class JournalEntryViewSet(viewsets.ReadOnlyModelViewSet):

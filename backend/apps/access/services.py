@@ -13,6 +13,9 @@ DEFAULT_PERMISSIONS = [
     ("invoices.create", _("Create invoices")),
     ("invoices.approve", _("Issue/approve invoices")),
     ("accounting.view", _("View the chart of accounts and journal entries")),
+    # Sprint 4.3 (3.15.9 control matrix: "تعديل دليل الحسابات: مدير
+    # حسابات"): the chart-of-accounts screen's write actions.
+    ("accounting.manage", _("Create, edit and deactivate accounts in the chart of accounts")),
     ("organization.view", _("View legal entities")),
     ("organization.manage", _("Create, edit and deactivate legal entities")),
     ("costcenters.view", _("View cost centers")),
@@ -53,6 +56,7 @@ SYSTEM_ROLES = {
         "invoices.create",
         "invoices.approve",
         "accounting.view",
+        "accounting.manage",
         "organization.view",
         "costcenters.view",
         "parties.view",

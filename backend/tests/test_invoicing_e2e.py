@@ -99,7 +99,13 @@ def test_register_login_customer_product_invoice_issue_balanced_journal():
     total_credit = sum(Decimal(line["credit"]) for line in lines)
     assert total_debit == total_credit == Decimal("605.34")
 
-    by_code = {line["account_code"]: line for line in lines}
-    assert by_code["1100"]["debit"] == "605.34"  # Accounts Receivable
-    assert by_code["4000"]["credit"] == "531.00"  # Sales Revenue
-    assert by_code["2100"]["credit"] == "74.34"  # Tax Payable
+    # Sprint 4.3: the AR line posts to the customer's own auto-created
+    # sub-ledger account (under the CUSTOMERS system_key), not a shared
+    # "1100" bucket — identified here by `party`, not a hardcoded code.
+    # (str(): PrimaryKeyRelatedField's test-client `.data` value is a
+    # raw UUID object, not yet stringified by the JSON renderer.)
+    by_party = {str(line["party"]): line for line in lines if line["party"]}
+    assert by_party[customer.data["id"]]["debit"] == "605.34"
+    by_system_key = {line["account_system_key"]: line for line in lines if line.get("account_system_key")}
+    assert by_system_key["SALES"]["credit"] == "531.00"
+    assert by_system_key["VAT_OUTPUT"]["credit"] == "74.34"

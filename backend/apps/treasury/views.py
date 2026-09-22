@@ -2,6 +2,7 @@ from rest_framework import filters
 from rest_framework.permissions import IsAuthenticated
 
 from apps.access.permissions import HasModulePermission
+from apps.accounting.services import get_or_create_treasury_account
 from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 
 from .models import Bank, CashBox, Custody, ExchangeRate
@@ -33,6 +34,10 @@ class BankViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
     ordering_fields = ["name", "created_at"]
     permission_map = _PERMISSION_MAP
 
+    def perform_create(self, serializer):
+        super().perform_create(serializer)
+        get_or_create_treasury_account(serializer.instance, "BANKS")
+
 
 class CashBoxViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
     serializer_class = CashBoxSerializer
@@ -43,6 +48,10 @@ class CashBoxViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
     ordering_fields = ["name", "created_at"]
     permission_map = _PERMISSION_MAP
 
+    def perform_create(self, serializer):
+        super().perform_create(serializer)
+        get_or_create_treasury_account(serializer.instance, "CASH")
+
 
 class CustodyViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
     serializer_class = CustodySerializer
@@ -52,6 +61,10 @@ class CustodyViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
     search_fields = ["name"]
     ordering_fields = ["name", "created_at"]
     permission_map = _PERMISSION_MAP
+
+    def perform_create(self, serializer):
+        super().perform_create(serializer)
+        get_or_create_treasury_account(serializer.instance, "CUSTODIES")
 
     def get_queryset(self):
         queryset = super().get_queryset()

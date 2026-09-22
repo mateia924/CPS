@@ -10,7 +10,6 @@ from rest_framework.test import APIClient
 
 from apps.accounting.models import JournalEntry
 from apps.accounting.services import (
-    FX_ROUNDING_ACCOUNT_CODE,
     FX_ROUNDING_TOLERANCE,
     build_journal_lines_with_fx_rounding,
     post_invoice_journal_entry,
@@ -97,8 +96,8 @@ def test_fx_rounding_helper_adds_no_line_when_exactly_balanced(db):
     entry = JournalEntry.objects.create(tenant=tenant, legal_entity=entity, date=date(2026, 1, 1))
     from apps.accounting.models import Account
 
-    ar = Account.objects.get(tenant=tenant, code="1100")
-    revenue = Account.objects.get(tenant=tenant, code="4000")
+    ar = Account.objects.get(tenant=tenant, system_key="CASH")
+    revenue = Account.objects.get(tenant=tenant, system_key="SALES")
 
     lines = build_journal_lines_with_fx_rounding(
         tenant,
@@ -126,8 +125,8 @@ def test_fx_rounding_helper_adds_a_rounding_line_when_gap_is_within_tolerance(db
     entry = JournalEntry.objects.create(tenant=tenant, legal_entity=entity, date=date(2026, 1, 1))
     from apps.accounting.models import Account
 
-    ar = Account.objects.get(tenant=tenant, code="1100")
-    revenue = Account.objects.get(tenant=tenant, code="4000")
+    ar = Account.objects.get(tenant=tenant, system_key="CASH")
+    revenue = Account.objects.get(tenant=tenant, system_key="SALES")
 
     # One 100.00 fc debit line vs. three 33.33/33.33/33.34 fc credit
     # lines (fc-balanced: they sum to 100.00) — at rate 1.005, each
@@ -166,7 +165,7 @@ def test_fx_rounding_helper_adds_a_rounding_line_when_gap_is_within_tolerance(db
     assert debit_total == credit_total
     assert len(lines) == 5
     rounding_line = lines[4]
-    assert rounding_line.account.code == FX_ROUNDING_ACCOUNT_CODE
+    assert rounding_line.account.system_key == "ROUNDING"
     if expected_gap > 0:
         assert rounding_line.debit == expected_gap
     else:
@@ -181,8 +180,8 @@ def test_fx_rounding_helper_raises_when_gap_exceeds_tolerance(db):
     entry = JournalEntry.objects.create(tenant=tenant, legal_entity=entity, date=date(2026, 1, 1))
     from apps.accounting.models import Account
 
-    ar = Account.objects.get(tenant=tenant, code="1100")
-    revenue = Account.objects.get(tenant=tenant, code="4000")
+    ar = Account.objects.get(tenant=tenant, system_key="CASH")
+    revenue = Account.objects.get(tenant=tenant, system_key="SALES")
 
     with pytest.raises(ValueError):
         build_journal_lines_with_fx_rounding(
@@ -234,8 +233,8 @@ def test_usd_invoice_on_sar_entity_posts_correct_fc_and_base_amounts(db):
     assert invoice.base_total == Decimal("375.00")
 
     entry = post_invoice_journal_entry(invoice)
-    ar_line = entry.lines.get(account__code="1100")
-    revenue_line = entry.lines.get(account__code="4000")
+    ar_line = entry.lines.get(account__party=party)
+    revenue_line = entry.lines.get(account__system_key="SALES")
 
     assert ar_line.debit_fc == Decimal("100.00")
     assert ar_line.debit == Decimal("375.00")
@@ -271,7 +270,7 @@ def test_changing_the_rate_later_does_not_affect_an_already_posted_entry(db):
     )
 
     entry.refresh_from_db()
-    ar_line = entry.lines.get(account__code="1100")
+    ar_line = entry.lines.get(account__party=party)
     assert entry.exchange_rate == Decimal("3.75000000")
     assert ar_line.debit == Decimal("375.00")
 
