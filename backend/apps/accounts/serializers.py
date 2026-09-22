@@ -9,6 +9,7 @@ from rest_framework import serializers
 
 from apps.access.services import seed_default_roles
 from apps.accounting.services import seed_chart_of_accounts
+from apps.approvals.models import ApprovalRule
 from apps.organization.services import create_default_legal_entities
 from apps.platform.models import AuditLog, Plan
 from apps.platform.services import log_action
@@ -89,6 +90,15 @@ class RegisterSerializer(serializers.Serializer):
             roles = seed_default_roles(tenant)
             user.roles.add(roles["Owner"])
             apply_plan_to_tenant(tenant, free_plan)
+
+            # Sprint 4.5 (3.15.9): "لا قيد يدوي يُرحَّل بلا اعتماد" — every
+            # tenant starts with this baseline rule so manual JVs always
+            # need Owner approval by default; editable/removable
+            # afterward via Settings ← "قواعد الاعتماد".
+            ApprovalRule.objects.create(
+                tenant=tenant, doc_type=ApprovalRule.DocType.JOURNAL_ENTRY,
+                min_amount=0, required_role=roles["Owner"],
+            )
 
         return {"tenant": tenant, "user": user}
 

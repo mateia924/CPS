@@ -4,7 +4,6 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
-from apps.accounting.services import post_invoice_journal_entry
 from apps.common.constants import RATE_DECIMAL_PLACES, RATE_MAX_DIGITS
 from apps.organization.models import CostCenter, LegalEntity
 from apps.organization.services import default_branch_for_tenant, get_accessible_entity_ids
@@ -54,12 +53,12 @@ class InvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Invoice
         fields = (
-            "id", "number", "status", "issue_date", "customer", "customer_name",
+            "id", "number", "status", "created_by", "issue_date", "customer", "customer_name",
             "legal_entity", "legal_entity_name", "currency", "exchange_rate",
             "subtotal", "tax_total", "total", "base_total", "lines", "created_at", "updated_at",
         )
         read_only_fields = (
-            "id", "number", "status", "customer_name", "legal_entity_name", "currency",
+            "id", "number", "status", "created_by", "customer_name", "legal_entity_name", "currency",
             "exchange_rate", "subtotal", "tax_total", "total", "base_total", "lines",
             "created_at", "updated_at",
         )
@@ -211,6 +210,7 @@ class InvoiceCreateSerializer(serializers.Serializer):
             line_inputs=resolved_lines,
             currency=validated_data["currency"],
             exchange_rate=validated_data["exchange_rate"],
+            created_by=request.user,
         )
         self._log_rate_override_if_needed(invoice, validated_data)
         return invoice
@@ -231,14 +231,5 @@ class InvoiceCreateSerializer(serializers.Serializer):
         return invoice
 
 
-class InvoiceIssueSerializer(serializers.Serializer):
-    """No input fields — issuing an invoice only transitions its status
-    and posts the journal entry; nothing about it is client-supplied."""
-
-    def save(self, invoice):
-        if invoice.status != Invoice.Status.DRAFT:
-            raise serializers.ValidationError(_("Only draft invoices can be issued."))
-        invoice.status = Invoice.Status.ISSUED
-        invoice.save(update_fields=["status"])
-        post_invoice_journal_entry(invoice)
-        return invoice
+class RejectInvoiceSerializer(serializers.Serializer):
+    reason = serializers.CharField(min_length=3)

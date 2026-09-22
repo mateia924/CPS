@@ -21,6 +21,7 @@ from apps.accounting.services import (
     seed_chart_of_accounts,
     submit_journal_entry_for_approval,
 )
+from apps.approvals.models import ApprovalRule
 from apps.organization.services import create_default_legal_entities
 from apps.sales.models import Invoice
 from apps.sales.services import create_invoice
@@ -33,6 +34,17 @@ from .factories import (
     TenantFactory,
     UserFactory,
 )
+
+
+def _require_approval_for_every_jv(tenant, role):
+    """Sprint 4.5: with no ApprovalRule, submit_for_approval auto-
+    approves immediately (no gate at all) — tenants created directly
+    via TenantFactory() (bypassing registration, which seeds this rule
+    for real tenants) need it added explicitly for any test that
+    exercises the "still needs a human to approve" path."""
+    return ApprovalRule.objects.create(
+        tenant=tenant, doc_type=ApprovalRule.DocType.JOURNAL_ENTRY, min_amount=0, required_role=role
+    )
 
 
 def _leaf_pair(tenant):
@@ -181,6 +193,7 @@ def test_posted_manual_entry_appears_in_trial_balance_and_reversal_zeroes_it(db)
     creator.roles.add(roles["Accountant"])
     approver = UserFactory(tenant=tenant, email="approver@jv-tb.test")
     approver.roles.add(roles["Owner"])
+    _require_approval_for_every_jv(tenant, roles["Owner"])
     cash, sales = _leaf_pair(tenant)
 
     entry = create_manual_journal_entry(
@@ -225,6 +238,7 @@ def test_creator_cannot_approve_their_own_manual_entry(db):
     creator = UserFactory(tenant=tenant, email="creator@jv-sod.test")
     creator.roles.add(roles["Owner"])
     UserFactory(tenant=tenant, email="other@jv-sod.test").roles.add(roles["Accountant"])
+    _require_approval_for_every_jv(tenant, roles["Owner"])
     cash, sales = _leaf_pair(tenant)
 
     entry = create_manual_journal_entry(
@@ -251,6 +265,7 @@ def test_single_active_user_tenant_is_exempt_from_segregation_of_duties(db):
     roles = seed_default_roles(tenant)
     owner = UserFactory(tenant=tenant, email="solo-owner@jv-sod.test")
     owner.roles.add(roles["Owner"])
+    _require_approval_for_every_jv(tenant, roles["Owner"])
     cash, sales = _leaf_pair(tenant)
 
     entry = create_manual_journal_entry(
@@ -333,6 +348,7 @@ def test_manual_jv_full_lifecycle_via_api(db):
     UserEntityAccess.objects.create(user=creator, legal_entity=entity)
     approver = UserFactory(tenant=tenant, email="api-approver@jv-api.test")
     approver.roles.add(roles["Owner"])
+    _require_approval_for_every_jv(tenant, roles["Owner"])
     cash, sales = _leaf_pair(tenant)
 
     creator_client = APIClient()
@@ -423,8 +439,12 @@ def test_trial_balance_endpoint_totals_match(db):
         ],
         currency="SAR", exchange_rate=Decimal("1"),
     )
+    # No ApprovalRule configured for this tenant -> auto-approved on
+    # submit (sprint 4.5's "لا قاعدة مطابقة = اعتماد تلقائي"); only
+    # post_journal_entry (APPROVED -> POSTED) is still needed.
     submit_journal_entry_for_approval(entry, owner)
-    approve_journal_entry(entry, owner)
+    entry.refresh_from_db()
+    assert entry.status == JournalEntry.Status.APPROVED
     post_journal_entry(entry, owner)
 
     client = APIClient()

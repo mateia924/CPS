@@ -25,6 +25,7 @@ from .services import (
     compute_trial_balance,
     create_manual_journal_entry,
     post_journal_entry,
+    reject_journal_entry,
     reverse_journal_entry,
     submit_journal_entry_for_approval,
 )
@@ -97,6 +98,7 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
         "create": "accounting.manage",
         "submit": "accounting.manage",
         "approve": "accounting.manage",
+        "reject": "accounting.manage",
         "post": "accounting.manage",
         "reverse": "accounting.manage",
         "trial_balance": "accounting.view",
@@ -155,13 +157,24 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
         return self._run_transition(approve_journal_entry, request)
 
     @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        entry = self.get_object()
+        serializer = JournalEntryReverseSerializer(data=request.data)  # same shape: {"reason": "..."}
+        serializer.is_valid(raise_exception=True)
+        try:
+            reject_journal_entry(entry, request.user, serializer.validated_data["reason"], request=request)
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        return Response(JournalEntrySerializer(entry).data)
+
+    @action(detail=True, methods=["post"])
     def post(self, request, pk=None):
         return self._run_transition(post_journal_entry, request)
 
     def _run_transition(self, fn, request):
         entry = self.get_object()
         try:
-            fn(entry, request.user)
+            fn(entry, request.user, request=request)
         except (ValidationError, ValueError) as exc:
             return Response({"detail": str(exc)}, status=400)
         except PermissionDenied as exc:

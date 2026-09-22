@@ -62,6 +62,16 @@ class Product(TenantScopedModel):
 class Invoice(TenantScopedModel):
     class Status(models.TextChoices):
         DRAFT = "draft", _("Draft")
+        # Sprint 4.5 (3.15.1): the same two intermediate values every
+        # approvable document uses (apps.approvals.services) — Invoice
+        # keeps its own field/choices rather than literally inheriting
+        # DocumentStateMixin, since its terminal states (issued/paid/
+        # cancelled) don't fit that mixin's vocabulary; see the Decision
+        # Log. "ISSUED(=POSTED)" in the sprint spec: an approved invoice
+        # transitions straight to ISSUED (no separate "posted" value for
+        # invoices — issuing IS posting here, unchanged since sprint 1).
+        PENDING_APPROVAL = "pending_approval", _("Pending approval")
+        APPROVED = "approved", _("Approved")
         ISSUED = "issued", _("Issued")
         PAID = "paid", _("Paid")
         CANCELLED = "cancelled", _("Cancelled")
@@ -74,6 +84,11 @@ class Invoice(TenantScopedModel):
         Customer, null=True, blank=True, on_delete=models.PROTECT, related_name="invoices"
     )
     party = models.ForeignKey("parties.Party", on_delete=models.PROTECT, related_name="invoices")
+    # Sprint 4.5: segregation of duties needs to know who drafted this
+    # invoice — null for every pre-4.5 row.
+    created_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     # Mandatory per docs/SYSTEM_ANALYSIS.md section 4 rule 3. Went
     # through the 3-step safe migration for pre-sprint-1 rows: nullable,
     # backfill, then NOT NULL (apps/sales/migrations/0002-0004).

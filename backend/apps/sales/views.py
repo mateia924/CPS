@@ -1,3 +1,4 @@
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.utils.translation import gettext_lazy as _
 from rest_framework import filters, viewsets
 from rest_framework.decorators import action
@@ -16,10 +17,11 @@ from .models import Customer, Invoice, Product
 from .serializers import (
     CustomerSerializer,
     InvoiceCreateSerializer,
-    InvoiceIssueSerializer,
     InvoiceSerializer,
     ProductSerializer,
+    RejectInvoiceSerializer,
 )
+from .services import approve_invoice, issue_invoice, reject_invoice
 
 
 class CustomerViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
@@ -75,6 +77,8 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         "create": "invoices.create",
         "partial_update": "invoices.create",
         "issue": "invoices.approve",
+        "approve": "invoices.approve",
+        "reject": "invoices.approve",
         "void": "invoices.approve",
     }
 
@@ -123,8 +127,32 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def issue(self, request, pk=None):
         invoice = self.get_object()
-        serializer = InvoiceIssueSerializer()
-        invoice = serializer.save(invoice)
+        try:
+            invoice = issue_invoice(invoice, request.user, request=request)
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        return Response(InvoiceSerializer(invoice).data)
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        invoice = self.get_object()
+        try:
+            invoice = approve_invoice(invoice, request.user, request=request)
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        except PermissionDenied as exc:
+            return Response({"detail": str(exc)}, status=403)
+        return Response(InvoiceSerializer(invoice).data)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        invoice = self.get_object()
+        serializer = RejectInvoiceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            invoice = reject_invoice(invoice, request.user, serializer.validated_data["reason"], request=request)
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
         return Response(InvoiceSerializer(invoice).data)
 
     @action(detail=True, methods=["post"])

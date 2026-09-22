@@ -4,8 +4,9 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Sum
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -20,14 +21,6 @@ from .models import Account, JournalEntry, JournalLine
 # REVERSED isn't an exclusion. DRAFT/PENDING_APPROVAL/APPROVED never do
 # (rule 13: "لا قيد محاسبي يُرحَّل إلا من مستند بحالة POSTED").
 REPORTABLE_STATUSES = [JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED]
-
-# Sprint 4.4 (3.15.9): "قاعدة اعتماد افتراضية على JV لدور
-# ACCOUNTANT_MANAGER/OWNER" — reuses the accounting.manage permission
-# (4.3) rather than inventing a new code, since it's already scoped to
-# exactly Owner + Accountant. The full configurable ApprovalRule engine
-# (any doc_type + amount threshold) is sprint 4.5; this is the
-# hardcoded version 4.4's own manual-JV screen needs in the meantime.
-_JV_APPROVAL_PERMISSION = "accounting.manage"
 
 CHART_TEMPLATES_DIR = Path(__file__).resolve().parent / "chart_templates"
 
@@ -420,33 +413,37 @@ def _transition_journal_entry(entry, new_status, user, action):
     )
 
 
-def submit_journal_entry_for_approval(entry, user):
-    if entry.status != JournalEntry.Status.DRAFT:
-        raise ValidationError(_("Only a draft entry can be submitted for approval."))
-    _transition_journal_entry(entry, JournalEntry.Status.PENDING_APPROVAL, user, "submit")
+def _journal_entry_amount_base(entry):
+    return entry.lines.aggregate(total=Sum("debit"))["total"] or Decimal("0")
 
 
-def approve_journal_entry(entry, user):
-    """3.15.9 segregation of duties: the creator can never approve
-    their own entry — except in a single-active-user tenant (3.15.1:
-    "المستأجر ذو المستخدم الواحد يُستثنى تلقائيًا"), where there is
-    nobody else who could. The full configurable ApprovalRule engine
-    (sprint 4.5) will generalize this; this is the hardcoded version
-    4.4's own screen needs now."""
-    if entry.status != JournalEntry.Status.PENDING_APPROVAL:
-        raise ValidationError(_("Only a pending-approval entry can be approved."))
-    single_user_tenant = entry.tenant.users.filter(is_active=True).count() <= 1
-    if not single_user_tenant:
-        if entry.created_by_id == user.id:
-            raise PermissionDenied(_("You cannot approve a journal entry you created yourself."))
-        from apps.access.services import user_has_permission
+def submit_journal_entry_for_approval(entry, user, request=None):
+    """Sprint 4.5: delegates to the generic apps.approvals engine —
+    3.15.9's "لا قيد يدوي يُرحَّل بلا اعتماد" is now enforced by a real,
+    tenant-editable ApprovalRule (seeded by default at registration and
+    backfilled for existing tenants, min_amount=0 -> Owner) instead of
+    the hardcoded check 4.4 shipped with."""
+    from apps.approvals.services import submit_for_approval
 
-        if not user_has_permission(user, _JV_APPROVAL_PERMISSION):
-            raise PermissionDenied(_("You do not have permission to approve journal entries."))
-    _transition_journal_entry(entry, JournalEntry.Status.APPROVED, user, "approve")
+    submit_for_approval(entry, user, "journal_entry", _journal_entry_amount_base(entry), request=request)
+    return entry
 
 
-def post_journal_entry(entry, user):
+def approve_journal_entry(entry, user, request=None):
+    from apps.approvals.services import approve as approvals_approve
+
+    approvals_approve(entry, user, "journal_entry", _journal_entry_amount_base(entry), request=request)
+    return entry
+
+
+def reject_journal_entry(entry, user, reason, request=None):
+    from apps.approvals.services import reject as approvals_reject
+
+    approvals_reject(entry, user, "journal_entry", reason, request=request)
+    return entry
+
+
+def post_journal_entry(entry, user, request=None):
     if entry.status != JournalEntry.Status.APPROVED:
         raise ValidationError(_("Only an approved entry can be posted."))
     _transition_journal_entry(entry, JournalEntry.Status.POSTED, user, "post")

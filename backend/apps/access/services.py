@@ -41,6 +41,10 @@ DEFAULT_PERMISSIONS = [
     # yearly-reset) — Settings ← "ترقيم المستندات".
     ("numbering.view", _("View document numbering settings")),
     ("numbering.manage", _("Edit document numbering prefixes and yearly reset")),
+    # Sprint 4.5 (3.15.1): الإعدادات ← "قواعد الاعتماد" + صندوق الاعتماد.
+    # approvals.view also gates seeing the approval inbox counter (3.18).
+    ("approvals.view", _("View approval rules and the approval inbox")),
+    ("approvals.manage", _("Create, edit and deactivate approval rules")),
 ]
 
 # Reasonable, editable defaults per system role — not specified in full
@@ -64,6 +68,7 @@ SYSTEM_ROLES = {
         "treasury.view",
         "assets.view",
         "numbering.view",
+        "approvals.view",
     ],
     "Sales": [
         "customers.view",

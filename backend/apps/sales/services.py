@@ -1,6 +1,8 @@
 from decimal import ROUND_HALF_UP, Decimal
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.utils.translation import gettext_lazy as _
 
 from apps.numbering.services import next_document_number
 
@@ -67,13 +69,15 @@ def _build_lines(invoice, line_inputs):
 
 
 @transaction.atomic
-def create_invoice(tenant, party, legal_entity, issue_date, line_inputs, currency, exchange_rate):
+def create_invoice(tenant, party, legal_entity, issue_date, line_inputs, currency, exchange_rate, created_by=None):
     """Create a draft invoice with its lines, snapshot pricing from each
     product, then compute totals. `currency`/`exchange_rate` (sprint
     4.2, 3.11/3.15.3) are already resolved by the caller (auto-pulled
     via apps.treasury.services.get_rate or an explicit override) —
     this function just stores them and lets recalculate_invoice derive
-    base_total."""
+    base_total. `created_by` (sprint 4.5) drives segregation of duties
+    on approval — optional so every direct-service-call test/caller
+    that predates 4.5 keeps working unchanged."""
     invoice = Invoice.objects.create(
         tenant=tenant,
         party=party,
@@ -83,6 +87,7 @@ def create_invoice(tenant, party, legal_entity, issue_date, line_inputs, currenc
         status=Invoice.Status.DRAFT,
         currency=currency,
         exchange_rate=exchange_rate,
+        created_by=created_by,
     )
     _build_lines(invoice, line_inputs)
     return recalculate_invoice(invoice)
@@ -103,3 +108,64 @@ def update_invoice(invoice, party, legal_entity, issue_date, line_inputs, curren
     invoice.lines.all().delete()
     _build_lines(invoice, line_inputs)
     return recalculate_invoice(invoice)
+
+
+def _actually_issue(invoice):
+    """The real, final step — posts the journal entry and marks the
+    invoice ISSUED. Only ever called once a DRAFT invoice is either
+    auto-approved or explicitly approved (sprint 4.5); never called
+    directly from outside this module."""
+    from apps.accounting.services import post_invoice_journal_entry
+
+    invoice.status = Invoice.Status.ISSUED
+    invoice.save(update_fields=["status"])
+    post_invoice_journal_entry(invoice)
+    return invoice
+
+
+@transaction.atomic
+def issue_invoice(invoice, user, request=None):
+    """Sprint 4.5 (3.15.1): "الفاتورة بلا قاعدة مطابقة تُعتمد تلقائيًا
+    عند الإصدار (سلوك العميل الصغير لا يتغير)" — this single action
+    covers the whole DRAFT -> PENDING_APPROVAL -> APPROVED -> ISSUED
+    chain transparently for the common case (no rule, or the issuing
+    user is already authorized to self-approve): it just becomes
+    ISSUED in one call, exactly like before 4.5. Only when a matching
+    ApprovalRule blocks the *current* user does this stop short at
+    PENDING_APPROVAL — someone else with the required role then calls
+    approve_invoice() from "صندوق الاعتماد", which itself finishes the
+    issuance (APPROVED -> ISSUED is one step for invoices, no separate
+    manual "post" — unlike JournalEntry).
+    """
+    from apps.approvals.services import can_approve, submit_for_approval
+
+    if invoice.status == Invoice.Status.APPROVED:
+        return _actually_issue(invoice)
+    if invoice.status != Invoice.Status.DRAFT:
+        raise ValidationError(_("Only a draft or approved invoice can be issued."))
+
+    auto_approved = submit_for_approval(invoice, user, "invoice", invoice.base_total, request=request)
+    if auto_approved:
+        return _actually_issue(invoice)
+    if can_approve(invoice, user, "invoice", invoice.base_total):
+        from apps.approvals.services import approve as approvals_approve
+
+        approvals_approve(invoice, user, "invoice", invoice.base_total, request=request)
+        return _actually_issue(invoice)
+    # Genuinely blocked: stays at PENDING_APPROVAL for someone else to
+    # approve via the inbox.
+    return invoice
+
+
+def approve_invoice(invoice, user, request=None):
+    from apps.approvals.services import approve as approvals_approve
+
+    approvals_approve(invoice, user, "invoice", invoice.base_total, request=request)
+    return _actually_issue(invoice)
+
+
+def reject_invoice(invoice, user, reason, request=None):
+    from apps.approvals.services import reject as approvals_reject
+
+    approvals_reject(invoice, user, "invoice", reason, request=request)
+    return invoice
