@@ -46,6 +46,13 @@ class Product(TenantScopedModel):
         decimal_places=PERCENTAGE_DECIMAL_PLACES,
         default=0,
     )
+    # Sprint 4.6 (3.16.2, rule 16): pre-fills a new invoice line's
+    # tax_code — the free tax_rate above stays as-is (a product-level
+    # default/legacy display value), it no longer drives what actually
+    # posts; InvoiceLine.tax_code does.
+    default_tax_code = models.ForeignKey(
+        "accounting.TaxCode", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     is_active = models.BooleanField(_("active"), default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -180,6 +187,16 @@ class InvoiceLine(models.Model):
     )
     tax_rate = models.DecimalField(
         _("tax rate (%)"), max_digits=PERCENTAGE_MAX_DIGITS, decimal_places=PERCENTAGE_DECIMAL_PLACES
+    )
+    # Sprint 4.6 (3.16.2, rule 16): "البند يحمل tax_code (FK) لا نسبة
+    # حرّة" — tax_rate above becomes a pure snapshot computed from
+    # tax_code.rate at save time (services._build_lines), not a free
+    # input anymore. Nullable-then-required 3-step migration (same
+    # pattern as Invoice.legal_entity): nullable here, backfilled
+    # (15% -> S, 0% -> Z) by a data migration, then a follow-up
+    # migration makes it NOT NULL.
+    tax_code = models.ForeignKey(
+        "accounting.TaxCode", on_delete=models.PROTECT, related_name="invoice_lines"
     )
 
     # Computed server-side by services.recalculate_invoice().

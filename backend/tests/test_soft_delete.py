@@ -6,6 +6,7 @@ deactivate/activate always work regardless of references.
 
 import pytest
 
+from apps.accounting.models import TaxCode
 from apps.organization.models import CostCenter, LegalEntity
 from apps.parties.models import Party
 from apps.sales.models import Customer, Product
@@ -65,9 +66,13 @@ def test_delete_party_with_invoice_returns_409(tenant_a, client_a):
     # Customer endpoint.
     customer = PartyFactory(tenant=tenant_a)
     product = ProductFactory(tenant=tenant_a)
+    tax_code = TaxCode.objects.get(tenant=tenant_a, code="S")
     created = client_a.post(
         "/api/invoices/",
-        {"customer": str(customer.id), "lines": [{"product": str(product.id), "quantity": "1"}]},
+        {
+            "customer": str(customer.id),
+            "lines": [{"product": str(product.id), "quantity": "1", "tax_code": str(tax_code.id)}],
+        },
         format="json",
     )
     assert created.status_code == 201
@@ -89,9 +94,13 @@ def test_delete_customer_without_invoice_actually_deletes(tenant_a, client_a):
 def test_delete_product_used_in_invoice_line_returns_409(tenant_a, client_a):
     customer = PartyFactory(tenant=tenant_a)
     product = ProductFactory(tenant=tenant_a)
+    tax_code = TaxCode.objects.get(tenant=tenant_a, code="S")
     created = client_a.post(
         "/api/invoices/",
-        {"customer": str(customer.id), "lines": [{"product": str(product.id), "quantity": "1"}]},
+        {
+            "customer": str(customer.id),
+            "lines": [{"product": str(product.id), "quantity": "1", "tax_code": str(tax_code.id)}],
+        },
         format="json",
     )
     assert created.status_code == 201
@@ -119,12 +128,13 @@ def test_delete_legal_entity_used_by_invoice_returns_409(tenant_a, client_a):
     )
     customer = PartyFactory(tenant=tenant_a)
     product = ProductFactory(tenant=tenant_a)
+    tax_code = TaxCode.objects.get(tenant=tenant_a, code="S")
     created = client_a.post(
         "/api/invoices/",
         {
             "customer": str(customer.id),
             "legal_entity": str(branch.id),
-            "lines": [{"product": str(product.id), "quantity": "1"}],
+            "lines": [{"product": str(product.id), "quantity": "1", "tax_code": str(tax_code.id)}],
         },
         format="json",
     )
@@ -170,12 +180,16 @@ def test_delete_cost_center_used_by_invoice_line_returns_409(tenant_a, client_a)
     customer = PartyFactory(tenant=tenant_a)
     product = ProductFactory(tenant=tenant_a)
     cost_center = CostCenterFactory(tenant=tenant_a)
+    tax_code = TaxCode.objects.get(tenant=tenant_a, code="S")
     created = client_a.post(
         "/api/invoices/",
         {
             "customer": str(customer.id),
             "lines": [
-                {"product": str(product.id), "quantity": "1", "cost_center": str(cost_center.id)}
+                {
+                    "product": str(product.id), "quantity": "1", "cost_center": str(cost_center.id),
+                    "tax_code": str(tax_code.id),
+                }
             ],
         },
         format="json",

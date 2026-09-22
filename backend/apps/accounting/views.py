@@ -12,13 +12,15 @@ from apps.organization.models import CostCenter
 from apps.organization.services import get_accessible_entity_ids
 from apps.treasury.services import ExchangeRateNotFound, get_rate
 
-from .models import Account, JournalEntry
+from .models import Account, JournalEntry, TaxCode, TaxPeriod
 from .serializers import (
     AccountSerializer,
     AccountTreeSerializer,
     JournalEntryReverseSerializer,
     JournalEntrySerializer,
     ManualJournalEntryCreateSerializer,
+    TaxCodeSerializer,
+    TaxPeriodSerializer,
 )
 from .services import (
     approve_journal_entry,
@@ -220,4 +222,43 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
                 "total_debit": str(result["total_debit"]),
                 "total_credit": str(result["total_credit"]),
             }
+        )
+
+
+class TaxCodeViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
+    """أكواد الضريبة (3.16.2): قراءة للجميع بصلاحية accounting.view؛
+    التعديل (اسم/تفعيل فقط — TaxCodeSerializer.update) وإضافة كود جديد
+    لمن يملك accounting.manage."""
+
+    serializer_class = TaxCodeSerializer
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    queryset = TaxCode.objects.all()
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["code", "name"]
+    ordering_fields = ["code", "created_at"]
+    permission_map = {
+        "list": "accounting.view",
+        "retrieve": "accounting.view",
+        "create": "accounting.manage",
+        "update": "accounting.manage",
+        "partial_update": "accounting.manage",
+        "destroy": "accounting.manage",
+        "deactivate": "accounting.manage",
+        "activate": "accounting.manage",
+    }
+
+
+class TaxPeriodViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    """فترات الإقرار (3.16.2): قائمة بسيطة فقط — التوليد تلقائي
+    (apps.accounting.services.generate_tax_periods_for_year عند
+    التسجيل ولكل مستأجر موجود)، والإقرار نفسه سبرنت 10."""
+
+    serializer_class = TaxPeriodSerializer
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    permission_map = {"list": "accounting.view", "retrieve": "accounting.view"}
+
+    def get_queryset(self):
+        accessible_ids = get_accessible_entity_ids(self.request.user)
+        return TaxPeriod.objects.filter(
+            tenant=self.request.user.tenant, legal_entity_id__in=accessible_ids
         )

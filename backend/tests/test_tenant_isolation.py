@@ -22,6 +22,7 @@ import pytest
 from django.conf import settings
 from rest_framework.test import APIClient
 
+from apps.accounting.models import TaxCode
 from apps.organization.models import LegalEntity
 from apps.sales.models import Customer, Product
 
@@ -107,11 +108,12 @@ def test_product_list_excludes_other_tenant(tenant_a, tenant_b, client_a):
 def test_invoice_list_excludes_other_tenant(tenant_a, tenant_b, client_a, client_b):
     customer_b = PartyFactory(tenant=tenant_b)
     product_b = ProductFactory(tenant=tenant_b)
+    tax_code_b = TaxCode.objects.get(tenant=tenant_b, code="S")
     created = client_b.post(
         "/api/invoices/",
         {
             "customer": str(customer_b.id),
-            "lines": [{"product": str(product_b.id), "quantity": "1"}],
+            "lines": [{"product": str(product_b.id), "quantity": "1", "tax_code": str(tax_code_b.id)}],
         },
         format="json",
     )
@@ -172,11 +174,12 @@ def test_delete_other_tenant_product_returns_404_and_does_not_delete(tenant_b, c
 def test_get_other_tenant_invoice_returns_404(tenant_a, tenant_b, client_a, client_b):
     customer_b = PartyFactory(tenant=tenant_b)
     product_b = ProductFactory(tenant=tenant_b)
+    tax_code_b = TaxCode.objects.get(tenant=tenant_b, code="S")
     created = client_b.post(
         "/api/invoices/",
         {
             "customer": str(customer_b.id),
-            "lines": [{"product": str(product_b.id), "quantity": "1"}],
+            "lines": [{"product": str(product_b.id), "quantity": "1", "tax_code": str(tax_code_b.id)}],
         },
         format="json",
     )
@@ -190,11 +193,12 @@ def test_get_other_tenant_invoice_returns_404(tenant_a, tenant_b, client_a, clie
 def test_issue_other_tenant_invoice_returns_404(tenant_a, tenant_b, client_a, client_b):
     customer_b = PartyFactory(tenant=tenant_b)
     product_b = ProductFactory(tenant=tenant_b)
+    tax_code_b = TaxCode.objects.get(tenant=tenant_b, code="S")
     created = client_b.post(
         "/api/invoices/",
         {
             "customer": str(customer_b.id),
-            "lines": [{"product": str(product_b.id), "quantity": "1"}],
+            "lines": [{"product": str(product_b.id), "quantity": "1", "tax_code": str(tax_code_b.id)}],
         },
         format="json",
     )
@@ -363,11 +367,12 @@ def test_deactivate_other_tenant_cost_center_returns_404(tenant_b, client_a):
 def test_void_other_tenant_invoice_returns_404(tenant_a, tenant_b, client_a, client_b):
     customer_b = PartyFactory(tenant=tenant_b)
     product_b = ProductFactory(tenant=tenant_b)
+    tax_code_b = TaxCode.objects.get(tenant=tenant_b, code="S")
     created = client_b.post(
         "/api/invoices/",
         {
             "customer": str(customer_b.id),
-            "lines": [{"product": str(product_b.id), "quantity": "1"}],
+            "lines": [{"product": str(product_b.id), "quantity": "1", "tax_code": str(tax_code_b.id)}],
         },
         format="json",
     )
@@ -382,11 +387,12 @@ def test_void_other_tenant_invoice_returns_404(tenant_a, tenant_b, client_a, cli
 def test_patch_other_tenant_invoice_returns_404(tenant_a, tenant_b, client_a, client_b):
     customer_b = PartyFactory(tenant=tenant_b)
     product_b = ProductFactory(tenant=tenant_b)
+    tax_code_b = TaxCode.objects.get(tenant=tenant_b, code="S")
     created = client_b.post(
         "/api/invoices/",
         {
             "customer": str(customer_b.id),
-            "lines": [{"product": str(product_b.id), "quantity": "1"}],
+            "lines": [{"product": str(product_b.id), "quantity": "1", "tax_code": str(tax_code_b.id)}],
         },
         format="json",
     )
@@ -396,7 +402,7 @@ def test_patch_other_tenant_invoice_returns_404(tenant_a, tenant_b, client_a, cl
         f"/api/invoices/{created.data['id']}/",
         {
             "customer": str(customer_b.id),
-            "lines": [{"product": str(product_b.id), "quantity": "9"}],
+            "lines": [{"product": str(product_b.id), "quantity": "9", "tax_code": str(tax_code_b.id)}],
         },
         format="json",
     )

@@ -13,7 +13,7 @@ from apps.common.constants import (
 from apps.organization.models import LegalEntity
 from apps.organization.services import get_accessible_entity_ids
 
-from .models import Account, JournalEntry, JournalLine
+from .models import Account, JournalEntry, JournalLine, TaxCode, TaxPeriod
 from .services import REPORTABLE_STATUSES
 
 
@@ -180,3 +180,38 @@ class ManualJournalEntryCreateSerializer(serializers.Serializer):
 
 class JournalEntryReverseSerializer(serializers.Serializer):
     reason = serializers.CharField(min_length=3)
+
+
+class TaxCodeSerializer(serializers.ModelSerializer):
+    """أكواد الضريبة (3.16.2): "قراءة + تعديل الاسم/التفعيل؛ إضافة كود
+    جديد للمدير المالي" — rate/kind/direction/deductible/account are
+    read-only after creation (a code's meaning shouldn't drift under
+    invoices that already reference it); only name/is_active are ever
+    PATCHable, matching the spec's own restriction."""
+
+    class Meta:
+        model = TaxCode
+        fields = (
+            "id", "code", "name", "rate", "kind", "direction", "deductible", "account",
+            "country_code", "effective_from", "is_active", "created_at",
+        )
+        read_only_fields = ("id", "created_at")
+
+    def update(self, instance, validated_data):
+        allowed = {"name", "is_active"}
+        blocked = set(validated_data) - allowed
+        if blocked:
+            raise serializers.ValidationError(
+                {field: [_("Only name and is_active can be edited after creation.")] for field in blocked}
+            )
+        return super().update(instance, validated_data)
+
+
+class TaxPeriodSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TaxPeriod
+        fields = (
+            "id", "legal_entity", "period_type", "start", "end", "status", "filed_at",
+            "reference", "created_at",
+        )
+        read_only_fields = fields

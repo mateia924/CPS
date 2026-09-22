@@ -1,0 +1,26 @@
+[
+  {
+    "code": "S", "name": "ضريبة قياسية 15%", "rate": "15.00",
+    "kind": "standard", "direction": "output", "deductible": "full", "system_key": "VAT_OUTPUT"
+  },
+  {
+    "code": "Z", "name": "صفرية 0%", "rate": "0.00",
+    "kind": "zero_rated", "direction": "output", "deductible": "full", "system_key": "VAT_OUTPUT"
+  },
+  {
+    "code": "E", "name": "معفاة", "rate": "0.00",
+    "kind": "exempt", "direction": "output", "deductible": "full", "system_key": "VAT_OUTPUT"
+  },
+  {
+    "code": "O", "name": "خارج نطاق الضريبة", "rate": "0.00",
+    "kind": "out_of_scope", "direction": "output", "deductible": "full", "system_key": "VAT_OUTPUT"
+  },
+  {
+    "code": "RC", "name": "ضريبة عكسية (خدمات مستوردة)", "rate": "15.00",
+    "kind": "reverse_charge", "direction": "both", "deductible": "full", "system_key": "VAT_OUTPUT"
+  },
+  {
+    "code": "SN", "name": "قياسية 15% غير قابلة للخصم", "rate": "15.00",
+    "kind": "standard", "direction": "input", "deductible": "none", "system_key": "VAT_NON_DEDUCTIBLE"
+  }
+]

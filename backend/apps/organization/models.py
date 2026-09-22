@@ -19,6 +19,10 @@ class LegalEntity(TenantScopedModel):
         COMPANY = "company", _("Company")
         BRANCH = "branch", _("Branch")
 
+    class TaxPeriodType(models.TextChoices):
+        MONTHLY = "monthly", _("Monthly")
+        QUARTERLY = "quarterly", _("Quarterly")
+
     parent = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.PROTECT, related_name="children"
     )
@@ -28,6 +32,12 @@ class LegalEntity(TenantScopedModel):
     country_code = models.CharField(_("country code"), max_length=2, default="SA")
     tax_number = models.CharField(_("tax number"), max_length=50, blank=True)
     base_currency = models.CharField(_("base currency"), max_length=3, default="SAR")
+    # Sprint 4.6 (3.16.2): "توليد تلقائي للسنة الحالية حسب نوع الفترة
+    # المختار في إعدادات الكيان" — drives
+    # accounting.services.generate_tax_periods_for_year.
+    tax_period_type = models.CharField(
+        _("tax period type"), max_length=10, choices=TaxPeriodType.choices, default=TaxPeriodType.MONTHLY
+    )
     is_active = models.BooleanField(_("active"), default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

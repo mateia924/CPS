@@ -10,6 +10,8 @@ from rest_framework.test import APIClient
 
 from apps.access.models import UserEntityAccess
 from apps.access.services import seed_default_roles
+from apps.accounting.models import TaxCode
+from apps.accounting.services import seed_chart_of_accounts, seed_tax_codes_for_country
 from apps.organization.models import LegalEntity
 
 from .factories import PartyFactory, ProductFactory, TenantFactory, UserFactory
@@ -27,6 +29,8 @@ def tenant_with_two_branches(db):
     branch_b = LegalEntity.objects.create(
         tenant=tenant, code="BR-B", name="Branch B", entity_type=LegalEntity.Type.BRANCH, parent=company
     )
+    seed_chart_of_accounts(tenant)
+    seed_tax_codes_for_country(tenant, "SA")
     return tenant, branch_a, branch_b
 
 
@@ -82,12 +86,13 @@ def test_entity_restricted_user_cannot_see_other_branch_invoices(tenant_with_two
 
     customer = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant)
+    tax_code = TaxCode.objects.get(tenant=tenant, code="S")
     created = owner_client.post(
         "/api/invoices/",
         {
             "customer": str(customer.id),
             "legal_entity": str(branch_b.id),
-            "lines": [{"product": str(product.id), "quantity": "1"}],
+            "lines": [{"product": str(product.id), "quantity": "1", "tax_code": str(tax_code.id)}],
         },
         format="json",
     )
@@ -120,13 +125,14 @@ def test_owner_bypasses_entity_access_and_sees_both_branches(tenant_with_two_bra
 
     customer = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant)
+    tax_code = TaxCode.objects.get(tenant=tenant, code="S")
     for branch in (branch_a, branch_b):
         response = client.post(
             "/api/invoices/",
             {
                 "customer": str(customer.id),
                 "legal_entity": str(branch.id),
-                "lines": [{"product": str(product.id), "quantity": "1"}],
+                "lines": [{"product": str(product.id), "quantity": "1", "tax_code": str(tax_code.id)}],
             },
             format="json",
         )

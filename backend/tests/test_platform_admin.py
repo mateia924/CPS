@@ -16,7 +16,8 @@ from django.db import DatabaseError, transaction
 from rest_framework.test import APIClient
 
 from apps.access.services import seed_default_roles
-from apps.accounting.services import seed_chart_of_accounts
+from apps.accounting.models import TaxCode
+from apps.accounting.services import seed_chart_of_accounts, seed_tax_codes_for_country
 from apps.organization.services import create_default_legal_entities
 from apps.platform.models import AuditLog, Plan, PlatformBackupCode
 from apps.platform.services import generate_backup_codes
@@ -67,6 +68,7 @@ def tenant_with_owner(db):
     apply_plan_to_tenant(tenant, tenant.plan)
     create_default_legal_entities(tenant, tenant.name)
     seed_chart_of_accounts(tenant)
+    seed_tax_codes_for_country(tenant, "SA")
     roles = seed_default_roles(tenant)
     owner = UserFactory(tenant=tenant, email="owner@platform-t1.test", password=CUSTOMER_PASSWORD)
     owner.roles.add(roles["Owner"])
@@ -456,17 +458,19 @@ def test_exceeding_max_invoices_per_month_returns_402(db):
     tenant = TenantFactory(subdomain="limited-invoices", plan=limited_plan)
     create_default_legal_entities(tenant, tenant.name)
     seed_chart_of_accounts(tenant)
+    seed_tax_codes_for_country(tenant, "SA")
     roles = seed_default_roles(tenant)
     owner = UserFactory(tenant=tenant, email="owner@limited-invoices.test")
     owner.roles.add(roles["Owner"])
     customer = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant)
+    tax_code = TaxCode.objects.get(tenant=tenant, code="S")
 
     client = APIClient()
     client.force_authenticate(user=owner)
     payload = {
         "customer": str(customer.id),
-        "lines": [{"product": str(product.id), "quantity": "1.00"}],
+        "lines": [{"product": str(product.id), "quantity": "1.00", "tax_code": str(tax_code.id)}],
     }
 
     first = client.post("/api/invoices/", payload, format="json")
@@ -482,17 +486,19 @@ def test_below_max_invoices_per_month_succeeds(db):
     tenant = TenantFactory(subdomain="roomy-invoices", plan=roomy_plan)
     create_default_legal_entities(tenant, tenant.name)
     seed_chart_of_accounts(tenant)
+    seed_tax_codes_for_country(tenant, "SA")
     roles = seed_default_roles(tenant)
     owner = UserFactory(tenant=tenant, email="owner@roomy-invoices.test")
     owner.roles.add(roles["Owner"])
     customer = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant)
+    tax_code = TaxCode.objects.get(tenant=tenant, code="S")
 
     client = APIClient()
     client.force_authenticate(user=owner)
     payload = {
         "customer": str(customer.id),
-        "lines": [{"product": str(product.id), "quantity": "1.00"}],
+        "lines": [{"product": str(product.id), "quantity": "1.00", "tax_code": str(tax_code.id)}],
     }
 
     response = client.post("/api/invoices/", payload, format="json")

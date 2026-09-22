@@ -8,10 +8,11 @@ import pytest
 from rest_framework.test import APIClient
 
 from apps.access.services import seed_default_roles
-from apps.accounting.models import Account
+from apps.accounting.models import Account, TaxCode
 from apps.accounting.services import (
     create_manual_journal_entry,
     seed_chart_of_accounts,
+    seed_tax_codes_for_country,
     submit_journal_entry_for_approval,
 )
 from apps.approvals.models import ApprovalRule
@@ -171,15 +172,17 @@ def test_reject_without_reason_returns_400(db):
 def test_invoice_with_no_rule_issues_immediately_small_client_unchanged(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_tax_codes_for_country(tenant, "SA")
     _company, entity = create_default_legal_entities(tenant, tenant.name)
     roles = seed_default_roles(tenant)
     owner = UserFactory(tenant=tenant, email="owner@inv-small.test")
     owner.roles.add(roles["Owner"])
     party = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant, unit_price="10.00", tax_rate="0")
+    tax_code_z = TaxCode.objects.get(tenant=tenant, code="Z")
     invoice = create_invoice(
         tenant=tenant, party=party, legal_entity=entity, issue_date=date(2026, 1, 1),
-        line_inputs=[{"product": product, "quantity": Decimal("1"), "cost_center": None}],
+        line_inputs=[{"product": product, "quantity": Decimal("1"), "cost_center": None, "tax_code": tax_code_z}],
         currency="SAR", exchange_rate=Decimal("1"), created_by=owner,
     )
 
@@ -192,6 +195,7 @@ def test_invoice_with_no_rule_issues_immediately_small_client_unchanged(db):
 def test_invoice_blocked_by_rule_stays_pending_then_inbox_approval_issues_it(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_tax_codes_for_country(tenant, "SA")
     _company, entity = create_default_legal_entities(tenant, tenant.name)
     roles = seed_default_roles(tenant)
     ApprovalRule.objects.create(
@@ -206,9 +210,10 @@ def test_invoice_blocked_by_rule_stays_pending_then_inbox_approval_issues_it(db)
     owner.roles.add(roles["Owner"])
     party = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant, unit_price="10.00", tax_rate="0")
+    tax_code_z = TaxCode.objects.get(tenant=tenant, code="Z")
     invoice = create_invoice(
         tenant=tenant, party=party, legal_entity=entity, issue_date=date(2026, 1, 1),
-        line_inputs=[{"product": product, "quantity": Decimal("1"), "cost_center": None}],
+        line_inputs=[{"product": product, "quantity": Decimal("1"), "cost_center": None, "tax_code": tax_code_z}],
         currency="SAR", exchange_rate=Decimal("1"), created_by=creator,
     )
 
@@ -229,6 +234,7 @@ def test_invoice_blocked_by_rule_stays_pending_then_inbox_approval_issues_it(db)
 def test_invoice_reject_sends_it_back_to_draft(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_tax_codes_for_country(tenant, "SA")
     _company, entity = create_default_legal_entities(tenant, tenant.name)
     roles = seed_default_roles(tenant)
     ApprovalRule.objects.create(
@@ -243,9 +249,10 @@ def test_invoice_reject_sends_it_back_to_draft(db):
     owner.roles.add(roles["Owner"])
     party = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant, unit_price="10.00", tax_rate="0")
+    tax_code_z = TaxCode.objects.get(tenant=tenant, code="Z")
     invoice = create_invoice(
         tenant=tenant, party=party, legal_entity=entity, issue_date=date(2026, 1, 1),
-        line_inputs=[{"product": product, "quantity": Decimal("1"), "cost_center": None}],
+        line_inputs=[{"product": product, "quantity": Decimal("1"), "cost_center": None, "tax_code": tax_code_z}],
         currency="SAR", exchange_rate=Decimal("1"), created_by=creator,
     )
     client = APIClient()

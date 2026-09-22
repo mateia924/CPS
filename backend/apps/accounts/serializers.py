@@ -8,7 +8,11 @@ from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
 from apps.access.services import seed_default_roles
-from apps.accounting.services import seed_chart_of_accounts
+from apps.accounting.services import (
+    generate_tax_periods_for_year,
+    seed_chart_of_accounts,
+    seed_tax_codes_for_country,
+)
 from apps.approvals.models import ApprovalRule
 from apps.organization.services import create_default_legal_entities
 from apps.platform.models import AuditLog, Plan
@@ -86,10 +90,16 @@ class RegisterSerializer(serializers.Serializer):
             # legal structure, system roles, and feature flags for every
             # new tenant. The registering user always gets the Owner
             # role, which bypasses entity-access scoping entirely.
-            create_default_legal_entities(tenant, validated_data["company_name"])
+            _company, branch = create_default_legal_entities(tenant, validated_data["company_name"])
             roles = seed_default_roles(tenant)
             user.roles.add(roles["Owner"])
             apply_plan_to_tenant(tenant, free_plan)
+
+            # Sprint 4.6 (3.11/3.16.2): "حزمة الامتثال السعودية ... تُبذر
+            # لكل مستأجر سعودي عند التسجيل" — keyed off the default
+            # branch's country (every LegalEntity defaults to SA today).
+            seed_tax_codes_for_country(tenant, branch.country_code)
+            generate_tax_periods_for_year(branch, timezone.now().year)
 
             # Sprint 4.5 (3.15.9): "لا قيد يدوي يُرحَّل بلا اعتماد" — every
             # tenant starts with this baseline rule so manual JVs always

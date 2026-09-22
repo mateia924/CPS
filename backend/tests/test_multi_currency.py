@@ -8,12 +8,13 @@ from decimal import Decimal
 import pytest
 from rest_framework.test import APIClient
 
-from apps.accounting.models import JournalEntry
+from apps.accounting.models import JournalEntry, TaxCode
 from apps.accounting.services import (
     FX_ROUNDING_TOLERANCE,
     build_journal_lines_with_fx_rounding,
     post_invoice_journal_entry,
     seed_chart_of_accounts,
+    seed_tax_codes_for_country,
 )
 from apps.organization.services import create_default_legal_entities
 from apps.platform.models import AuditLog
@@ -216,15 +217,17 @@ def test_usd_invoice_on_sar_entity_posts_correct_fc_and_base_amounts(db):
     ExchangeRate.objects.create(
         tenant=tenant, from_currency="USD", to_currency="SAR", date=date(2026, 1, 1), rate=Decimal("3.75")
     )
+    seed_tax_codes_for_country(tenant, "SA")
     party = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant, unit_price="100.00", tax_rate="0")
+    tax_code_z = TaxCode.objects.get(tenant=tenant, code="Z")
 
     invoice = create_invoice(
         tenant=tenant,
         party=party,
         legal_entity=entity,
         issue_date=date(2026, 1, 1),
-        line_inputs=[{"product": product, "quantity": Decimal("1"), "cost_center": None}],
+        line_inputs=[{"product": product, "quantity": Decimal("1"), "cost_center": None, "tax_code": tax_code_z}],
         currency="USD",
         exchange_rate=get_rate(tenant, "USD", "SAR", date(2026, 1, 1)),
     )
@@ -250,14 +253,16 @@ def test_changing_the_rate_later_does_not_affect_an_already_posted_entry(db):
     ExchangeRate.objects.create(
         tenant=tenant, from_currency="USD", to_currency="SAR", date=date(2026, 1, 1), rate=Decimal("3.75")
     )
+    seed_tax_codes_for_country(tenant, "SA")
     party = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant, unit_price="100.00", tax_rate="0")
+    tax_code_z = TaxCode.objects.get(tenant=tenant, code="Z")
     invoice = create_invoice(
         tenant=tenant,
         party=party,
         legal_entity=entity,
         issue_date=date(2026, 1, 1),
-        line_inputs=[{"product": product, "quantity": Decimal("1"), "cost_center": None}],
+        line_inputs=[{"product": product, "quantity": Decimal("1"), "cost_center": None, "tax_code": tax_code_z}],
         currency="USD",
         exchange_rate=get_rate(tenant, "USD", "SAR", date(2026, 1, 1)),
     )
@@ -312,10 +317,14 @@ def test_invoice_defaults_to_base_currency_with_rate_1(db):
     tenant = Tenant.objects.get(subdomain="fx-default")
     party = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant, unit_price="50.00", tax_rate="0")
+    tax_code_z = TaxCode.objects.get(tenant=tenant, code="Z")
 
     response = client.post(
         "/api/invoices/",
-        {"customer": str(party.id), "lines": [{"product": str(product.id), "quantity": "1"}]},
+        {
+            "customer": str(party.id),
+            "lines": [{"product": str(product.id), "quantity": "1", "tax_code": str(tax_code_z.id)}],
+        },
         format="json",
     )
 
@@ -334,13 +343,14 @@ def test_invoice_in_foreign_currency_without_a_rate_returns_400(db):
     tenant = Tenant.objects.get(subdomain="fx-missing-rate")
     party = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant, unit_price="50.00", tax_rate="0")
+    tax_code_z = TaxCode.objects.get(tenant=tenant, code="Z")
 
     response = client.post(
         "/api/invoices/",
         {
             "customer": str(party.id),
             "currency": "USD",
-            "lines": [{"product": str(product.id), "quantity": "1"}],
+            "lines": [{"product": str(product.id), "quantity": "1", "tax_code": str(tax_code_z.id)}],
         },
         format="json",
     )
@@ -361,6 +371,7 @@ def test_invoice_auto_pulls_rate_when_currency_differs_from_base(db):
     )
     party = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant, unit_price="100.00", tax_rate="0")
+    tax_code_z = TaxCode.objects.get(tenant=tenant, code="Z")
 
     response = client.post(
         "/api/invoices/",
@@ -368,7 +379,7 @@ def test_invoice_auto_pulls_rate_when_currency_differs_from_base(db):
             "customer": str(party.id),
             "currency": "USD",
             "issue_date": "2026-01-01",
-            "lines": [{"product": str(product.id), "quantity": "1"}],
+            "lines": [{"product": str(product.id), "quantity": "1", "tax_code": str(tax_code_z.id)}],
         },
         format="json",
     )
@@ -390,6 +401,7 @@ def test_manual_exchange_rate_override_is_logged_to_audit_log(db):
     )
     party = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant, unit_price="100.00", tax_rate="0")
+    tax_code_z = TaxCode.objects.get(tenant=tenant, code="Z")
 
     response = client.post(
         "/api/invoices/",
@@ -398,7 +410,7 @@ def test_manual_exchange_rate_override_is_logged_to_audit_log(db):
             "currency": "USD",
             "exchange_rate": "3.90",
             "issue_date": "2026-01-01",
-            "lines": [{"product": str(product.id), "quantity": "1"}],
+            "lines": [{"product": str(product.id), "quantity": "1", "tax_code": str(tax_code_z.id)}],
         },
         format="json",
     )
@@ -420,6 +432,7 @@ def test_same_currency_explicit_rate_override_is_ignored(db):
     tenant = Tenant.objects.get(subdomain="fx-sameccy")
     party = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant, unit_price="10.00", tax_rate="0")
+    tax_code_z = TaxCode.objects.get(tenant=tenant, code="Z")
 
     response = client.post(
         "/api/invoices/",
@@ -427,7 +440,7 @@ def test_same_currency_explicit_rate_override_is_ignored(db):
             "customer": str(party.id),
             "currency": "SAR",
             "exchange_rate": "5.00",
-            "lines": [{"product": str(product.id), "quantity": "1"}],
+            "lines": [{"product": str(product.id), "quantity": "1", "tax_code": str(tax_code_z.id)}],
         },
         format="json",
     )

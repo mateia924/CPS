@@ -8,15 +8,18 @@ from decimal import Decimal
 
 import pytest
 
+from apps.accounting.models import TaxCode
+
 from .factories import PartyFactory, ProductFactory
 
 
 def _create_invoice(client, customer, product, quantity="1"):
+    tax_code = TaxCode.objects.get(tenant=customer.tenant, code="S")
     return client.post(
         "/api/invoices/",
         {
             "customer": str(customer.id),
-            "lines": [{"product": str(product.id), "quantity": quantity}],
+            "lines": [{"product": str(product.id), "quantity": quantity, "tax_code": str(tax_code.id)}],
         },
         format="json",
     )
@@ -27,20 +30,23 @@ def test_patch_draft_invoice_recalculates_totals(tenant_a, client_a):
     customer = PartyFactory(tenant=tenant_a)
     product = ProductFactory(tenant=tenant_a, unit_price="100.00", tax_rate="10.00")
     invoice = _create_invoice(client_a, customer, product, "2").data
-    assert invoice["total"] == "220.00"
+    # tax_rate="10.00" on the product is now unused for calculation —
+    # tax comes from tax_code.rate ("S" = 15%) since sprint 4.6.
+    assert invoice["total"] == "230.00"
+    tax_code = TaxCode.objects.get(tenant=tenant_a, code="S")
 
     response = client_a.patch(
         f"/api/invoices/{invoice['id']}/",
         {
             "customer": str(customer.id),
-            "lines": [{"product": str(product.id), "quantity": "5"}],
+            "lines": [{"product": str(product.id), "quantity": "5", "tax_code": str(tax_code.id)}],
         },
         format="json",
     )
     assert response.status_code == 200
     assert response.data["subtotal"] == "500.00"
-    assert response.data["tax_total"] == "50.00"
-    assert response.data["total"] == "550.00"
+    assert response.data["tax_total"] == "75.00"
+    assert response.data["total"] == "575.00"
     assert len(response.data["lines"]) == 1
     assert response.data["lines"][0]["quantity"] == "5.00"
 
@@ -51,10 +57,14 @@ def test_patch_issued_invoice_rejected(tenant_a, client_a):
     product = ProductFactory(tenant=tenant_a)
     invoice = _create_invoice(client_a, customer, product).data
     client_a.post(f"/api/invoices/{invoice['id']}/issue/")
+    tax_code = TaxCode.objects.get(tenant=tenant_a, code="S")
 
     response = client_a.patch(
         f"/api/invoices/{invoice['id']}/",
-        {"customer": str(customer.id), "lines": [{"product": str(product.id), "quantity": "9"}]},
+        {
+            "customer": str(customer.id),
+            "lines": [{"product": str(product.id), "quantity": "9", "tax_code": str(tax_code.id)}],
+        },
         format="json",
     )
     assert response.status_code == 400

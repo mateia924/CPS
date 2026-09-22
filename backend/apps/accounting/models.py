@@ -9,6 +9,8 @@ from django.utils.translation import gettext_lazy as _
 from apps.common.constants import (
     MONEY_DECIMAL_PLACES,
     MONEY_MAX_DIGITS,
+    PERCENTAGE_DECIMAL_PLACES,
+    PERCENTAGE_MAX_DIGITS,
     RATE_DECIMAL_PLACES,
     RATE_MAX_DIGITS,
 )
@@ -226,3 +228,98 @@ class JournalLine(models.Model):
 
     def __str__(self):
         return f"{self.account.code} D{self.debit} C{self.credit}"
+
+
+class TaxCode(TenantScopedModel):
+    """Sprint 4.6 (docs/SYSTEM_ANALYSIS.md 3.16.2; rule 16: "الضريبة على
+    البند عبر tax_code (FK) لا نسبة حرّة"). Seeded per country via
+    apps/compliance/<country>/tax_codes.json — apps.accounting.services.
+    seed_tax_codes_for_country (السعودية أولًا, 3.11)."""
+
+    class Kind(models.TextChoices):
+        STANDARD = "standard", _("Standard")
+        ZERO_RATED = "zero_rated", _("Zero rated")
+        EXEMPT = "exempt", _("Exempt")
+        OUT_OF_SCOPE = "out_of_scope", _("Out of scope")
+        REVERSE_CHARGE = "reverse_charge", _("Reverse charge")
+
+    class Direction(models.TextChoices):
+        OUTPUT = "output", _("Output")
+        INPUT = "input", _("Input")
+        BOTH = "both", _("Both")
+
+    class Deductible(models.TextChoices):
+        FULL = "full", _("Full")
+        NONE = "none", _("None")
+
+    code = models.CharField(_("code"), max_length=10)
+    name = models.CharField(_("name"), max_length=100)
+    rate = models.DecimalField(
+        _("rate (%)"), max_digits=PERCENTAGE_MAX_DIGITS, decimal_places=PERCENTAGE_DECIMAL_PLACES, default=0
+    )
+    kind = models.CharField(_("kind"), max_length=20, choices=Kind.choices)
+    direction = models.CharField(_("direction"), max_length=10, choices=Direction.choices)
+    deductible = models.CharField(
+        _("deductible"), max_length=10, choices=Deductible.choices, default=Deductible.FULL
+    )
+    # Which GL account output/input tax on this code posts to — usually
+    # resolved via a system_key (VAT_OUTPUT/VAT_INPUT/VAT_NON_DEDUCTIBLE)
+    # at seed time; nullable because REVERSE_CHARGE posts to two
+    # accounts at once (services.build_reverse_charge_tax_specs), not
+    # this single FK, and a NONE-deductible code routes its tax amount
+    # to the expense/asset account instead (services.
+    # resolve_tax_posting_account) — both intentionally not "one account
+    # on the code" cases.
+    account = models.ForeignKey(
+        "accounting.Account", null=True, blank=True, on_delete=models.PROTECT, related_name="tax_codes"
+    )
+    country_code = models.CharField(_("country code"), max_length=2, default="SA")
+    effective_from = models.DateField(_("effective from"), null=True, blank=True)
+    is_active = models.BooleanField(_("active"), default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["code"]
+        constraints = [
+            models.UniqueConstraint(fields=["tenant", "code"], name="unique_tax_code_per_tenant")
+        ]
+
+    def __str__(self):
+        return f"{self.code} ({self.rate}%)"
+
+
+class TaxPeriod(TenantScopedModel):
+    """Sprint 4.6 (3.16.2): "مستقل عن الفترة المالية" — the VAT filing
+    calendar, independent of FiscalYear/FiscalPeriod (sprint 6). Filing
+    itself (status transitions beyond this list) is sprint 10."""
+
+    class PeriodType(models.TextChoices):
+        MONTHLY = "monthly", _("Monthly")
+        QUARTERLY = "quarterly", _("Quarterly")
+
+    class Status(models.TextChoices):
+        OPEN = "open", _("Open")
+        FILED = "filed", _("Filed")
+        PAID = "paid", _("Paid")
+
+    legal_entity = models.ForeignKey(
+        "organization.LegalEntity", on_delete=models.PROTECT, related_name="tax_periods"
+    )
+    period_type = models.CharField(_("period type"), max_length=10, choices=PeriodType.choices)
+    start = models.DateField(_("start"))
+    end = models.DateField(_("end"))
+    status = models.CharField(_("status"), max_length=10, choices=Status.choices, default=Status.OPEN)
+    filed_at = models.DateTimeField(_("filed at"), null=True, blank=True)
+    reference = models.CharField(_("reference"), max_length=100, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-start"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "legal_entity", "start", "end"], name="unique_tax_period_range"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.legal_entity} {self.start}..{self.end}"

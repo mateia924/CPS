@@ -15,6 +15,9 @@ from decimal import Decimal
 import pytest
 from rest_framework.test import APIClient
 
+from apps.accounting.models import TaxCode
+from apps.tenants.models import Tenant
+
 
 @pytest.mark.django_db
 def test_register_login_customer_product_invoice_issue_balanced_journal():
@@ -67,15 +70,21 @@ def test_register_login_customer_product_invoice_issue_balanced_journal():
     )
     assert product2.status_code == 201
 
-    # 3 x 150.00 + 2 x 40.50, 14% tax on each line: subtotal 531.00,
-    # tax 74.34, total 605.34 — computed entirely server-side.
+    # Sprint 4.6: tax now comes from tax_code.rate (a snapshot), not
+    # Product.tax_rate — "S" is the standard 15% code every tenant gets
+    # at registration.
+    tenant = Tenant.objects.get(subdomain="acme-e2e")
+    tax_code_s = TaxCode.objects.get(tenant=tenant, code="S")
+
+    # 3 x 150.00 + 2 x 40.50, 15% tax on each line: subtotal 531.00,
+    # tax 79.65, total 610.65 — computed entirely server-side.
     invoice = client.post(
         "/api/invoices/",
         {
             "customer": customer.data["id"],
             "lines": [
-                {"product": product1.data["id"], "quantity": "3"},
-                {"product": product2.data["id"], "quantity": "2"},
+                {"product": product1.data["id"], "quantity": "3", "tax_code": str(tax_code_s.id)},
+                {"product": product2.data["id"], "quantity": "2", "tax_code": str(tax_code_s.id)},
             ],
         },
         format="json",
@@ -83,8 +92,8 @@ def test_register_login_customer_product_invoice_issue_balanced_journal():
     assert invoice.status_code == 201
     assert invoice.data["status"] == "draft"
     assert invoice.data["subtotal"] == "531.00"
-    assert invoice.data["tax_total"] == "74.34"
-    assert invoice.data["total"] == "605.34"
+    assert invoice.data["tax_total"] == "79.65"
+    assert invoice.data["total"] == "610.65"
 
     issue = client.post(f"/api/invoices/{invoice.data['id']}/issue/")
     assert issue.status_code == 200
@@ -97,7 +106,7 @@ def test_register_login_customer_product_invoice_issue_balanced_journal():
     lines = entries.data["results"][0]["lines"]
     total_debit = sum(Decimal(line["debit"]) for line in lines)
     total_credit = sum(Decimal(line["credit"]) for line in lines)
-    assert total_debit == total_credit == Decimal("605.34")
+    assert total_debit == total_credit == Decimal("610.65")
 
     # Sprint 4.3: the AR line posts to the customer's own auto-created
     # sub-ledger account (under the CUSTOMERS system_key), not a shared
@@ -105,7 +114,7 @@ def test_register_login_customer_product_invoice_issue_balanced_journal():
     # (str(): PrimaryKeyRelatedField's test-client `.data` value is a
     # raw UUID object, not yet stringified by the JSON renderer.)
     by_party = {str(line["party"]): line for line in lines if line["party"]}
-    assert by_party[customer.data["id"]]["debit"] == "605.34"
+    assert by_party[customer.data["id"]]["debit"] == "610.65"
     by_system_key = {line["account_system_key"]: line for line in lines if line.get("account_system_key")}
     assert by_system_key["SALES"]["credit"] == "531.00"
-    assert by_system_key["VAT_OUTPUT"]["credit"] == "74.34"
+    assert by_system_key["VAT_OUTPUT"]["credit"] == "79.65"

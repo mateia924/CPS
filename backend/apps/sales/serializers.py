@@ -4,6 +4,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
+from apps.accounting.models import TaxCode
 from apps.common.constants import RATE_DECIMAL_PLACES, RATE_MAX_DIGITS
 from apps.organization.models import CostCenter, LegalEntity
 from apps.organization.services import default_branch_for_tenant, get_accessible_entity_ids
@@ -24,18 +25,30 @@ class CustomerSerializer(serializers.ModelSerializer):
 
 
 class ProductSerializer(serializers.ModelSerializer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request is not None and request.user.is_authenticated:
+            self.fields["default_tax_code"].queryset = TaxCode.objects.filter(
+                tenant=request.user.tenant, is_active=True
+            )
+
     class Meta:
         model = Product
-        fields = ("id", "sku", "name", "unit_price", "tax_rate", "is_active", "created_at")
+        fields = (
+            "id", "sku", "name", "unit_price", "tax_rate", "default_tax_code", "is_active", "created_at",
+        )
         read_only_fields = ("id", "created_at")
 
 
 class InvoiceLineSerializer(serializers.ModelSerializer):
+    tax_code_display = serializers.CharField(source="tax_code.code", read_only=True)
+
     class Meta:
         model = InvoiceLine
         fields = (
-            "id", "product", "cost_center", "description", "quantity", "unit_price",
-            "tax_rate", "line_subtotal", "line_tax", "line_total",
+            "id", "product", "cost_center", "tax_code", "tax_code_display", "description",
+            "quantity", "unit_price", "tax_rate", "line_subtotal", "line_tax", "line_total",
         )
         read_only_fields = fields
 
@@ -78,6 +91,9 @@ class InvoiceLineInputSerializer(serializers.Serializer):
     # Optional, line-level (docs/SYSTEM_ANALYSIS.md 3.2/3.3) — never
     # required, never on the document.
     cost_center = serializers.UUIDField(required=False, allow_null=True)
+    # Sprint 4.6 (3.16.2, rule 16): mandatory — a line with no tax_code
+    # is rejected (400), by this field simply being required.
+    tax_code = serializers.UUIDField()
 
 
 class InvoiceCreateSerializer(serializers.Serializer):
@@ -193,8 +209,15 @@ class InvoiceCreateSerializer(serializers.Serializer):
                     raise serializers.ValidationError(
                         {"lines": [_("Cost center not found.")]}
                     )
+            try:
+                tax_code = TaxCode.objects.get(tenant=tenant, id=line["tax_code"], is_active=True)
+            except TaxCode.DoesNotExist:
+                raise serializers.ValidationError({"lines": [_("Tax code not found.")]})
             resolved.append(
-                {"product": product, "quantity": line["quantity"], "cost_center": cost_center}
+                {
+                    "product": product, "quantity": line["quantity"], "cost_center": cost_center,
+                    "tax_code": tax_code,
+                }
             )
         return resolved
 

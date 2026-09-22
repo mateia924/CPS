@@ -14,7 +14,7 @@ from apps.numbering.services import next_document_number
 from apps.platform.models import AuditLog
 from apps.platform.services import log_action
 
-from .models import Account, JournalEntry, JournalLine
+from .models import Account, JournalEntry, JournalLine, TaxCode, TaxPeriod
 
 # Sprint 4.4 (3.15.1): POSTED and REVERSED entries both contribute to
 # every balance/report — see DocumentStateMixin's docstring for why
@@ -23,6 +23,7 @@ from .models import Account, JournalEntry, JournalLine
 REPORTABLE_STATUSES = [JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED]
 
 CHART_TEMPLATES_DIR = Path(__file__).resolve().parent / "chart_templates"
+COMPLIANCE_DIR = Path(__file__).resolve().parent.parent / "compliance"
 
 # Fallback codes for a chart that predates sprint 4.3 (system_key didn't
 # exist) or otherwise lacks a system_key for something get_system_account
@@ -109,6 +110,94 @@ def _get_system_account_or_fallback(tenant, system_key):
             _("لا يوجد حساب في الدليل بمفتاح %(key)s — راجع دليل الحسابات.") % {"key": system_key}
         )
     return account
+
+
+def seed_tax_codes_for_country(tenant, country_code):
+    """Sprint 4.6 (3.11/3.16.2): "حزمة الامتثال كقابلة للتوصيل لكل
+    دولة (ZATCA أولًا)" — apps/compliance/<country>/tax_codes.json.
+    Idempotent (get_or_create per code) so it's safe to call again for
+    a tenant that already has some/all of the codes. Silently does
+    nothing for a country with no compliance package yet."""
+    path = COMPLIANCE_DIR / country_code.lower() / "tax_codes.json"
+    if not path.exists():
+        return
+    with path.open(encoding="utf-8") as f:
+        codes = json.load(f)
+    for entry in codes:
+        account = get_system_account(tenant, entry["system_key"]) if entry.get("system_key") else None
+        TaxCode.objects.get_or_create(
+            tenant=tenant,
+            code=entry["code"],
+            defaults={
+                "name": entry["name"],
+                "rate": entry["rate"],
+                "kind": entry["kind"],
+                "direction": entry["direction"],
+                "deductible": entry["deductible"],
+                "account": account,
+                "country_code": country_code,
+            },
+        )
+
+
+def resolve_tax_posting_account(tenant, tax_code):
+    """Which account a tax_code's amount posts to. None for a
+    NONE-deductible code (sprint 4.6: "NONE deductible يُحمَّل على حساب
+    المصروف/الأصل لا حساب الضريبة") — the caller (a purchase-invoice
+    flow, sprint 8) must route that amount onto the expense/asset
+    account itself instead; nothing in this sprint calls this with a
+    NONE-deductible code for real yet, since sales-side output tax is
+    always fully deductible/reportable by definition."""
+    if tax_code.deductible == TaxCode.Deductible.NONE:
+        return None
+    if tax_code.account_id:
+        return tax_code.account
+    return get_system_account(tenant, "VAT_OUTPUT" if tax_code.direction != "input" else "VAT_INPUT")
+
+
+def build_reverse_charge_tax_specs(tenant, tax_code, base_amount, cost_center=None):
+    """Sprint 4.6: REVERSE_CHARGE self-assesses both sides of the VAT at
+    once — "يولّد قيدًا ضريبيًا مزدوجًا (مخرجات + مدخلات)". Returns two
+    line_specs (output credit + input debit, equal amounts, net zero
+    cash effect) for the caller to include alongside its other lines.
+    Not exercised by any real document flow until the supplier-invoice
+    screen (sprint 8); the logic is ready and unit-tested now."""
+    if base_amount == 0:
+        return []
+    output_account = get_system_account(tenant, "VAT_OUTPUT")
+    input_account = get_system_account(tenant, "VAT_INPUT")
+    return [
+        {"account": output_account, "cost_center": cost_center, "debit_fc": Decimal("0"), "credit_fc": base_amount},
+        {"account": input_account, "cost_center": cost_center, "debit_fc": base_amount, "credit_fc": Decimal("0")},
+    ]
+
+
+def generate_tax_periods_for_year(legal_entity, year):
+    """Sprint 4.6 (3.16.2): "توليد تلقائي للسنة الحالية حسب نوع الفترة
+    المختار في إعدادات الكيان" — idempotent (get_or_create per range).
+    Calendar-year monthly/quarterly periods; the filing itself is
+    sprint 10."""
+    import calendar
+    from datetime import date
+
+    periods = []
+    if legal_entity.tax_period_type == "quarterly":
+        ranges = [(1, 3), (4, 6), (7, 9), (10, 12)]
+    else:
+        ranges = [(m, m) for m in range(1, 13)]
+
+    for start_month, end_month in ranges:
+        start = date(year, start_month, 1)
+        end = date(year, end_month, calendar.monthrange(year, end_month)[1])
+        period, _created = TaxPeriod.objects.get_or_create(
+            tenant=legal_entity.tenant,
+            legal_entity=legal_entity,
+            start=start,
+            end=end,
+            defaults={"period_type": legal_entity.tax_period_type},
+        )
+        periods.append(period)
+    return periods
 
 
 def get_or_create_party_role_account(party, role):
@@ -235,6 +324,34 @@ def build_journal_lines_with_fx_rounding(tenant, entry, line_specs, exchange_rat
     return lines
 
 
+def _tax_line_specs(tenant, invoice):
+    """Sprint 4.6 (3.16.2): one tax line per distinct TaxCode used on
+    the invoice (grouped, summed), not one lump VAT line — "سطر ضريبة
+    لكل TaxCode في الفاتورة على حسابه". Lines whose tax_code computed
+    to zero tax (Z/E/O) contribute no line at all — posting a
+    zero-amount line is meaningless. A REVERSE_CHARGE code posts its
+    dual output+input lines instead of a single credit."""
+    groups = OrderedDict()
+    for line in invoice.lines.select_related("tax_code").order_by("tax_code_id"):
+        if line.line_tax == 0:
+            continue
+        key = line.tax_code_id
+        if key not in groups:
+            groups[key] = {"tax_code": line.tax_code, "amount": Decimal("0")}
+        groups[key]["amount"] += line.line_tax
+
+    specs = []
+    for group in groups.values():
+        tax_code, amount = group["tax_code"], group["amount"]
+        if tax_code.kind == TaxCode.Kind.REVERSE_CHARGE:
+            specs.extend(build_reverse_charge_tax_specs(tenant, tax_code, amount))
+            continue
+        account = resolve_tax_posting_account(tenant, tax_code)
+        if account is not None:
+            specs.append({"account": account, "debit_fc": Decimal("0"), "credit_fc": amount})
+    return specs
+
+
 def _cost_center_revenue_specs(invoice, revenue_account):
     """Sprint 4.4 (ARCH_REVIEW_1.md debt #5, resolved): one revenue
     line per distinct cost_center among the invoice's lines (grouped,
@@ -303,11 +420,7 @@ def post_invoice_journal_entry(invoice):
         {"account": ar, "debit_fc": invoice.total, "credit_fc": Decimal("0")},
         *_cost_center_revenue_specs(invoice, revenue),
     ]
-    if invoice.tax_total:
-        tax_payable = _get_system_account_or_fallback(tenant, "VAT_OUTPUT")
-        line_specs.append(
-            {"account": tax_payable, "debit_fc": Decimal("0"), "credit_fc": invoice.tax_total}
-        )
+    line_specs.extend(_tax_line_specs(tenant, invoice))
 
     lines = build_journal_lines_with_fx_rounding(tenant, entry, line_specs, invoice.exchange_rate)
     JournalLine.objects.bulk_create(lines)

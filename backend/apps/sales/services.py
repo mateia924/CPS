@@ -50,18 +50,22 @@ def recalculate_invoice(invoice):
 
 def _build_lines(invoice, line_inputs):
     """`line_inputs` is a list of {"product": Product, "quantity":
-    Decimal, "cost_center": CostCenter | None}. Shared by create_invoice
-    and update_invoice so both snapshot pricing identically."""
+    Decimal, "cost_center": CostCenter | None, "tax_code": TaxCode}.
+    Shared by create_invoice and update_invoice so both snapshot
+    pricing identically. `tax_rate` is a snapshot of tax_code.rate at
+    save time (sprint 4.6, rule 16) — never the product's own tax_rate
+    directly, and never free client input."""
     InvoiceLine.objects.bulk_create(
         [
             InvoiceLine(
                 invoice=invoice,
                 product=item["product"],
                 cost_center=item.get("cost_center"),
+                tax_code=item["tax_code"],
                 description=item["product"].name,
                 quantity=item["quantity"],
                 unit_price=item["product"].unit_price,
-                tax_rate=item["product"].tax_rate,
+                tax_rate=item["tax_code"].rate,
             )
             for item in line_inputs
         ]

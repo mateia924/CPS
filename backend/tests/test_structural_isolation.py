@@ -31,6 +31,7 @@ TENANT_FILTER_EXEMPTIONS = {
     "apps.accounting.views.JournalEntryViewSet": "get_queryset() filters by tenant + get_accessible_entity_ids() by hand",
     "apps.sales.views.InvoiceViewSet": "get_queryset() filters by tenant + get_accessible_entity_ids() by hand",
     "apps.approvals.views.PendingApprovalsView": "plain APIView aggregating two already-tenant-scoped queries (JournalEntry/Invoice, both explicitly filtered by request.user.tenant) — not a ModelViewSet, so TenantScopedViewSet inheritance doesn't apply structurally",
+    "apps.accounting.views.TaxPeriodViewSet": "get_queryset() filters by tenant + get_accessible_entity_ids() by hand, same pattern as JournalEntryViewSet above",
 }
 
 # Views that are correctly not tenant-scoped at all: public auth entry

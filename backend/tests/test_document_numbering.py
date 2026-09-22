@@ -12,6 +12,8 @@ from django.db import connection
 from rest_framework.test import APIClient
 
 from apps.access.services import seed_default_roles
+from apps.accounting.models import TaxCode
+from apps.accounting.services import seed_chart_of_accounts, seed_tax_codes_for_country
 from apps.numbering.models import DocumentNumberingSetting, DocumentSequence
 from apps.numbering.services import DEFAULT_PREFIXES, next_document_number
 from apps.organization.services import create_default_legal_entities
@@ -145,6 +147,8 @@ def test_two_branches_first_real_invoices_via_api_get_different_numbers(db):
     company = LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.COMPANY)
     branch_a = LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.BRANCH, parent=company)
     branch_b = LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.BRANCH, parent=company)
+    seed_chart_of_accounts(tenant)
+    seed_tax_codes_for_country(tenant, "SA")
     roles = seed_default_roles(tenant)
     owner = UserFactory(tenant=tenant, email="owner@two-branch-inv.test")
     owner.roles.add(roles["Owner"])
@@ -152,13 +156,14 @@ def test_two_branches_first_real_invoices_via_api_get_different_numbers(db):
     UserEntityAccess.objects.create(user=owner, legal_entity=branch_b)
     party = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant, unit_price="10.00", tax_rate="0")
+    tax_code_z = TaxCode.objects.get(tenant=tenant, code="Z")
 
     client = APIClient()
     client.force_authenticate(user=owner)
     payload = lambda entity_id: {  # noqa: E731
         "customer": str(party.id),
         "legal_entity": entity_id,
-        "lines": [{"product": str(product.id), "quantity": "1"}],
+        "lines": [{"product": str(product.id), "quantity": "1", "tax_code": str(tax_code_z.id)}],
     }
     inv_a = client.post("/api/invoices/", payload(str(branch_a.id)), format="json")
     inv_b = client.post("/api/invoices/", payload(str(branch_b.id)), format="json")
@@ -205,9 +210,12 @@ def test_party_sequence_has_no_legal_entity_dimension(db):
 def test_50_concurrent_invoice_creations_get_50_unique_gapless_numbers():
     tenant = TenantFactory()
     company, entity = create_default_legal_entities(tenant, tenant.name)
+    seed_chart_of_accounts(tenant)
+    seed_tax_codes_for_country(tenant, "SA")
     party = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant)
-    line_inputs = [{"product": product, "quantity": Decimal("1"), "cost_center": None}]
+    tax_code_z = TaxCode.objects.get(tenant=tenant, code="Z")
+    line_inputs = [{"product": product, "quantity": Decimal("1"), "cost_center": None, "tax_code": tax_code_z}]
 
     results = [None] * 50
     errors = []

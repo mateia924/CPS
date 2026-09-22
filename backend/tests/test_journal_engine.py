@@ -10,7 +10,7 @@ import pytest
 from django.contrib.contenttypes.models import ContentType
 
 from apps.access.services import seed_default_roles
-from apps.accounting.models import Account, JournalEntry
+from apps.accounting.models import Account, JournalEntry, TaxCode
 from apps.accounting.services import (
     approve_journal_entry,
     compute_trial_balance,
@@ -19,6 +19,7 @@ from apps.accounting.services import (
     post_journal_entry,
     reverse_journal_entry,
     seed_chart_of_accounts,
+    seed_tax_codes_for_country,
     submit_journal_entry_for_approval,
 )
 from apps.approvals.models import ApprovalRule
@@ -62,12 +63,14 @@ def _leaf_pair(tenant):
 def test_invoice_posting_sets_a_real_genericfk_source(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_tax_codes_for_country(tenant, "SA")
     _company, entity = create_default_legal_entities(tenant, tenant.name)
     party = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant, unit_price="50.00", tax_rate="0")
+    tax_code_z = TaxCode.objects.get(tenant=tenant, code="Z")
     invoice = create_invoice(
         tenant=tenant, party=party, legal_entity=entity, issue_date=date(2026, 1, 1),
-        line_inputs=[{"product": product, "quantity": Decimal("1"), "cost_center": None}],
+        line_inputs=[{"product": product, "quantity": Decimal("1"), "cost_center": None, "tax_code": tax_code_z}],
         currency="SAR", exchange_rate=Decimal("1"),
     )
 
@@ -82,12 +85,14 @@ def test_invoice_posting_sets_a_real_genericfk_source(db):
 def test_invoice_posting_is_created_directly_as_posted_with_a_number(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_tax_codes_for_country(tenant, "SA")
     _company, entity = create_default_legal_entities(tenant, tenant.name)
     party = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant, unit_price="50.00", tax_rate="0")
+    tax_code_z = TaxCode.objects.get(tenant=tenant, code="Z")
     invoice = create_invoice(
         tenant=tenant, party=party, legal_entity=entity, issue_date=date(2026, 1, 1),
-        line_inputs=[{"product": product, "quantity": Decimal("1"), "cost_center": None}],
+        line_inputs=[{"product": product, "quantity": Decimal("1"), "cost_center": None, "tax_code": tax_code_z}],
         currency="SAR", exchange_rate=Decimal("1"),
     )
 
@@ -106,18 +111,20 @@ def test_invoice_posting_is_created_directly_as_posted_with_a_number(db):
 def test_invoice_with_two_cost_centers_generates_two_revenue_lines(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_tax_codes_for_country(tenant, "SA")
     _company, entity = create_default_legal_entities(tenant, tenant.name)
     party = PartyFactory(tenant=tenant)
     product_a = ProductFactory(tenant=tenant, unit_price="100.00", tax_rate="0")
     product_b = ProductFactory(tenant=tenant, unit_price="50.00", tax_rate="0")
     cc1 = CostCenterFactory(tenant=tenant)
     cc2 = CostCenterFactory(tenant=tenant)
+    tax_code_z = TaxCode.objects.get(tenant=tenant, code="Z")
 
     invoice = create_invoice(
         tenant=tenant, party=party, legal_entity=entity, issue_date=date(2026, 1, 1),
         line_inputs=[
-            {"product": product_a, "quantity": Decimal("1"), "cost_center": cc1},
-            {"product": product_b, "quantity": Decimal("1"), "cost_center": cc2},
+            {"product": product_a, "quantity": Decimal("1"), "cost_center": cc1, "tax_code": tax_code_z},
+            {"product": product_b, "quantity": Decimal("1"), "cost_center": cc2, "tax_code": tax_code_z},
         ],
         currency="SAR", exchange_rate=Decimal("1"),
     )
@@ -135,16 +142,18 @@ def test_invoice_with_two_cost_centers_generates_two_revenue_lines(db):
 def test_invoice_lines_without_cost_center_are_grouped_into_one_line(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_tax_codes_for_country(tenant, "SA")
     _company, entity = create_default_legal_entities(tenant, tenant.name)
     party = PartyFactory(tenant=tenant)
     product_a = ProductFactory(tenant=tenant, unit_price="10.00", tax_rate="0")
     product_b = ProductFactory(tenant=tenant, unit_price="20.00", tax_rate="0")
+    tax_code_z = TaxCode.objects.get(tenant=tenant, code="Z")
 
     invoice = create_invoice(
         tenant=tenant, party=party, legal_entity=entity, issue_date=date(2026, 1, 1),
         line_inputs=[
-            {"product": product_a, "quantity": Decimal("1"), "cost_center": None},
-            {"product": product_b, "quantity": Decimal("1"), "cost_center": None},
+            {"product": product_a, "quantity": Decimal("1"), "cost_center": None, "tax_code": tax_code_z},
+            {"product": product_b, "quantity": Decimal("1"), "cost_center": None, "tax_code": tax_code_z},
         ],
         currency="SAR", exchange_rate=Decimal("1"),
     )
@@ -403,11 +412,13 @@ def test_cannot_reverse_a_system_generated_entry_via_generic_action(db):
     roles = seed_default_roles(tenant)
     owner = UserFactory(tenant=tenant, email="owner@jv-void-guard.test")
     owner.roles.add(roles["Owner"])
+    seed_tax_codes_for_country(tenant, "SA")
     party = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant, unit_price="10.00", tax_rate="0")
+    tax_code_z = TaxCode.objects.get(tenant=tenant, code="Z")
     invoice = create_invoice(
         tenant=tenant, party=party, legal_entity=entity, issue_date=date(2026, 1, 1),
-        line_inputs=[{"product": product, "quantity": Decimal("1"), "cost_center": None}],
+        line_inputs=[{"product": product, "quantity": Decimal("1"), "cost_center": None, "tax_code": tax_code_z}],
         currency="SAR", exchange_rate=Decimal("1"),
     )
     entry = post_invoice_journal_entry(invoice)
