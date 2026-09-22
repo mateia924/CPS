@@ -34,6 +34,10 @@ DEFAULT_PERMISSIONS = [
     # separate from the ordinary parties.view/manage granted broadly to
     # the per-role screens (Customers/Suppliers/Employees/Affiliates).
     ("parties.view_all", _("View the unified parties screen (all roles at once)")),
+    # Sprint 4.1 (3.4/3.18): document numbering settings (prefix,
+    # yearly-reset) — Settings ← "ترقيم المستندات".
+    ("numbering.view", _("View document numbering settings")),
+    ("numbering.manage", _("Edit document numbering prefixes and yearly reset")),
 ]
 
 # Reasonable, editable defaults per system role — not specified in full
@@ -55,6 +59,7 @@ SYSTEM_ROLES = {
         "parties.view_all",
         "treasury.view",
         "assets.view",
+        "numbering.view",
     ],
     "Sales": [
         "customers.view",

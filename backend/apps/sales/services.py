@@ -2,22 +2,20 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import transaction
 
+from apps.numbering.services import next_document_number
+
 from .models import Invoice, InvoiceLine
 
 CENTS = Decimal("0.01")
 HUNDRED = Decimal("100")
 
 
-def generate_invoice_number(tenant):
-    """Next sequential invoice number for a tenant, e.g. INV-0001.
-
-    TECH DEBT (documented in README "Technical debt"): this counts
-    existing invoices and is not safe under concurrent writes for the
-    same tenant — a production version needs a DB sequence or
-    select-for-update. Acceptable for MVP single-writer usage.
-    """
-    count = Invoice.objects.filter(tenant=tenant).count()
-    return f"INV-{count + 1:04d}"
+def generate_invoice_number(tenant, legal_entity, issue_date):
+    """Next invoice number, e.g. INV-2026-00001 — atomic per (tenant,
+    legal_entity, year of issue_date) via apps.numbering (sprint 4.1;
+    was COUNT-based and unsafe under concurrent writes, ARCH_REVIEW_1.md
+    debt #1)."""
+    return next_document_number(tenant, "invoice", legal_entity=legal_entity, date=issue_date)
 
 
 def recalculate_invoice(invoice):
@@ -75,7 +73,7 @@ def create_invoice(tenant, party, legal_entity, issue_date, line_inputs):
         tenant=tenant,
         party=party,
         legal_entity=legal_entity,
-        number=generate_invoice_number(tenant),
+        number=generate_invoice_number(tenant, legal_entity, issue_date),
         issue_date=issue_date,
         status=Invoice.Status.DRAFT,
     )

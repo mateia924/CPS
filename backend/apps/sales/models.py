@@ -99,7 +99,15 @@ class Invoice(TenantScopedModel):
     class Meta:
         ordering = ["-issue_date", "-created_at"]
         constraints = [
-            models.UniqueConstraint(fields=["tenant", "number"], name="unique_invoice_number_per_tenant")
+            # Sprint 4.1: numbers are now generated per (tenant,
+            # legal_entity, year) — apps.numbering.services.
+            # next_document_number — not per tenant alone, so two
+            # branches legitimately both issue "INV-2026-00001" as
+            # their first invoice. The constraint must match that scope.
+            models.UniqueConstraint(
+                fields=["tenant", "legal_entity", "number"],
+                name="unique_invoice_number_per_tenant_and_entity",
+            )
         ]
 
     def __str__(self):

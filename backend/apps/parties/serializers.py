@@ -134,7 +134,7 @@ class PartySerializer(serializers.ModelSerializer):
         # by DRF before create() is called — never trust request context
         # for it directly, same as every other tenant-scoped serializer.
         tenant = validated_data["tenant"]
-        party = Party.objects.create(code=generate_party_code(tenant), **validated_data)
+        party = Party.objects.create(code=generate_party_code(tenant, role), **validated_data)
         PartyRole.objects.create(
             party=party, role=role, details=role_details, legal_entity=role_legal_entity
         )
@@ -184,7 +184,7 @@ class _RoleDetailsMixin:
     def create(self, validated_data):
         details = self._pop_details(validated_data)
         tenant = validated_data["tenant"]
-        party = Party.objects.create(code=generate_party_code(tenant), **validated_data)
+        party = Party.objects.create(code=generate_party_code(tenant, self.role_const), **validated_data)
         PartyRole.objects.create(party=party, role=self.role_const, details=details)
         return party
 
@@ -301,7 +301,9 @@ class EmployeePartySerializer(serializers.ModelSerializer):
         details, branch = self._pop_details_and_branch(validated_data, branch_provided=True)
         branch = None if branch is _NOT_PROVIDED else branch
         tenant = validated_data["tenant"]
-        party = Party.objects.create(code=generate_party_code(tenant), **validated_data)
+        party = Party.objects.create(
+            code=generate_party_code(tenant, PartyRole.Role.EMPLOYEE), **validated_data
+        )
         PartyRole.objects.create(
             party=party, role=PartyRole.Role.EMPLOYEE, details=details, legal_entity=branch
         )
@@ -367,7 +369,9 @@ class AffiliatePartySerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         legal_entity = validated_data.pop("legal_entity")
         tenant = validated_data["tenant"]
-        party = Party.objects.create(code=generate_party_code(tenant), **validated_data)
+        party = Party.objects.create(
+            code=generate_party_code(tenant, PartyRole.Role.AFFILIATE), **validated_data
+        )
         PartyRole.objects.create(party=party, role=PartyRole.Role.AFFILIATE, legal_entity=legal_entity)
         return party
 
