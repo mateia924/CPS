@@ -80,11 +80,17 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         accessible_ids = get_accessible_entity_ids(self.request.user)
-        return (
+        queryset = (
             Invoice.objects.filter(tenant=self.request.user.tenant, legal_entity_id__in=accessible_ids)
             .select_related("party", "legal_entity")
             .prefetch_related("lines", "lines__product")
         )
+        # Sprint 3.5: backs the customer detail screen's "فواتيره" list
+        # (docs/SYSTEM_ANALYSIS.md 3.18 rule 2).
+        customer_id = self.request.query_params.get("customer")
+        if customer_id:
+            queryset = queryset.filter(party_id=customer_id)
+        return queryset
 
     def get_serializer_class(self):
         if self.action in ("create", "partial_update"):

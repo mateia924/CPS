@@ -109,6 +109,19 @@ button.secondary {
   background: var(--bg);
 }
 
+.sidebar-section-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  margin-top: 0.75rem;
+  padding: 0 0.75rem;
+}
+
+.sidebar-section-label:first-of-type {
+  margin-top: 0.25rem;
+}
+
 .main-content {
   flex: 1;
   padding: 2rem;

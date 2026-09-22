@@ -29,6 +29,11 @@ DEFAULT_PERMISSIONS = [
     ("treasury.manage", _("Create, edit and deactivate banks, cash boxes and custodies")),
     ("assets.view", _("View fixed assets")),
     ("assets.manage", _("Create, edit and deactivate fixed assets")),
+    # Sprint 3.5 (3.3 v1.4): the unified "Parties" screen moved to
+    # Settings — "الأطراف (عرض شامل)" — for accounts managers only,
+    # separate from the ordinary parties.view/manage granted broadly to
+    # the per-role screens (Customers/Suppliers/Employees/Affiliates).
+    ("parties.view_all", _("View the unified parties screen (all roles at once)")),
 ]
 
 # Reasonable, editable defaults per system role — not specified in full
@@ -47,6 +52,7 @@ SYSTEM_ROLES = {
         "organization.view",
         "costcenters.view",
         "parties.view",
+        "parties.view_all",
         "treasury.view",
         "assets.view",
     ],

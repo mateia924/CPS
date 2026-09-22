@@ -114,7 +114,7 @@ export default function PartiesPage() {
 
   return (
     <div>
-      <h1>{t("parties")}</h1>
+      <h1>{t("fullPartiesView")}</h1>
 
       <div className="card">
         <h3>{editing ? t("edit") : t("add")}</h3>

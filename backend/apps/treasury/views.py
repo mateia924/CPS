@@ -47,3 +47,11 @@ class CustodyViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
     search_fields = ["name"]
     ordering_fields = ["name", "created_at"]
     permission_map = _PERMISSION_MAP
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        # Sprint 3.5: backs the employee detail screen's "عُهده" list.
+        employee_id = self.request.query_params.get("employee")
+        if employee_id:
+            queryset = queryset.filter(employee_id=employee_id)
+        return queryset

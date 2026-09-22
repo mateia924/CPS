@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
-import type { CostCenter, Invoice, LegalEntity, Paginated, Party, Product } from "@/lib/types";
+import type { CostCenter, CustomerParty, Invoice, LegalEntity, Paginated, Product } from "@/lib/types";
 
 interface LineDraft {
   product: string;
@@ -18,7 +18,7 @@ const EMPTY_LINE: LineDraft = { product: "", quantity: "1", costCenter: "" };
 export default function InvoicesPage() {
   const { t } = useLocale();
   const { me } = useAuth();
-  const [customers, setCustomers] = useState<Party[]>([]);
+  const [customers, setCustomers] = useState<CustomerParty[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [entities, setEntities] = useState<LegalEntity[]>([]);
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
@@ -28,6 +28,9 @@ export default function InvoicesPage() {
   const [showCostCenters, setShowCostCenters] = useState(false);
   const [lines, setLines] = useState<LineDraft[]>([{ ...EMPTY_LINE }]);
   const [refreshToken, setRefreshToken] = useState(0);
+  const [showQuickAddCustomer, setShowQuickAddCustomer] = useState(false);
+  const [quickCustomerName, setQuickCustomerName] = useState("");
+  const [quickAddError, setQuickAddError] = useState<string | null>(null);
 
   // 3.13: legal_entity only needs a visible field once the tenant is out
   // of simplified mode — otherwise the server auto-fills the single branch.
@@ -35,10 +38,12 @@ export default function InvoicesPage() {
   const showCostCenterUI = !!me && me.features.cost_centers;
 
   const loadFormData = async () => {
-    // Sprint 3 (3.3): the customer picker now lists parties holding the
-    // CUSTOMER role, not the superseded /api/customers/ endpoint.
+    // Sprint 3.5 (3.3 v1.4): the customer picker lists the dedicated
+    // /api/parties/customers/ screen's rows, not the generic
+    // role-filtered /api/parties/ endpoint (now gated to accounts
+    // managers only).
     const [cust, prod] = await Promise.all([
-      api.get<Paginated<Party>>("/parties/?role=customer"),
+      api.get<Paginated<CustomerParty>>("/parties/customers/"),
       api.get<Paginated<Product>>("/products/"),
     ]);
     setCustomers(cust.results);
@@ -85,6 +90,20 @@ export default function InvoicesPage() {
     setLines([{ ...EMPTY_LINE }]);
   };
 
+  const onQuickAddCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setQuickAddError(null);
+    try {
+      const created = await api.post<CustomerParty>("/parties/customers/", { name: quickCustomerName });
+      setCustomers((prev) => [...prev, created]);
+      setCustomerId(created.id);
+      setQuickCustomerName("");
+      setShowQuickAddCustomer(false);
+    } catch {
+      setQuickAddError("Could not create this customer.");
+    }
+  };
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const payload = {
@@ -116,16 +135,49 @@ export default function InvoicesPage() {
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
             <div className="form-field">
               <label>{t("customer")}</label>
-              <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} required>
-                <option value="" disabled>
-                  —
-                </option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
+              <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+                <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} required>
+                  <option value="" disabled>
+                    —
                   </option>
-                ))}
-              </select>
+                  {customers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setShowQuickAddCustomer((v) => !v)}
+                >
+                  {t("quickAddCustomer")}
+                </button>
+              </div>
+              {showQuickAddCustomer && (
+                <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.4rem", alignItems: "center" }}>
+                  <input
+                    value={quickCustomerName}
+                    onChange={(e) => setQuickCustomerName(e.target.value)}
+                    placeholder={t("name")}
+                  />
+                  <button type="button" className="primary" onClick={onQuickAddCustomer}>
+                    {t("save")}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => {
+                      setShowQuickAddCustomer(false);
+                      setQuickCustomerName("");
+                      setQuickAddError(null);
+                    }}
+                  >
+                    {t("cancel")}
+                  </button>
+                </div>
+              )}
+              {quickAddError && <p className="error-text">{quickAddError}</p>}
             </div>
 
             {needsEntityPicker && (

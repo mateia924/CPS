@@ -25,3 +25,12 @@ class AssetViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         "deactivate": "assets.manage",
         "activate": "assets.manage",
     }
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        # Sprint 3.5: backs the employee detail screen's "أصوله المحفوظة
+        # عنده" list.
+        custodian_id = self.request.query_params.get("custodian")
+        if custodian_id:
+            queryset = queryset.filter(custodian_id=custodian_id)
+        return queryset

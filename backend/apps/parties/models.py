@@ -81,8 +81,13 @@ class PartyRole(models.Model):
     # per role per field, since each role's fields never overlap and a
     # dedicated column set would mostly be NULL for any given row.
     details = models.JSONField(_("role details"), default=dict, blank=True)
-    # AFFILIATE only (3.3: "للشقيقة legal_entity FK للكيان المقابل في
-    # الشجرة القانونية") — a real relation, not JSON, since it's an FK.
+    # AFFILIATE (3.3: "للشقيقة legal_entity FK للكيان المقابل في الشجرة
+    # القانونية") — a real relation, not JSON, since it's an FK. Sprint
+    # 3.5 (v1.4 3.3 field table) reuses this same nullable column for
+    # EMPLOYEE too ("الفرع" — which branch the employee works at):
+    # deliberate reuse of an existing generic column rather than adding a
+    # second one, since sprint 3.5 is explicitly a no-schema-change UI
+    # sprint. Meaningless for CUSTOMER/SUPPLIER/BANK roles — always null.
     legal_entity = models.ForeignKey(
         "organization.LegalEntity", null=True, blank=True, on_delete=models.PROTECT, related_name="affiliate_roles"
     )

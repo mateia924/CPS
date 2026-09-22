@@ -290,3 +290,97 @@ export interface Asset {
   is_active: boolean;
   created_at: string;
 }
+
+// --- Sprint 3.5 (docs/SYSTEM_ANALYSIS.md 3.3 v1.4): dedicated,
+// role-fixed master-data screens — no "role" field, ever, on any of
+// these. Each is still a Party/PartyRole under the hood (`roles` comes
+// back for the duplicate-confirm dialog only, never as an editable
+// field on these screens).
+
+export interface CustomerParty {
+  id: string;
+  code: string;
+  name: string;
+  name_en: string;
+  party_type: PartyType;
+  tax_number: string;
+  national_id_or_cr: string;
+  phone: string;
+  email: string;
+  country_code: string;
+  default_currency: string;
+  notes: string;
+  is_active: boolean;
+  roles: PartyRole[];
+  created_at: string;
+  credit_limit: string | null;
+  payment_terms_days: number | null;
+  sales_rep: string | null;
+}
+
+export interface SupplierParty {
+  id: string;
+  code: string;
+  name: string;
+  name_en: string;
+  party_type: PartyType;
+  tax_number: string;
+  national_id_or_cr: string;
+  phone: string;
+  email: string;
+  country_code: string;
+  default_currency: string;
+  notes: string;
+  is_active: boolean;
+  roles: PartyRole[];
+  created_at: string;
+  payment_terms_days: number | null;
+  iban: string | null;
+}
+
+export interface EmployeeParty {
+  id: string;
+  code: string;
+  name: string;
+  name_en: string;
+  party_type: PartyType;
+  tax_number: string;
+  national_id_or_cr: string;
+  phone: string;
+  email: string;
+  country_code: string;
+  default_currency: string;
+  notes: string;
+  is_active: boolean;
+  roles: PartyRole[];
+  created_at: string;
+  hire_date: string | null;
+  job_title: string | null;
+  direct_manager: string | null;
+  salary_currency: string | null;
+  branch: string | null;
+  create_linked_cost_center?: boolean;
+}
+
+export interface AffiliateParty {
+  id: string;
+  code: string;
+  name: string;
+  name_en: string;
+  party_type: PartyType;
+  tax_number: string;
+  national_id_or_cr: string;
+  phone: string;
+  email: string;
+  country_code: string;
+  default_currency: string;
+  notes: string;
+  is_active: boolean;
+  roles: PartyRole[];
+  created_at: string;
+  legal_entity: string | null;
+}
+
+export interface DuplicateCheckResponse {
+  party: Party | null;
+}
