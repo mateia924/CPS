@@ -5,15 +5,17 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
-import type { CostCenter, CustomerParty, Invoice, LegalEntity, Paginated, Product } from "@/lib/types";
+import { StatusBadge } from "@/components/StatusBadge";
+import type { CostCenter, CustomerParty, Invoice, LegalEntity, Paginated, Product, TaxCode } from "@/lib/types";
 
 interface LineDraft {
   product: string;
   quantity: string;
   costCenter: string;
+  taxCode: string;
 }
 
-const EMPTY_LINE: LineDraft = { product: "", quantity: "1", costCenter: "" };
+const EMPTY_LINE: LineDraft = { product: "", quantity: "1", costCenter: "", taxCode: "" };
 
 export default function InvoicesPage() {
   const { t } = useLocale();
@@ -22,10 +24,14 @@ export default function InvoicesPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [entities, setEntities] = useState<LegalEntity[]>([]);
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
+  const [taxCodes, setTaxCodes] = useState<TaxCode[]>([]);
   const [editing, setEditing] = useState<Invoice | null>(null);
   const [customerId, setCustomerId] = useState("");
   const [legalEntityId, setLegalEntityId] = useState("");
   const [showCostCenters, setShowCostCenters] = useState(false);
+  const [showFx, setShowFx] = useState(false);
+  const [currency, setCurrency] = useState("");
+  const [exchangeRate, setExchangeRate] = useState("");
   const [lines, setLines] = useState<LineDraft[]>([{ ...EMPTY_LINE }]);
   const [refreshToken, setRefreshToken] = useState(0);
   const [showQuickAddCustomer, setShowQuickAddCustomer] = useState(false);
@@ -42,12 +48,14 @@ export default function InvoicesPage() {
     // /api/parties/customers/ screen's rows, not the generic
     // role-filtered /api/parties/ endpoint (now gated to accounts
     // managers only).
-    const [cust, prod] = await Promise.all([
+    const [cust, prod, tax] = await Promise.all([
       api.get<Paginated<CustomerParty>>("/parties/customers/"),
       api.get<Paginated<Product>>("/products/"),
+      api.get<Paginated<TaxCode>>("/tax-codes/"),
     ]);
     setCustomers(cust.results);
     setProducts(prod.results);
+    setTaxCodes(tax.results);
 
     if (needsEntityPicker) {
       const entityData = await api.get<Paginated<LegalEntity>>("/legal-entities/");
@@ -66,18 +74,31 @@ export default function InvoicesPage() {
 
   const addLine = () => setLines([...lines, { ...EMPTY_LINE }]);
   const updateLine = (index: number, field: keyof LineDraft, value: string) => {
-    setLines(lines.map((line, i) => (i === index ? { ...line, [field]: value } : line)));
+    setLines(
+      lines.map((line, i) => {
+        if (i !== index) return line;
+        const next = { ...line, [field]: value };
+        if (field === "product" && !line.taxCode) {
+          const product = products.find((p) => p.id === value);
+          if (product?.default_tax_code) next.taxCode = product.default_tax_code;
+        }
+        return next;
+      })
+    );
   };
 
   const startEdit = (invoice: Invoice) => {
     setEditing(invoice);
     setCustomerId(invoice.customer);
     setLegalEntityId(invoice.legal_entity);
+    setCurrency(invoice.currency);
+    setExchangeRate(invoice.exchange_rate);
     setLines(
       invoice.lines.map((line) => ({
         product: line.product,
         quantity: line.quantity,
         costCenter: line.cost_center || "",
+        taxCode: line.tax_code,
       }))
     );
     if (invoice.lines.some((line) => line.cost_center)) setShowCostCenters(true);
@@ -87,6 +108,9 @@ export default function InvoicesPage() {
     setEditing(null);
     setCustomerId("");
     setLegalEntityId("");
+    setCurrency("");
+    setExchangeRate("");
+    setShowFx(false);
     setLines([{ ...EMPTY_LINE }]);
   };
 
@@ -109,11 +133,14 @@ export default function InvoicesPage() {
     const payload = {
       customer: customerId,
       ...(legalEntityId ? { legal_entity: legalEntityId } : {}),
+      ...(currency ? { currency } : {}),
+      ...(exchangeRate ? { exchange_rate: exchangeRate } : {}),
       lines: lines
         .filter((l) => l.product)
         .map((l) => ({
           product: l.product,
           quantity: l.quantity,
+          tax_code: l.taxCode,
           ...(l.costCenter ? { cost_center: l.costCenter } : {}),
         })),
     };
@@ -197,6 +224,23 @@ export default function InvoicesPage() {
             )}
           </div>
 
+          {!showFx ? (
+            <button type="button" className="secondary" onClick={() => setShowFx(true)} style={{ marginBottom: "0.75rem" }}>
+              {t("foldCurrencyFx")}
+            </button>
+          ) : (
+            <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
+              <div className="form-field">
+                <label>{t("currency")}</label>
+                <input value={currency} onChange={(e) => setCurrency(e.target.value)} maxLength={3} />
+              </div>
+              <div className="form-field">
+                <label>{t("exchangeRateLabel")}</label>
+                <input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} />
+              </div>
+            </div>
+          )}
+
           {lines.map((line, i) => (
             <div key={i} style={{ display: "flex", gap: "0.75rem", alignItems: "end", flexWrap: "wrap" }}>
               <div className="form-field" style={{ flex: 1, minWidth: "180px" }}>
@@ -221,6 +265,19 @@ export default function InvoicesPage() {
                   onChange={(e) => updateLine(i, "quantity", e.target.value)}
                   required
                 />
+              </div>
+              <div className="form-field" style={{ minWidth: "140px" }}>
+                <label>{t("taxCode")}</label>
+                <select value={line.taxCode} onChange={(e) => updateLine(i, "taxCode", e.target.value)} required>
+                  <option value="" disabled>
+                    —
+                  </option>
+                  {taxCodes.map((tc) => (
+                    <option key={tc.id} value={tc.id}>
+                      {tc.code} — {tc.rate}%
+                    </option>
+                  ))}
+                </select>
               </div>
               {showCostCenterUI && showCostCenters && (
                 <div className="form-field" style={{ minWidth: "160px" }}>
@@ -274,8 +331,9 @@ export default function InvoicesPage() {
           { key: "number", label: t("number"), sortable: true },
           { key: "customer_name", label: t("customer") },
           { key: "legal_entity_name", label: t("legalEntity") },
-          { key: "status", label: t("status"), render: (row) => t(row.status) },
+          { key: "status", label: t("status"), render: (row) => <StatusBadge status={row.status} /> },
           { key: "issue_date", label: t("issueDate"), sortable: true },
+          { key: "currency", label: t("currency") },
           { key: "subtotal", label: t("subtotal") },
           { key: "tax_total", label: t("taxTotal") },
           { key: "total", label: t("total"), sortable: true },
@@ -292,6 +350,31 @@ export default function InvoicesPage() {
               >
                 {t("issue")}
               </button>
+            )}
+            {invoice.status === "pending_approval" && (
+              <>
+                <button
+                  className="secondary"
+                  onClick={async () => {
+                    await api.post(`/invoices/${invoice.id}/approve/`);
+                    reload();
+                  }}
+                >
+                  {t("approve")}
+                </button>
+                <button
+                  className="secondary"
+                  style={{ marginInlineStart: "0.4rem" }}
+                  onClick={async () => {
+                    const reason = window.prompt(t("rejectReason")) || "";
+                    if (!reason) return;
+                    await api.post(`/invoices/${invoice.id}/reject/`, { reason });
+                    reload();
+                  }}
+                >
+                  {t("reject")}
+                </button>
+              </>
             )}
             {invoice.status === "issued" && (
               <button

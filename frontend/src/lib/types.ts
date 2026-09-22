@@ -21,6 +21,7 @@ export interface Product {
   name: string;
   unit_price: string;
   tax_rate: string;
+  default_tax_code: string | null;
   is_active: boolean;
 }
 
@@ -28,6 +29,8 @@ export interface InvoiceLine {
   id: string;
   product: string;
   cost_center: string | null;
+  tax_code: string;
+  tax_code_display: string;
   description: string;
   quantity: string;
   unit_price: string;
@@ -37,18 +40,32 @@ export interface InvoiceLine {
   line_total: string;
 }
 
+export type DocumentStatus =
+  | "draft"
+  | "pending_approval"
+  | "approved"
+  | "posted"
+  | "reversed"
+  | "issued"
+  | "paid"
+  | "cancelled";
+
 export interface Invoice {
   id: string;
   number: string;
-  status: "draft" | "issued" | "paid" | "cancelled";
+  status: DocumentStatus;
+  created_by: string | null;
   issue_date: string;
   customer: string;
   customer_name: string;
   legal_entity: string;
   legal_entity_name: string;
+  currency: string;
+  exchange_rate: string;
   subtotal: string;
   tax_total: string;
   total: string;
+  base_total: string;
   lines: InvoiceLine[];
 }
 
@@ -383,4 +400,156 @@ export interface AffiliateParty {
 
 export interface DuplicateCheckResponse {
   party: Party | null;
+}
+
+// --- Sprint 4 (docs/SYSTEM_ANALYSIS.md 3.4/3.11/3.15/3.16/3.18) ---
+
+export type AccountType = "asset" | "liability" | "equity" | "revenue" | "expense";
+export type NormalBalance = "debit" | "credit";
+
+export interface Account {
+  id: string;
+  parent: string | null;
+  level: number;
+  code: string;
+  name: string;
+  type: AccountType;
+  normal_balance: NormalBalance;
+  allow_posting: boolean;
+  is_intercompany: boolean;
+  system_key: string;
+  is_system: boolean;
+  party: string | null;
+  is_leaf: boolean;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface AccountTreeNode {
+  id: string;
+  code: string;
+  name: string;
+  type: AccountType;
+  normal_balance: NormalBalance;
+  is_system: boolean;
+  system_key: string;
+  is_active: boolean;
+  balance: string;
+  children: AccountTreeNode[];
+}
+
+export interface JournalLine {
+  id: string;
+  account: string;
+  account_code: string;
+  account_name: string;
+  account_system_key: string;
+  cost_center: string | null;
+  party: string | null;
+  description: string;
+  debit: string;
+  credit: string;
+  debit_fc: string;
+  credit_fc: string;
+}
+
+export interface JournalEntry {
+  id: string;
+  legal_entity: string;
+  legal_entity_name: string;
+  date: string;
+  memo: string;
+  reference: string;
+  number: string;
+  status: DocumentStatus;
+  created_by: string | null;
+  reverses: string | null;
+  source_type: string;
+  source_id: string | null;
+  currency: string;
+  exchange_rate: string;
+  created_at: string;
+  lines: JournalLine[];
+}
+
+export interface ManualJournalLineInput {
+  account: string;
+  cost_center?: string;
+  description?: string;
+  debit_fc: string;
+  credit_fc: string;
+}
+
+export type TaxCodeKind = "standard" | "zero_rated" | "exempt" | "out_of_scope" | "reverse_charge";
+export type TaxCodeDirection = "output" | "input" | "both";
+export type TaxCodeDeductible = "full" | "none";
+
+export interface TaxCode {
+  id: string;
+  code: string;
+  name: string;
+  rate: string;
+  kind: TaxCodeKind;
+  direction: TaxCodeDirection;
+  deductible: TaxCodeDeductible;
+  account: string | null;
+  country_code: string;
+  effective_from: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export type TaxPeriodType = "monthly" | "quarterly";
+export type TaxPeriodStatus = "open" | "filed" | "paid";
+
+export interface TaxPeriod {
+  id: string;
+  legal_entity: string;
+  period_type: TaxPeriodType;
+  start: string;
+  end: string;
+  status: TaxPeriodStatus;
+  filed_at: string | null;
+  reference: string;
+  created_at: string;
+}
+
+export type ApprovalDocType = "journal_entry" | "invoice";
+
+export interface ApprovalRule {
+  id: string;
+  doc_type: ApprovalDocType;
+  min_amount: string;
+  required_role: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface ExchangeRate {
+  id: string;
+  from_currency: string;
+  to_currency: string;
+  date: string;
+  rate: string;
+  source: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface DocumentNumberingSetting {
+  id: string;
+  doc_type: string;
+  prefix: string;
+  reset_yearly: boolean;
+  include_entity_code: boolean | null;
+}
+
+export interface PendingApproval {
+  doc_type: ApprovalDocType;
+  id: string;
+  number: string;
+  date: string;
+  description: string;
+  amount_base: string;
+  created_by: string | null;
 }
