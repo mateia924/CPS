@@ -64,6 +64,15 @@
   وحدتا `treasury`/`assets` جديدتان في نظام الباقات (Free لا يراهما،
   Business+ يراهما). 111 اختبار pytest إجمالًا (25 جديد). تفاصيل كاملة في
   "كيف تشغّل الاختبارات" أدناه وفي `docs/SYSTEM_ANALYSIS.md` قسم 11.
+- **مراجعة معمارية #1 (بعد سبرنتات 0-3):** ✅ مكتملة — تقرير كامل في
+  [`docs/ARCH_REVIEW_1.md`](docs/ARCH_REVIEW_1.md): مخطط ERD، فحص عزل
+  المستأجر البنيوي (ثغرة `PartyViewSet` من سبرنت 3 وُثِّقت وأُغلِقت
+  آليًا)، جاهزية المحاسبة لسبرنت 4، جدول ديون تقنية موحّد (23 بندًا)،
+  وتحليل أداء. نُفِّذ من التقرير: اختبار عزل بنيوي دائم
+  (`tests/test_structural_isolation.py`) يفشل تلقائيًا لو ظهر ViewSet
+  جديد بلا تصنيف صريح أو بلا `HasModulePermission` رغم `permission_map`،
+  وتوحيد ثوابت دقة Decimal (`apps/common/constants.py`، بلا أي تغيير
+  schema). 114 اختبار pytest إجمالًا (3 جديدة).
 - **العمل السابق لاعتماد خارطة الـ 13 سبرنت:** Tenant/User، تسجيل شركة،
   تسجيل دخول JWT، دليل حسابات أولي، عملاء/منتجات/فواتير بحساب خادمي كامل
   وترحيل قيد متوازن عند الاعتماد.
@@ -262,7 +271,7 @@ make lint    # ruff check .
 البناء فعليًا لو أي اختبار أو مخالفة lint فشلت — لا `continue-on-error`
 ولا إخفاء لأخطاء في أي مكان.
 
-**111 اختبارًا حاليًا** في `backend/tests/`:
+**114 اختبارًا حاليًا** في `backend/tests/`:
 
 - `test_health.py` (1): health check بسيط.
 - `test_migrations.py` (1): طلب `db` fixture يُجبر pytest-django على بناء
@@ -368,7 +377,7 @@ customers_to_parties.py`): تحققت يدويًا ضد بيانات Acme Tradin
   بعد** — بانتظار رابط الـ repository.
 - `.github/workflows/ci.yml` يعمل على كل push، ويفشل فعليًا عند أي خطأ
   (لا إخفاء لأي فشل):
-  - **backend**: `ruff check .` + `pytest -v` (111 اختبارًا، تفصيلها في
+  - **backend**: `ruff check .` + `pytest -v` (114 اختبارًا، تفصيلها في
     "كيف تشغّل الاختبارات" أعلاه) ضد خدمة Postgres حقيقية داخل الـ CI
     نفسه (service container، ليست SQLite).
   - **frontend**: `npm install` + `npm run build` فقط (بما فيه فحص أنواع

@@ -1,6 +1,7 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from apps.common.constants import MONEY_DECIMAL_PLACES, MONEY_MAX_DIGITS
 from apps.common.models import TenantScopedModel
 
 
@@ -32,11 +33,13 @@ class Asset(TenantScopedModel):
     name = models.CharField(_("name"), max_length=255)
     category = models.CharField(_("category"), max_length=20, choices=Category.choices)
     purchase_date = models.DateField(_("purchase date"))
-    purchase_cost = models.DecimalField(_("purchase cost"), max_digits=14, decimal_places=2)
+    purchase_cost = models.DecimalField(
+        _("purchase cost"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES
+    )
     currency = models.CharField(_("currency"), max_length=3, default="SAR")
     useful_life_months = models.PositiveIntegerField(_("useful life (months)"), null=True, blank=True)
     salvage_value = models.DecimalField(
-        _("salvage value"), max_digits=14, decimal_places=2, default=0
+        _("salvage value"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
     )
     depreciation_method = models.CharField(
         _("depreciation method"), max_length=20,

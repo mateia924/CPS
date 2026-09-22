@@ -3,6 +3,16 @@ import uuid
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from apps.common.constants import (
+    MONEY_DECIMAL_PLACES,
+    MONEY_MAX_DIGITS,
+    PERCENTAGE_DECIMAL_PLACES,
+    PERCENTAGE_MAX_DIGITS,
+    PRICE_DECIMAL_PLACES,
+    PRICE_MAX_DIGITS,
+    QUANTITY_DECIMAL_PLACES,
+    QUANTITY_MAX_DIGITS,
+)
 from apps.common.models import TenantScopedModel
 
 
@@ -25,9 +35,14 @@ class Customer(TenantScopedModel):
 class Product(TenantScopedModel):
     sku = models.CharField(_("SKU"), max_length=64)
     name = models.CharField(_("name"), max_length=255)
-    unit_price = models.DecimalField(_("unit price"), max_digits=12, decimal_places=2)
+    unit_price = models.DecimalField(
+        _("unit price"), max_digits=PRICE_MAX_DIGITS, decimal_places=PRICE_DECIMAL_PLACES
+    )
     tax_rate = models.DecimalField(
-        _("tax rate (%)"), max_digits=5, decimal_places=2, default=0
+        _("tax rate (%)"),
+        max_digits=PERCENTAGE_MAX_DIGITS,
+        decimal_places=PERCENTAGE_DECIMAL_PLACES,
+        default=0,
     )
     is_active = models.BooleanField(_("active"), default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -68,9 +83,15 @@ class Invoice(TenantScopedModel):
     issue_date = models.DateField(_("issue date"))
 
     # Always computed server-side from the lines — never accepted as API input.
-    subtotal = models.DecimalField(_("subtotal"), max_digits=14, decimal_places=2, default=0)
-    tax_total = models.DecimalField(_("tax total"), max_digits=14, decimal_places=2, default=0)
-    total = models.DecimalField(_("total"), max_digits=14, decimal_places=2, default=0)
+    subtotal = models.DecimalField(
+        _("subtotal"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
+    )
+    tax_total = models.DecimalField(
+        _("tax total"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
+    )
+    total = models.DecimalField(
+        _("total"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -102,14 +123,26 @@ class InvoiceLine(models.Model):
     # Snapshots taken from the product at invoicing time so historical
     # invoices don't change if the product is edited later.
     description = models.CharField(_("description"), max_length=255)
-    quantity = models.DecimalField(_("quantity"), max_digits=12, decimal_places=2)
-    unit_price = models.DecimalField(_("unit price"), max_digits=12, decimal_places=2)
-    tax_rate = models.DecimalField(_("tax rate (%)"), max_digits=5, decimal_places=2)
+    quantity = models.DecimalField(
+        _("quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES
+    )
+    unit_price = models.DecimalField(
+        _("unit price"), max_digits=PRICE_MAX_DIGITS, decimal_places=PRICE_DECIMAL_PLACES
+    )
+    tax_rate = models.DecimalField(
+        _("tax rate (%)"), max_digits=PERCENTAGE_MAX_DIGITS, decimal_places=PERCENTAGE_DECIMAL_PLACES
+    )
 
     # Computed server-side by services.recalculate_invoice().
-    line_subtotal = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    line_tax = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    line_total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    line_subtotal = models.DecimalField(
+        max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
+    )
+    line_tax = models.DecimalField(
+        max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
+    )
+    line_total = models.DecimalField(
+        max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
+    )
 
     def __str__(self):
         return f"{self.description} x{self.quantity}"

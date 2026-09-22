@@ -3,6 +3,7 @@ import uuid
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
+from apps.common.constants import MONEY_DECIMAL_PLACES, MONEY_MAX_DIGITS
 from apps.common.models import TenantScopedModel
 
 
@@ -60,8 +61,8 @@ class JournalLine(models.Model):
         on_delete=models.PROTECT,
         related_name="journal_lines",
     )
-    debit = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    credit = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    debit = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0)
+    credit = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0)
 
     def __str__(self):
         return f"{self.account.code} D{self.debit} C{self.credit}"
