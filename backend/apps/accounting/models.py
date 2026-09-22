@@ -1,5 +1,7 @@
 import uuid
 
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -10,7 +12,7 @@ from apps.common.constants import (
     RATE_DECIMAL_PLACES,
     RATE_MAX_DIGITS,
 )
-from apps.common.models import TenantScopedModel
+from apps.common.models import DocumentStateMixin, TenantScopedModel
 
 
 class Account(TenantScopedModel):
@@ -118,7 +120,7 @@ class Account(TenantScopedModel):
         super().save(*args, **kwargs)
 
 
-class JournalEntry(TenantScopedModel):
+class JournalEntry(TenantScopedModel, DocumentStateMixin):
     # Same 3-step migration story as Invoice.legal_entity — see
     # apps/accounting/migrations/0002-0004.
     legal_entity = models.ForeignKey(
@@ -126,8 +128,36 @@ class JournalEntry(TenantScopedModel):
     )
     date = models.DateField(_("date"))
     memo = models.CharField(_("memo"), max_length=255, blank=True)
+    # Sprint 4.1: JV numbering (apps.numbering) — blank for the rare
+    # pre-4.4 row a migration couldn't safely backfill (none expected in
+    # practice; every entry created going forward always gets one).
+    number = models.CharField(_("number"), max_length=32, blank=True, default="")
+    reference = models.CharField(_("reference"), max_length=100, blank=True)
+    # Sprint 4.4 (3.15.1): who drafted this entry — null for every
+    # system-generated entry (post_invoice_journal_entry/
+    # void_invoice_journal_entry create no human actor) and for every
+    # pre-4.4 row. Used for segregation of duties: the creator of a
+    # manual entry can never also be the one who approves it.
+    created_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    # A reversal entry points back at the entry it reverses — the
+    # original stays discoverable via reverses.reversed_by (sprint 4.4:
+    # "قيدًا عكسيًا POSTED مرتبطًا بالأصل").
+    reverses = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="reversed_by"
+    )
+    # Kept, untouched, unused going forward — superseded by
+    # content_type/object_id below (a real GenericFK, ARCH_REVIEW_1.md
+    # debt #6: "source_type/source_id نص حر لا GenericFK حقيقي"). Same
+    # never-delete-a-column pattern as Invoice.legacy_customer.
     source_type = models.CharField(_("source type"), max_length=50, blank=True)
     source_id = models.UUIDField(_("source id"), null=True, blank=True)
+    content_type = models.ForeignKey(
+        ContentType, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    object_id = models.UUIDField(null=True, blank=True)
+    source = GenericForeignKey("content_type", "object_id")
     # Sprint 4.2 (3.11/3.15.3): the entry's transaction currency and the
     # single rate that converts every line's *_fc amount into the
     # legal_entity's base currency (JournalLine.debit/credit). Defaults
@@ -162,6 +192,23 @@ class JournalLine(models.Model):
     # drill-down, sprint 10). Never a user-facing input.
     party = models.ForeignKey(
         "parties.Party", null=True, blank=True, on_delete=models.PROTECT, related_name="journal_lines"
+    )
+    # "بيان" — manual-JV line narrative (sprint 4.4). Never set by
+    # system-generated entries.
+    description = models.CharField(_("description"), max_length=255, blank=True)
+    # Sprint 4.4 (3.15.2): schema only — the screen/matching engine is
+    # sprint 5.5. Fields live here now so 5.5 doesn't need to migrate
+    # every historical JournalLine.
+    reconciled_at = models.DateTimeField(_("reconciled at"), null=True, blank=True)
+    reconciled_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    bank_statement_line = models.ForeignKey(
+        "treasury.BankStatementLine",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="journal_lines",
     )
     # Base-currency amounts (legal_entity.base_currency) — unchanged
     # meaning from before 4.2, still what balance sheets/trial balances

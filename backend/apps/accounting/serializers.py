@@ -1,8 +1,20 @@
+import decimal
+
 from django.db.models import Sum
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
+from apps.common.constants import (
+    MONEY_DECIMAL_PLACES,
+    MONEY_MAX_DIGITS,
+    RATE_DECIMAL_PLACES,
+    RATE_MAX_DIGITS,
+)
+from apps.organization.models import LegalEntity
+from apps.organization.services import get_accessible_entity_ids
+
 from .models import Account, JournalEntry, JournalLine
+from .services import REPORTABLE_STATUSES
 
 
 class AccountSerializer(serializers.ModelSerializer):
@@ -70,11 +82,9 @@ class AccountTreeSerializer(serializers.ModelSerializer):
         return AccountTreeSerializer(obj.children.order_by("code"), many=True, context=self.context).data
 
     def get_balance(self, obj):
-        # No JournalEntry.status yet (sprint 4.4) — every entry that
-        # exists today is effectively already posted (see
-        # ARCH_REVIEW_1.md §3.2), so this sums every line without a
-        # status filter for now; sprint 4.4 will add one.
-        totals = obj.journal_lines.aggregate(debit=Sum("debit"), credit=Sum("credit"))
+        totals = obj.journal_lines.filter(entry__status__in=REPORTABLE_STATUSES).aggregate(
+            debit=Sum("debit"), credit=Sum("credit")
+        )
         debit = totals["debit"] or 0
         credit = totals["credit"] or 0
         signed = (debit - credit) if obj.normal_balance == Account.NormalBalance.DEBIT else (credit - debit)
@@ -90,18 +100,83 @@ class JournalLineSerializer(serializers.ModelSerializer):
         model = JournalLine
         fields = (
             "id", "account", "account_code", "account_name", "account_system_key",
-            "cost_center", "party", "debit", "credit", "debit_fc", "credit_fc",
+            "cost_center", "party", "description", "debit", "credit", "debit_fc", "credit_fc",
         )
         read_only_fields = fields
 
 
 class JournalEntrySerializer(serializers.ModelSerializer):
     lines = JournalLineSerializer(many=True, read_only=True)
+    legal_entity_name = serializers.CharField(source="legal_entity.name", read_only=True)
 
     class Meta:
         model = JournalEntry
         fields = (
-            "id", "legal_entity", "date", "memo", "source_type", "source_id",
+            "id", "legal_entity", "legal_entity_name", "date", "memo", "reference", "number",
+            "status", "created_by", "reverses", "source_type", "source_id",
             "currency", "exchange_rate", "created_at", "lines",
         )
         read_only_fields = fields
+
+
+# ---------------------------------------------------------------------
+# Sprint 4.4: "القيود اليدوية" screen — create() only builds a DRAFT
+# entry; submit/approve/post/reverse are separate actions
+# (accounting/views.py), each a plain state transition with no input.
+# ---------------------------------------------------------------------
+
+
+class ManualJournalLineInputSerializer(serializers.Serializer):
+    # Bare UUID, not PrimaryKeyRelatedField — same reasoning as
+    # InvoiceLineInputSerializer.product: this is nested inside
+    # ManualJournalEntryCreateSerializer, declared before any request
+    # context exists, so a tenant-scoped queryset can't be bound here.
+    # Tenant scoping is enforced explicitly in create() instead.
+    account = serializers.UUIDField()
+    cost_center = serializers.UUIDField(required=False, allow_null=True)
+    description = serializers.CharField(required=False, allow_blank=True, default="")
+    debit_fc = serializers.DecimalField(
+        max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, min_value=0,
+        default=decimal.Decimal("0"),
+    )
+    credit_fc = serializers.DecimalField(
+        max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, min_value=0,
+        default=decimal.Decimal("0"),
+    )
+
+    def validate(self, attrs):
+        if attrs["debit_fc"] and attrs["credit_fc"]:
+            raise serializers.ValidationError(_("A line cannot have both a debit and a credit amount."))
+        if not attrs["debit_fc"] and not attrs["credit_fc"]:
+            raise serializers.ValidationError(_("A line needs either a debit or a credit amount."))
+        return attrs
+
+
+class ManualJournalEntryCreateSerializer(serializers.Serializer):
+    legal_entity = serializers.PrimaryKeyRelatedField(queryset=LegalEntity.objects.none())
+    date = serializers.DateField()
+    currency = serializers.CharField(max_length=3, required=False)
+    exchange_rate = serializers.DecimalField(
+        max_digits=RATE_MAX_DIGITS, decimal_places=RATE_DECIMAL_PLACES, required=False
+    )
+    memo = serializers.CharField(required=False, allow_blank=True, default="")
+    reference = serializers.CharField(required=False, allow_blank=True, default="")
+    lines = ManualJournalLineInputSerializer(many=True)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request is not None and request.user.is_authenticated:
+            accessible_ids = get_accessible_entity_ids(request.user)
+            self.fields["legal_entity"].queryset = LegalEntity.objects.filter(
+                tenant=request.user.tenant, id__in=accessible_ids
+            )
+
+    def validate_lines(self, value):
+        if len(value) < 2:
+            raise serializers.ValidationError(_("At least two lines are required."))
+        return value
+
+
+class JournalEntryReverseSerializer(serializers.Serializer):
+    reason = serializers.CharField(min_length=3)

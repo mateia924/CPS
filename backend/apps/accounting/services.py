@@ -1,13 +1,33 @@
 import json
+from collections import OrderedDict
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
-from django.core.exceptions import ValidationError
+from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from apps.numbering.services import next_document_number
+from apps.platform.models import AuditLog
+from apps.platform.services import log_action
+
 from .models import Account, JournalEntry, JournalLine
+
+# Sprint 4.4 (3.15.1): POSTED and REVERSED entries both contribute to
+# every balance/report — see DocumentStateMixin's docstring for why
+# REVERSED isn't an exclusion. DRAFT/PENDING_APPROVAL/APPROVED never do
+# (rule 13: "لا قيد محاسبي يُرحَّل إلا من مستند بحالة POSTED").
+REPORTABLE_STATUSES = [JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED]
+
+# Sprint 4.4 (3.15.9): "قاعدة اعتماد افتراضية على JV لدور
+# ACCOUNTANT_MANAGER/OWNER" — reuses the accounting.manage permission
+# (4.3) rather than inventing a new code, since it's already scoped to
+# exactly Owner + Accountant. The full configurable ApprovalRule engine
+# (any doc_type + amount threshold) is sprint 4.5; this is the
+# hardcoded version 4.4's own manual-JV screen needs in the meantime.
+_JV_APPROVAL_PERMISSION = "accounting.manage"
 
 CHART_TEMPLATES_DIR = Path(__file__).resolve().parent / "chart_templates"
 
@@ -222,29 +242,49 @@ def build_journal_lines_with_fx_rounding(tenant, entry, line_specs, exchange_rat
     return lines
 
 
+def _cost_center_revenue_specs(invoice, revenue_account):
+    """Sprint 4.4 (ARCH_REVIEW_1.md debt #5, resolved): one revenue
+    line per distinct cost_center among the invoice's lines (grouped,
+    summed) instead of one aggregated line — "فاتورة ببندين على
+    مركزين تولّد سطري إيراد". Lines with no cost_center are grouped
+    together under a single None-cost_center line."""
+    groups = OrderedDict()
+    for line in invoice.lines.select_related("cost_center").order_by("cost_center_id"):
+        key = line.cost_center_id
+        if key not in groups:
+            groups[key] = {"cost_center": line.cost_center, "amount": Decimal("0")}
+        groups[key]["amount"] += line.line_subtotal
+    return [
+        {
+            "account": revenue_account,
+            "cost_center": group["cost_center"],
+            "debit_fc": Decimal("0"),
+            "credit_fc": group["amount"],
+        }
+        for group in groups.values()
+    ]
+
+
 @transaction.atomic
 def post_invoice_journal_entry(invoice):
-    """Post a balanced journal entry for an issued invoice.
+    """Post a balanced journal entry for an issued invoice — created
+    directly at status=POSTED (sprint 4.4, 3.15.1): this is a
+    system-generated entry, not a manual JV, so it isn't subject to the
+    draft/approval workflow — the invoice's own issue() action is
+    already the human decision point.
 
     Debits the customer's own sub-ledger account (auto-created under
     CUSTOMERS, sprint 4.3 — not a shared lump "Accounts Receivable"
     bucket, so per-customer statements/aging can read JournalLine.party
-    directly) for the invoice total, credits Sales Revenue for the
-    subtotal and Tax Payable for the tax — always balanced by
-    construction since credit total == debit total (in invoice.currency;
-    build_journal_lines_with_fx_rounding handles the base-currency
-    conversion and rounding, sprint 4.2).
-
-    TECH DEBT (README "Technical debt"): the revenue/tax lines here are
-    aggregated across all invoice lines, so JournalLine.cost_center is
-    never populated by this function even when individual InvoiceLines
-    carry one — distributing revenue per invoice-line cost center into
-    separate journal lines is deferred to the reporting sprint (10),
-    when cost-center P&L actually needs it. JournalLine.cost_center is
-    usable today for manual journal entries.
+    directly) for the invoice total, credits Sales Revenue (split one
+    line per cost center, sprint 4.4) for the subtotal and Tax Payable
+    for the tax — always balanced by construction since credit total ==
+    debit total (in invoice.currency; build_journal_lines_with_fx_rounding
+    handles the base-currency conversion and rounding, sprint 4.2).
     """
     tenant = invoice.tenant
     from apps.parties.models import PartyRole
+    from apps.sales.models import Invoice
 
     ar = get_or_create_party_role_account(invoice.party, PartyRole.Role.CUSTOMER)
     if ar is None:
@@ -256,15 +296,19 @@ def post_invoice_journal_entry(invoice):
         legal_entity=invoice.legal_entity,
         date=invoice.issue_date,
         memo=f"Invoice {invoice.number}",
+        number=next_document_number(tenant, "journal_entry", invoice.legal_entity, invoice.issue_date),
+        status=JournalEntry.Status.POSTED,
         source_type="invoice",
         source_id=invoice.id,
+        content_type=ContentType.objects.get_for_model(Invoice),
+        object_id=invoice.id,
         currency=invoice.currency,
         exchange_rate=invoice.exchange_rate,
     )
 
     line_specs = [
         {"account": ar, "debit_fc": invoice.total, "credit_fc": Decimal("0")},
-        {"account": revenue, "debit_fc": Decimal("0"), "credit_fc": invoice.subtotal},
+        *_cost_center_revenue_specs(invoice, revenue),
     ]
     if invoice.tax_total:
         tax_payable = _get_system_account_or_fallback(tenant, "VAT_OUTPUT")
@@ -284,6 +328,10 @@ def void_invoice_journal_entry(invoice):
     balanced, so voiding never edits or deletes the original entry, it
     posts a mirror-image entry (debit <-> credit swapped per line, same
     accounts and cost centers) that nets it to zero.
+
+    Sprint 4.4: the original flips to REVERSED (a terminal marker, not
+    an exclusion — see DocumentStateMixin/REPORTABLE_STATUSES) and the
+    new entry is created directly at POSTED, linked back via `reverses`.
     """
     original = JournalEntry.objects.get(
         tenant=invoice.tenant, source_type="invoice", source_id=invoice.id
@@ -293,8 +341,15 @@ def void_invoice_journal_entry(invoice):
         legal_entity=invoice.legal_entity,
         date=timezone.localdate(),
         memo=f"Void of invoice {invoice.number}",
+        number=next_document_number(
+            invoice.tenant, "journal_entry", invoice.legal_entity, timezone.localdate()
+        ),
+        status=JournalEntry.Status.POSTED,
+        reverses=original,
         source_type="invoice_void",
         source_id=invoice.id,
+        content_type=original.content_type,
+        object_id=original.object_id,
         currency=original.currency,
         exchange_rate=original.exchange_rate,
     )
@@ -313,4 +368,184 @@ def void_invoice_journal_entry(invoice):
             for line in original.lines.all()
         ]
     )
+    original.status = JournalEntry.Status.REVERSED
+    original.save(update_fields=["status"])
     return reversal
+
+
+# ---------------------------------------------------------------------
+# Sprint 4.4: manual journal entries — "القيود اليدوية" screen. Unlike
+# post_invoice_journal_entry (system-generated, straight to POSTED),
+# these start at DRAFT and move through the unified status machine
+# (DocumentStateMixin) one explicit action at a time.
+# ---------------------------------------------------------------------
+
+
+@transaction.atomic
+def create_manual_journal_entry(
+    tenant, user, legal_entity, date, line_specs, currency=None, exchange_rate=None, memo="", reference=""
+):
+    currency = currency or legal_entity.base_currency
+    exchange_rate = exchange_rate if exchange_rate is not None else Decimal("1")
+    entry = JournalEntry.objects.create(
+        tenant=tenant,
+        legal_entity=legal_entity,
+        date=date,
+        memo=memo,
+        reference=reference,
+        number=next_document_number(tenant, "journal_entry", legal_entity, date),
+        status=JournalEntry.Status.DRAFT,
+        created_by=user,
+        currency=currency,
+        exchange_rate=exchange_rate,
+    )
+    lines = build_journal_lines_with_fx_rounding(tenant, entry, line_specs, exchange_rate)
+    JournalLine.objects.bulk_create(lines)
+    return entry
+
+
+def _transition_journal_entry(entry, new_status, user, action):
+    old_status = entry.status
+    entry.status = new_status
+    entry.save(update_fields=["status"])
+    log_action(
+        actor_type=AuditLog.ActorType.TENANT_USER,
+        actor_id=user.id,
+        action=f"journal_entry.{action}",
+        target_type="journal_entry",
+        target_id=entry.id,
+        tenant_id=entry.tenant_id,
+        before={"status": old_status},
+        after={"status": new_status},
+    )
+
+
+def submit_journal_entry_for_approval(entry, user):
+    if entry.status != JournalEntry.Status.DRAFT:
+        raise ValidationError(_("Only a draft entry can be submitted for approval."))
+    _transition_journal_entry(entry, JournalEntry.Status.PENDING_APPROVAL, user, "submit")
+
+
+def approve_journal_entry(entry, user):
+    """3.15.9 segregation of duties: the creator can never approve
+    their own entry — except in a single-active-user tenant (3.15.1:
+    "المستأجر ذو المستخدم الواحد يُستثنى تلقائيًا"), where there is
+    nobody else who could. The full configurable ApprovalRule engine
+    (sprint 4.5) will generalize this; this is the hardcoded version
+    4.4's own screen needs now."""
+    if entry.status != JournalEntry.Status.PENDING_APPROVAL:
+        raise ValidationError(_("Only a pending-approval entry can be approved."))
+    single_user_tenant = entry.tenant.users.filter(is_active=True).count() <= 1
+    if not single_user_tenant:
+        if entry.created_by_id == user.id:
+            raise PermissionDenied(_("You cannot approve a journal entry you created yourself."))
+        from apps.access.services import user_has_permission
+
+        if not user_has_permission(user, _JV_APPROVAL_PERMISSION):
+            raise PermissionDenied(_("You do not have permission to approve journal entries."))
+    _transition_journal_entry(entry, JournalEntry.Status.APPROVED, user, "approve")
+
+
+def post_journal_entry(entry, user):
+    if entry.status != JournalEntry.Status.APPROVED:
+        raise ValidationError(_("Only an approved entry can be posted."))
+    _transition_journal_entry(entry, JournalEntry.Status.POSTED, user, "post")
+
+
+@transaction.atomic
+def reverse_journal_entry(entry, user, reason):
+    if entry.status != JournalEntry.Status.POSTED:
+        raise ValidationError(_("Only a posted entry can be reversed."))
+    if not reason:
+        raise ValidationError(_("A reason is required to reverse a journal entry."))
+
+    tenant = entry.tenant
+    reversal = JournalEntry.objects.create(
+        tenant=tenant,
+        legal_entity=entry.legal_entity,
+        date=timezone.localdate(),
+        memo=f"Reversal of {entry.number or entry.id}: {reason}",
+        number=next_document_number(tenant, "journal_entry", entry.legal_entity, timezone.localdate()),
+        status=JournalEntry.Status.POSTED,
+        reverses=entry,
+        created_by=user,
+        content_type=entry.content_type,
+        object_id=entry.object_id,
+        currency=entry.currency,
+        exchange_rate=entry.exchange_rate,
+    )
+    JournalLine.objects.bulk_create(
+        [
+            JournalLine(
+                entry=reversal,
+                account=line.account,
+                cost_center=line.cost_center,
+                party=line.party,
+                description=line.description,
+                debit_fc=line.credit_fc,
+                credit_fc=line.debit_fc,
+                debit=line.credit,
+                credit=line.debit,
+            )
+            for line in entry.lines.all()
+        ]
+    )
+    entry.status = JournalEntry.Status.REVERSED
+    entry.save(update_fields=["status"])
+    log_action(
+        actor_type=AuditLog.ActorType.TENANT_USER,
+        actor_id=user.id,
+        action="journal_entry.reversed",
+        target_type="journal_entry",
+        target_id=entry.id,
+        tenant_id=tenant.id,
+        after={"reason": reason, "reversal_entry_id": str(reversal.id)},
+    )
+    return reversal
+
+
+def compute_trial_balance(tenant, legal_entity_id=None, date_from=None, date_to=None):
+    """Sprint 4.4 (3.15.1): "ميزان مراجعة أولي" — a UAT verification
+    tool, not the full drill-down report (sprint 10). Per leaf account:
+    movement debit/credit and balance in base currency. Only POSTED/
+    REVERSED entries ever contribute (see REPORTABLE_STATUSES) — total
+    debit always equals total credit by construction, since it's
+    summing only already-balanced entries."""
+    from django.db.models import Sum
+
+    lines = JournalLine.objects.filter(entry__tenant=tenant, entry__status__in=REPORTABLE_STATUSES)
+    if legal_entity_id:
+        lines = lines.filter(entry__legal_entity_id=legal_entity_id)
+    if date_from:
+        lines = lines.filter(entry__date__gte=date_from)
+    if date_to:
+        lines = lines.filter(entry__date__lte=date_to)
+
+    totals = (
+        lines.values(
+            "account_id", "account__code", "account__name", "account__normal_balance", "account__level"
+        )
+        .annotate(debit=Sum("debit"), credit=Sum("credit"))
+        .order_by("account__code")
+    )
+    rows = []
+    total_debit = total_credit = Decimal("0")
+    for row in totals:
+        debit = row["debit"] or Decimal("0")
+        credit = row["credit"] or Decimal("0")
+        is_debit_normal = row["account__normal_balance"] == Account.NormalBalance.DEBIT
+        balance = (debit - credit) if is_debit_normal else (credit - debit)
+        rows.append(
+            {
+                "account_id": row["account_id"],
+                "account_code": row["account__code"],
+                "account_name": row["account__name"],
+                "level": row["account__level"],
+                "debit": debit,
+                "credit": credit,
+                "balance": balance,
+            }
+        )
+        total_debit += debit
+        total_credit += credit
+    return {"rows": rows, "total_debit": total_debit, "total_credit": total_credit}

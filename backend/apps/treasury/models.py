@@ -1,7 +1,12 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-from apps.common.constants import RATE_DECIMAL_PLACES, RATE_MAX_DIGITS
+from apps.common.constants import (
+    MONEY_DECIMAL_PLACES,
+    MONEY_MAX_DIGITS,
+    RATE_DECIMAL_PLACES,
+    RATE_MAX_DIGITS,
+)
 from apps.common.models import TenantScopedModel
 
 
@@ -93,6 +98,55 @@ class ExchangeRate(TenantScopedModel):
 
     def __str__(self):
         return f"{self.from_currency}->{self.to_currency} {self.date}: {self.rate}"
+
+
+class BankStatement(TenantScopedModel):
+    """Sprint 4.4 (docs/SYSTEM_ANALYSIS.md 3.15.2): schema only — import
+    (CSV/Excel/MT940/CAMT.053), matching and the reconciliation report
+    are sprint 5.5. `source_file` is a plain path/filename for now (no
+    upload endpoint yet, no storage backend configured in this
+    project) rather than a real FileField, to avoid introducing S3/
+    media-storage config before 5.5 actually needs it."""
+
+    bank = models.ForeignKey(Bank, on_delete=models.PROTECT, related_name="statements")
+    statement_date = models.DateField(_("statement date"))
+    opening_balance = models.DecimalField(
+        _("opening balance"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
+    )
+    closing_balance = models.DecimalField(
+        _("closing balance"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
+    )
+    source_file = models.CharField(_("source file"), max_length=255, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-statement_date"]
+
+    def __str__(self):
+        return f"{self.bank} — {self.statement_date}"
+
+
+class BankStatementLine(TenantScopedModel):
+    """Sprint 4.4: one row of an imported statement — matching
+    (`matched`) is set by the sprint 5.5 engine, not here."""
+
+    statement = models.ForeignKey(BankStatement, on_delete=models.CASCADE, related_name="lines")
+    date = models.DateField(_("date"))
+    # Signed: positive = deposit/credit on the statement, negative =
+    # withdrawal/debit.
+    amount = models.DecimalField(
+        _("amount"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES
+    )
+    description = models.CharField(_("description"), max_length=255, blank=True)
+    reference = models.CharField(_("reference"), max_length=100, blank=True)
+    matched = models.BooleanField(_("matched"), default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["date"]
+
+    def __str__(self):
+        return f"{self.date} {self.amount}"
 
 
 class Custody(TenantScopedModel):

@@ -1,0 +1,462 @@
+"""Sprint 4.4 (docs/SYSTEM_ANALYSIS.md 3.15.1/3.15.2/3.15.9;
+ARCH_REVIEW_1.md §3.2 debts #4/#5/#6): journal engine — states,
+GenericFK source, reversal, reconciliation fields, cost-center split.
+"""
+
+from datetime import date
+from decimal import Decimal
+
+import pytest
+from django.contrib.contenttypes.models import ContentType
+
+from apps.access.services import seed_default_roles
+from apps.accounting.models import Account, JournalEntry
+from apps.accounting.services import (
+    approve_journal_entry,
+    compute_trial_balance,
+    create_manual_journal_entry,
+    post_invoice_journal_entry,
+    post_journal_entry,
+    reverse_journal_entry,
+    seed_chart_of_accounts,
+    submit_journal_entry_for_approval,
+)
+from apps.organization.services import create_default_legal_entities
+from apps.sales.models import Invoice
+from apps.sales.services import create_invoice
+
+from .factories import (
+    CostCenterFactory,
+    LegalEntityFactory,
+    PartyFactory,
+    ProductFactory,
+    TenantFactory,
+    UserFactory,
+)
+
+
+def _leaf_pair(tenant):
+    cash = Account.objects.get(tenant=tenant, system_key="CASH")
+    sales = Account.objects.get(tenant=tenant, system_key="SALES")
+    return cash, sales
+
+
+# ---------------------------------------------------------------------
+# GenericFK source
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_invoice_posting_sets_a_real_genericfk_source(db):
+    tenant = TenantFactory()
+    seed_chart_of_accounts(tenant)
+    _company, entity = create_default_legal_entities(tenant, tenant.name)
+    party = PartyFactory(tenant=tenant)
+    product = ProductFactory(tenant=tenant, unit_price="50.00", tax_rate="0")
+    invoice = create_invoice(
+        tenant=tenant, party=party, legal_entity=entity, issue_date=date(2026, 1, 1),
+        line_inputs=[{"product": product, "quantity": Decimal("1"), "cost_center": None}],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+
+    entry = post_invoice_journal_entry(invoice)
+
+    assert entry.content_type == ContentType.objects.get_for_model(Invoice)
+    assert entry.object_id == invoice.id
+    assert entry.source == invoice
+
+
+@pytest.mark.django_db
+def test_invoice_posting_is_created_directly_as_posted_with_a_number(db):
+    tenant = TenantFactory()
+    seed_chart_of_accounts(tenant)
+    _company, entity = create_default_legal_entities(tenant, tenant.name)
+    party = PartyFactory(tenant=tenant)
+    product = ProductFactory(tenant=tenant, unit_price="50.00", tax_rate="0")
+    invoice = create_invoice(
+        tenant=tenant, party=party, legal_entity=entity, issue_date=date(2026, 1, 1),
+        line_inputs=[{"product": product, "quantity": Decimal("1"), "cost_center": None}],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+
+    entry = post_invoice_journal_entry(invoice)
+
+    assert entry.status == JournalEntry.Status.POSTED
+    assert entry.number.startswith("JV-")
+
+
+# ---------------------------------------------------------------------
+# Cost-center split (ARCH_REVIEW_1.md debt #5)
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_invoice_with_two_cost_centers_generates_two_revenue_lines(db):
+    tenant = TenantFactory()
+    seed_chart_of_accounts(tenant)
+    _company, entity = create_default_legal_entities(tenant, tenant.name)
+    party = PartyFactory(tenant=tenant)
+    product_a = ProductFactory(tenant=tenant, unit_price="100.00", tax_rate="0")
+    product_b = ProductFactory(tenant=tenant, unit_price="50.00", tax_rate="0")
+    cc1 = CostCenterFactory(tenant=tenant)
+    cc2 = CostCenterFactory(tenant=tenant)
+
+    invoice = create_invoice(
+        tenant=tenant, party=party, legal_entity=entity, issue_date=date(2026, 1, 1),
+        line_inputs=[
+            {"product": product_a, "quantity": Decimal("1"), "cost_center": cc1},
+            {"product": product_b, "quantity": Decimal("1"), "cost_center": cc2},
+        ],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+
+    entry = post_invoice_journal_entry(invoice)
+    revenue_lines = entry.lines.filter(account__system_key="SALES")
+
+    assert revenue_lines.count() == 2
+    by_cc = {line.cost_center_id: line.credit for line in revenue_lines}
+    assert by_cc[cc1.id] == Decimal("100.00")
+    assert by_cc[cc2.id] == Decimal("50.00")
+
+
+@pytest.mark.django_db
+def test_invoice_lines_without_cost_center_are_grouped_into_one_line(db):
+    tenant = TenantFactory()
+    seed_chart_of_accounts(tenant)
+    _company, entity = create_default_legal_entities(tenant, tenant.name)
+    party = PartyFactory(tenant=tenant)
+    product_a = ProductFactory(tenant=tenant, unit_price="10.00", tax_rate="0")
+    product_b = ProductFactory(tenant=tenant, unit_price="20.00", tax_rate="0")
+
+    invoice = create_invoice(
+        tenant=tenant, party=party, legal_entity=entity, issue_date=date(2026, 1, 1),
+        line_inputs=[
+            {"product": product_a, "quantity": Decimal("1"), "cost_center": None},
+            {"product": product_b, "quantity": Decimal("1"), "cost_center": None},
+        ],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+
+    entry = post_invoice_journal_entry(invoice)
+    revenue_lines = entry.lines.filter(account__system_key="SALES")
+
+    assert revenue_lines.count() == 1
+    assert revenue_lines.first().credit == Decimal("30.00")
+
+
+# ---------------------------------------------------------------------
+# Trial balance: DRAFT excluded, POSTED included, REVERSED zeroes out.
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_draft_manual_entry_does_not_appear_in_trial_balance(db):
+    tenant = TenantFactory()
+    seed_chart_of_accounts(tenant)
+    entity = LegalEntityFactory(tenant=tenant)
+    owner = UserFactory(tenant=tenant)
+    cash, sales = _leaf_pair(tenant)
+
+    create_manual_journal_entry(
+        tenant=tenant, user=owner, legal_entity=entity, date=date(2026, 1, 1),
+        line_specs=[
+            {"account": cash, "debit_fc": Decimal("100.00"), "credit_fc": Decimal("0")},
+            {"account": sales, "debit_fc": Decimal("0"), "credit_fc": Decimal("100.00")},
+        ],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+
+    result = compute_trial_balance(tenant)
+    assert result["total_debit"] == Decimal("0")
+    assert result["total_credit"] == Decimal("0")
+
+
+@pytest.mark.django_db
+def test_posted_manual_entry_appears_in_trial_balance_and_reversal_zeroes_it(db):
+    tenant = TenantFactory()
+    seed_chart_of_accounts(tenant)
+    entity = LegalEntityFactory(tenant=tenant)
+    roles = seed_default_roles(tenant)
+    creator = UserFactory(tenant=tenant, email="creator@jv-tb.test")
+    creator.roles.add(roles["Accountant"])
+    approver = UserFactory(tenant=tenant, email="approver@jv-tb.test")
+    approver.roles.add(roles["Owner"])
+    cash, sales = _leaf_pair(tenant)
+
+    entry = create_manual_journal_entry(
+        tenant=tenant, user=creator, legal_entity=entity, date=date(2026, 1, 1),
+        line_specs=[
+            {"account": cash, "debit_fc": Decimal("100.00"), "credit_fc": Decimal("0")},
+            {"account": sales, "debit_fc": Decimal("0"), "credit_fc": Decimal("100.00")},
+        ],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+    submit_journal_entry_for_approval(entry, creator)
+    approve_journal_entry(entry, approver)
+    post_journal_entry(entry, approver)
+
+    posted_result = compute_trial_balance(tenant)
+    assert posted_result["total_debit"] == Decimal("100.00")
+    assert posted_result["total_debit"] == posted_result["total_credit"]
+
+    reverse_journal_entry(entry, approver, "test reversal")
+    entry.refresh_from_db()
+    assert entry.status == JournalEntry.Status.REVERSED
+
+    reversed_result = compute_trial_balance(tenant)
+    cash_row = next(r for r in reversed_result["rows"] if r["account_id"] == cash.id)
+    assert cash_row["balance"] == Decimal("0.00")
+    assert reversed_result["total_debit"] == reversed_result["total_credit"]
+
+
+# ---------------------------------------------------------------------
+# Manual JV lifecycle + segregation of duties (3.15.9)
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_creator_cannot_approve_their_own_manual_entry(db):
+    tenant = TenantFactory()
+    seed_chart_of_accounts(tenant)
+    entity = LegalEntityFactory(tenant=tenant)
+    roles = seed_default_roles(tenant)
+    # A second active user must exist for segregation of duties to
+    # apply at all (single-user tenants are exempted, 3.15.1).
+    creator = UserFactory(tenant=tenant, email="creator@jv-sod.test")
+    creator.roles.add(roles["Owner"])
+    UserFactory(tenant=tenant, email="other@jv-sod.test").roles.add(roles["Accountant"])
+    cash, sales = _leaf_pair(tenant)
+
+    entry = create_manual_journal_entry(
+        tenant=tenant, user=creator, legal_entity=entity, date=date(2026, 1, 1),
+        line_specs=[
+            {"account": cash, "debit_fc": Decimal("50.00"), "credit_fc": Decimal("0")},
+            {"account": sales, "debit_fc": Decimal("0"), "credit_fc": Decimal("50.00")},
+        ],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+    submit_journal_entry_for_approval(entry, creator)
+
+    from django.core.exceptions import PermissionDenied
+
+    with pytest.raises(PermissionDenied):
+        approve_journal_entry(entry, creator)
+
+
+@pytest.mark.django_db
+def test_single_active_user_tenant_is_exempt_from_segregation_of_duties(db):
+    tenant = TenantFactory()
+    seed_chart_of_accounts(tenant)
+    entity = LegalEntityFactory(tenant=tenant)
+    roles = seed_default_roles(tenant)
+    owner = UserFactory(tenant=tenant, email="solo-owner@jv-sod.test")
+    owner.roles.add(roles["Owner"])
+    cash, sales = _leaf_pair(tenant)
+
+    entry = create_manual_journal_entry(
+        tenant=tenant, user=owner, legal_entity=entity, date=date(2026, 1, 1),
+        line_specs=[
+            {"account": cash, "debit_fc": Decimal("10.00"), "credit_fc": Decimal("0")},
+            {"account": sales, "debit_fc": Decimal("0"), "credit_fc": Decimal("10.00")},
+        ],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+    submit_journal_entry_for_approval(entry, owner)
+    approve_journal_entry(entry, owner)  # must not raise — solo tenant
+    entry.refresh_from_db()
+    assert entry.status == JournalEntry.Status.APPROVED
+
+
+@pytest.mark.django_db
+def test_cannot_post_a_non_approved_entry(db):
+    tenant = TenantFactory()
+    seed_chart_of_accounts(tenant)
+    entity = LegalEntityFactory(tenant=tenant)
+    owner = UserFactory(tenant=tenant)
+    cash, sales = _leaf_pair(tenant)
+
+    entry = create_manual_journal_entry(
+        tenant=tenant, user=owner, legal_entity=entity, date=date(2026, 1, 1),
+        line_specs=[
+            {"account": cash, "debit_fc": Decimal("10.00"), "credit_fc": Decimal("0")},
+            {"account": sales, "debit_fc": Decimal("0"), "credit_fc": Decimal("10.00")},
+        ],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+
+    from django.core.exceptions import ValidationError
+
+    with pytest.raises(ValidationError):
+        post_journal_entry(entry, owner)
+
+
+@pytest.mark.django_db
+def test_manual_entry_numbering_uses_jv_prefix(db):
+    tenant = TenantFactory()
+    seed_chart_of_accounts(tenant)
+    entity = LegalEntityFactory(tenant=tenant)
+    owner = UserFactory(tenant=tenant)
+    cash, sales = _leaf_pair(tenant)
+
+    entry = create_manual_journal_entry(
+        tenant=tenant, user=owner, legal_entity=entity, date=date(2026, 1, 1),
+        line_specs=[
+            {"account": cash, "debit_fc": Decimal("10.00"), "credit_fc": Decimal("0")},
+            {"account": sales, "debit_fc": Decimal("0"), "credit_fc": Decimal("10.00")},
+        ],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+
+    assert entry.number.startswith("JV-2026-")
+
+
+# ---------------------------------------------------------------------
+# API: /api/journal-entries/ create/submit/approve/post/reverse
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_manual_jv_full_lifecycle_via_api(db):
+    from rest_framework.test import APIClient
+
+    from apps.access.models import UserEntityAccess
+
+    tenant = TenantFactory()
+    seed_chart_of_accounts(tenant)
+    entity = LegalEntityFactory(tenant=tenant)
+    roles = seed_default_roles(tenant)
+    creator = UserFactory(tenant=tenant, email="api-creator@jv-api.test")
+    creator.roles.add(roles["Accountant"])
+    # Accountant (non-Owner) only sees entities explicitly granted via
+    # UserEntityAccess (organization/services.py:get_accessible_entity_ids)
+    # — Owner bypasses this, which is why `approver` below doesn't need it.
+    UserEntityAccess.objects.create(user=creator, legal_entity=entity)
+    approver = UserFactory(tenant=tenant, email="api-approver@jv-api.test")
+    approver.roles.add(roles["Owner"])
+    cash, sales = _leaf_pair(tenant)
+
+    creator_client = APIClient()
+    creator_client.force_authenticate(user=creator)
+    approver_client = APIClient()
+    approver_client.force_authenticate(user=approver)
+
+    create = creator_client.post(
+        "/api/journal-entries/",
+        {
+            "legal_entity": str(entity.id),
+            "date": "2026-01-01",
+            "memo": "test entry",
+            "lines": [
+                {"account": str(cash.id), "debit_fc": "20.00", "credit_fc": "0"},
+                {"account": str(sales.id), "debit_fc": "0", "credit_fc": "20.00"},
+            ],
+        },
+        format="json",
+    )
+    assert create.status_code == 201
+    assert create.data["status"] == "draft"
+    entry_id = create.data["id"]
+
+    submit = creator_client.post(f"/api/journal-entries/{entry_id}/submit/")
+    assert submit.status_code == 200
+    assert submit.data["status"] == "pending_approval"
+
+    self_approve = creator_client.post(f"/api/journal-entries/{entry_id}/approve/")
+    assert self_approve.status_code == 403
+
+    approve = approver_client.post(f"/api/journal-entries/{entry_id}/approve/")
+    assert approve.status_code == 200
+    assert approve.data["status"] == "approved"
+
+    post = approver_client.post(f"/api/journal-entries/{entry_id}/post/")
+    assert post.status_code == 200
+    assert post.data["status"] == "posted"
+
+    reverse = approver_client.post(f"/api/journal-entries/{entry_id}/reverse/", {"reason": "mistake"}, format="json")
+    assert reverse.status_code == 201
+    assert reverse.data["status"] == "posted"
+
+
+@pytest.mark.django_db
+def test_cannot_reverse_a_system_generated_entry_via_generic_action(db):
+    from rest_framework.test import APIClient
+
+    tenant = TenantFactory()
+    seed_chart_of_accounts(tenant)
+    _company, entity = create_default_legal_entities(tenant, tenant.name)
+    roles = seed_default_roles(tenant)
+    owner = UserFactory(tenant=tenant, email="owner@jv-void-guard.test")
+    owner.roles.add(roles["Owner"])
+    party = PartyFactory(tenant=tenant)
+    product = ProductFactory(tenant=tenant, unit_price="10.00", tax_rate="0")
+    invoice = create_invoice(
+        tenant=tenant, party=party, legal_entity=entity, issue_date=date(2026, 1, 1),
+        line_inputs=[{"product": product, "quantity": Decimal("1"), "cost_center": None}],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+    entry = post_invoice_journal_entry(invoice)
+
+    client = APIClient()
+    client.force_authenticate(user=owner)
+    response = client.post(f"/api/journal-entries/{entry.id}/reverse/", {"reason": "x"}, format="json")
+
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_trial_balance_endpoint_totals_match(db):
+    from rest_framework.test import APIClient
+
+    tenant = TenantFactory()
+    seed_chart_of_accounts(tenant)
+    entity = LegalEntityFactory(tenant=tenant)
+    roles = seed_default_roles(tenant)
+    owner = UserFactory(tenant=tenant, email="owner@jv-trial.test")
+    owner.roles.add(roles["Owner"])
+    cash, sales = _leaf_pair(tenant)
+
+    entry = create_manual_journal_entry(
+        tenant=tenant, user=owner, legal_entity=entity, date=date(2026, 1, 1),
+        line_specs=[
+            {"account": cash, "debit_fc": Decimal("40.00"), "credit_fc": Decimal("0")},
+            {"account": sales, "debit_fc": Decimal("0"), "credit_fc": Decimal("40.00")},
+        ],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+    submit_journal_entry_for_approval(entry, owner)
+    approve_journal_entry(entry, owner)
+    post_journal_entry(entry, owner)
+
+    client = APIClient()
+    client.force_authenticate(user=owner)
+    response = client.get("/api/journal-entries/trial_balance/")
+
+    assert response.status_code == 200
+    assert response.data["total_debit"] == response.data["total_credit"] == "40.00"
+
+
+# ---------------------------------------------------------------------
+# Tenant isolation on new endpoints
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_journal_entry_actions_are_tenant_isolated(tenant_a, tenant_b, client_a):
+    entity_b = LegalEntityFactory(tenant=tenant_b)
+    owner_b = UserFactory(tenant=tenant_b)
+    cash_b = Account.objects.get(tenant=tenant_b, system_key="CASH")
+    sales_b = Account.objects.get(tenant=tenant_b, system_key="SALES")
+    entry_b = create_manual_journal_entry(
+        tenant=tenant_b, user=owner_b, legal_entity=entity_b, date=date(2026, 1, 1),
+        line_specs=[
+            {"account": cash_b, "debit_fc": Decimal("5.00"), "credit_fc": Decimal("0")},
+            {"account": sales_b, "debit_fc": Decimal("0"), "credit_fc": Decimal("5.00")},
+        ],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+
+    response = client_a.get(f"/api/journal-entries/{entry_b.id}/")
+    assert response.status_code == 404
+
+    submit = client_a.post(f"/api/journal-entries/{entry_b.id}/submit/")
+    assert submit.status_code == 404
