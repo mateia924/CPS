@@ -13,6 +13,13 @@ DEFAULT_PREFIXES = {
     "party_employee": "EMP",
     "party_affiliate": "AFF",
     "journal_entry": "JV",
+    # Sprint 5.0 (prompt decision 9): vouchers get their number at
+    # first exit from DRAFT, not at creation — apps.vouchers (5.3)
+    # calls next_document_number() from that transition, not from
+    # voucher creation itself.
+    "voucher_receipt": "RV",
+    "voucher_payment": "PV",
+    "voucher_settlement": "SV",
 }
 
 

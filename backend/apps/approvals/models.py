@@ -18,6 +18,13 @@ class ApprovalRule(TenantScopedModel):
     class DocType(models.TextChoices):
         JOURNAL_ENTRY = "journal_entry", _("Journal Entry")
         INVOICE = "invoice", _("Invoice")
+        # Sprint 5.0: the voucher engine itself is 5.3 — these exist now
+        # so the rule can be configured (and, per decision 4, the
+        # matching amount is the voucher's base-currency total) before
+        # any voucher actually reaches submit_for_approval().
+        VOUCHER_RECEIPT = "voucher_receipt", _("Receipt Voucher")
+        VOUCHER_PAYMENT = "voucher_payment", _("Payment Voucher")
+        VOUCHER_SETTLEMENT = "voucher_settlement", _("Settlement Voucher")
 
     doc_type = models.CharField(_("document type"), max_length=30, choices=DocType.choices)
     min_amount = models.DecimalField(

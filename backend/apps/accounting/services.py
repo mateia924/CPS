@@ -265,14 +265,27 @@ def get_or_create_treasury_account(instance, system_key):
 def build_journal_lines_with_fx_rounding(tenant, entry, line_specs, exchange_rate):
     """Sprint 4.2 (3.15.3), extended in 4.3 with the posting guard (3.4:
     "لا ترحيل على حساب له أبناء") and JournalLine.party auto-fill (3.4:
-    "auto-filled when posting to a sub-ledger account").
+    "auto-filled when posting to a sub-ledger account"); extended again
+    in 5.0 (docs/prompts/sprint-5.md decision 6) with per-line
+    currency/rate instead of assuming every line shares entry.currency.
 
-    Converts each line_spec ({"account", "cost_center" (optional),
-    "debit_fc", "credit_fc"}, amounts in entry.currency) into an
-    unsaved JournalLine with debit/credit (legal_entity.base_currency)
-    also populated — each line rounded to the cent independently
-    (ROUND_HALF_UP), same as every other money computation in this
-    project.
+    Converts each line_spec into an unsaved JournalLine with debit/
+    credit (legal_entity.base_currency) also populated — each line
+    rounded to the cent independently (ROUND_HALF_UP), same as every
+    other money computation in this project. Each spec is one of:
+      - {"account", "cost_center"?, "debit_fc", "credit_fc",
+         "currency"?, "exchange_rate"?} — the ordinary case. `currency`/
+        `exchange_rate` default to the entry's own (unchanged behavior
+        for every sprint-4 caller); debit/credit = fc × rate.
+      - {"account", ..., "debit_base"/"credit_base", "currency"?,
+         "exchange_rate"?} — **system code only, never exposed on any
+         API input serializer**: the base-currency amount is given
+         directly (e.g. sprint 5.3's invoice allocation, which must use
+         the invoice's own historical rate, not today's). debit_fc/
+         credit_fc are then back-derived from the given rate for
+         display consistency; if no rate is supplied the fc columns
+         mirror the base amount 1:1 (rate 1), since a base-only line
+         has no other currency of its own to report.
 
     Converting each line separately can leave the base-currency debit
     and credit totals off by a few cents even though the fc totals are
@@ -292,16 +305,33 @@ def build_journal_lines_with_fx_rounding(tenant, entry, line_specs, exchange_rat
                 )
                 % {"code": account.code}
             )
+        line_currency = spec.get("currency") or entry.currency
+        line_rate = spec.get("exchange_rate", exchange_rate)
+
+        if "debit_base" in spec or "credit_base" in spec:
+            debit_base = spec.get("debit_base", Decimal("0"))
+            credit_base = spec.get("credit_base", Decimal("0"))
+            debit_fc = spec.get("debit_fc", debit_base if line_rate == 1 else debit_base / line_rate)
+            credit_fc = spec.get("credit_fc", credit_base if line_rate == 1 else credit_base / line_rate)
+        else:
+            debit_fc = spec["debit_fc"]
+            credit_fc = spec["credit_fc"]
+            debit_base = (debit_fc * line_rate).quantize(CENTS, rounding=ROUND_HALF_UP)
+            credit_base = (credit_fc * line_rate).quantize(CENTS, rounding=ROUND_HALF_UP)
+
         lines.append(
             JournalLine(
                 entry=entry,
                 account=account,
                 cost_center=spec.get("cost_center"),
                 party=account.party,
-                debit_fc=spec["debit_fc"],
-                credit_fc=spec["credit_fc"],
-                debit=(spec["debit_fc"] * exchange_rate).quantize(CENTS, rounding=ROUND_HALF_UP),
-                credit=(spec["credit_fc"] * exchange_rate).quantize(CENTS, rounding=ROUND_HALF_UP),
+                description=spec.get("description", ""),
+                currency=line_currency,
+                exchange_rate=line_rate,
+                debit_fc=debit_fc,
+                credit_fc=credit_fc,
+                debit=debit_base,
+                credit=credit_base,
             )
         )
 
@@ -315,11 +345,20 @@ def build_journal_lines_with_fx_rounding(tenant, entry, line_specs, exchange_rat
                 "tolerance — this indicates a real bug upstream, not rounding noise."
             )
         rounding_account = _get_system_account_or_fallback(tenant, "ROUNDING")
+        base_currency = entry.legal_entity.base_currency
         if diff > 0:
-            lines.append(JournalLine(entry=entry, account=rounding_account, debit=diff, credit=Decimal("0")))
+            lines.append(
+                JournalLine(
+                    entry=entry, account=rounding_account, currency=base_currency,
+                    debit=diff, credit=Decimal("0"), debit_fc=diff,
+                )
+            )
         else:
             lines.append(
-                JournalLine(entry=entry, account=rounding_account, debit=Decimal("0"), credit=-diff)
+                JournalLine(
+                    entry=entry, account=rounding_account, currency=base_currency,
+                    debit=Decimal("0"), credit=-diff, credit_fc=-diff,
+                )
             )
     return lines
 
@@ -466,6 +505,8 @@ def void_invoice_journal_entry(invoice):
                 account=line.account,
                 cost_center=line.cost_center,
                 party=line.party,
+                currency=line.currency,
+                exchange_rate=line.exchange_rate,
                 debit_fc=line.credit_fc,
                 credit_fc=line.debit_fc,
                 debit=line.credit,
@@ -506,8 +547,31 @@ def create_manual_journal_entry(
         exchange_rate=exchange_rate,
     )
     lines = build_journal_lines_with_fx_rounding(tenant, entry, line_specs, exchange_rate)
+    _require_fc_balance_if_single_currency(entry, lines)
     JournalLine.objects.bulk_create(lines)
     return entry
+
+
+def _require_fc_balance_if_single_currency(entry, lines):
+    """Sprint 5.0 (docs/prompts/sprint-5.md decision 6): "التوازن
+    بالعملة الأساسية إلزامي دائمًا؛ التوازن بعملة المعاملة يُفرض على
+    القيود اليدوية أحادية العملة فقط." Once a manual JV can carry
+    mixed-currency lines (a capability this sprint adds the plumbing
+    for, exercised for real by vouchers in 5.3) there is no single
+    transaction currency to balance by, so the check only applies when
+    every line — including any auto-appended rounding line — still
+    shares the entry's own currency (true for every sprint-4-era
+    manual JV, which is exactly the behavior this must not change).
+    """
+    if not all(line.currency == entry.currency for line in lines):
+        return
+    debit_fc_total = sum((line.debit_fc for line in lines), Decimal("0"))
+    credit_fc_total = sum((line.credit_fc for line in lines), Decimal("0"))
+    if debit_fc_total != credit_fc_total:
+        raise ValidationError(
+            _("القيد غير متوازن بعملة المعاملة: إجمالي المدين %(debit)s لا يساوي إجمالي الدائن %(credit)s.")
+            % {"debit": debit_fc_total, "credit": credit_fc_total}
+        )
 
 
 def _transition_journal_entry(entry, new_status, user, action):
@@ -592,6 +656,8 @@ def reverse_journal_entry(entry, user, reason):
                 cost_center=line.cost_center,
                 party=line.party,
                 description=line.description,
+                currency=line.currency,
+                exchange_rate=line.exchange_rate,
                 debit_fc=line.credit_fc,
                 credit_fc=line.debit_fc,
                 debit=line.credit,

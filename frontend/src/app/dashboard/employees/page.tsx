@@ -213,10 +213,8 @@ export default function EmployeesPage() {
         refreshToken={refreshToken}
         onEdit={startEdit}
         renderExtraActions={(party) => (
-          <Link href={`/dashboard/employees/${party.id}`}>
-            <button type="button" className="secondary">
-              {t("viewDetails")}
-            </button>
+          <Link href={`/dashboard/employees/${party.id}`} className="secondary">
+            {t("viewDetails")}
           </Link>
         )}
         columns={[

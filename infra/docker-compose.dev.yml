@@ -9,6 +9,19 @@ services:
   backend:
     build:
       target: dev
+    # Sprint 4.8/5.0 lesson: gunicorn (the base command) never picks up
+    # code changes on its own, so a long dev session could keep serving
+    # stale code indefinitely (exactly what happened in 4.8 — the
+    # container had been running since before that sprint's first
+    # commit). `--reload` watches every .py file under the working dir
+    # and restarts workers on change; production (docker-compose.prod.yml)
+    # never adds this flag, only dev. This does NOT replace the "restart
+    # + curl /me" rule after the sprint's last commit — reload watches
+    # file changes, not migrations or Docker image rebuilds.
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput &&
+             exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --reload"
     volumes:
       - ../backend:/app:Z
 

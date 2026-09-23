@@ -1,4 +1,4 @@
-.PHONY: dev-up dev-down dev-logs dev-build prod-up prod-down prod-config dev-config test lint
+.PHONY: dev-up dev-down dev-logs dev-build prod-up prod-down prod-config dev-config test lint smoke backup
 
 COMPOSE_DIR := infra
 ENV_FILE := .env
@@ -35,6 +35,18 @@ test:
 
 lint:
 	$(DC) $(DEV) run --rm --entrypoint '' backend sh -c "pip install -q -r requirements-dev.txt && ruff check ."
+
+## Live-environment smoke test (sprint 5.0, CFO_REVIEW_1 O8) — run this
+## after every `docker compose restart backend celery_worker`, before
+## trusting the environment for UAT or real use. See scripts/smoke.sh
+## for what it checks and how to point it at a different tenant/user.
+smoke:
+	./scripts/smoke.sh
+
+## Daily backup (sprint 5.0, CFO_REVIEW_1 O1) — also runs from root's
+## crontab at 03:00 daily; this target is for running it on demand.
+backup:
+	./scripts/backup.sh
 
 ## Prod (future production host only — never run on this dev host)
 prod-up:

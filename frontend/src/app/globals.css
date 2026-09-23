@@ -55,7 +55,7 @@ input, select, button {
   border-radius: 8px;
 }
 
-button.primary {
+button.primary, a.primary {
   background: var(--primary);
   color: white;
   border: none;
@@ -64,16 +64,26 @@ button.primary {
   cursor: pointer;
 }
 
-button.primary:hover {
+button.primary:hover, a.primary:hover {
   background: var(--primary-hover);
 }
 
-button.secondary {
+button.secondary, a.secondary {
   background: transparent;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.5rem 0.9rem;
   cursor: pointer;
+}
+
+/* a.primary/a.secondary: same look as the button variants, for a
+   Next.js <Link> styled as a button — a <button> must never be nested
+   inside a <Link> (invalid HTML, causes a hydration-mismatch warning
+   in the dev overlay; sprint 5.0 fix). */
+a.primary, a.secondary {
+  display: inline-block;
+  text-decoration: none;
+  text-align: center;
 }
 
 .error-text {

@@ -83,6 +83,11 @@ class Invoice(TenantScopedModel):
         PAID = "paid", _("Paid")
         CANCELLED = "cancelled", _("Cancelled")
 
+    class PaymentStatus(models.TextChoices):
+        UNPAID = "unpaid", _("Unpaid")
+        PARTIAL = "partial", _("Partially paid")
+        PAID = "paid", _("Paid")
+
     # Sprint 3 (3.3): superseded by `party` below (FK to parties.Party,
     # role=CUSTOMER) — kept, untouched, purely for historical reference;
     # no code reads or writes this field going forward. See the Decision
@@ -105,6 +110,11 @@ class Invoice(TenantScopedModel):
     number = models.CharField(_("number"), max_length=32)
     status = models.CharField(_("status"), max_length=20, choices=Status.choices, default=Status.DRAFT)
     issue_date = models.DateField(_("issue date"))
+    # Sprint 5.0 (prompt block 5.0 item 5): derived once at create/update
+    # time from the customer's payment_terms_days (PartyRole.details) —
+    # null when the customer has no payment terms set. Purely
+    # informational until vouchers (5.3) actually use it for aging.
+    due_date = models.DateField(_("due date"), null=True, blank=True)
 
     # Sprint 4.2 (3.11/3.15.3): defaults keep every pre-4.2 invoice
     # unchanged (currency=base, rate=1, base_total=total) — see the
@@ -132,6 +142,20 @@ class Invoice(TenantScopedModel):
     # الفاتورة للتقارير").
     base_total = models.DecimalField(
         _("base total"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
+    )
+    # Sprint 5.0/5.3 (prompt block 5.0 item 5): kept in the invoice's
+    # own currency, updated server-side only from VoucherAllocation
+    # (5.3) — never accepted as API input. Every pre-5.0 invoice
+    # backfills to paid_fc=0, balance_fc=total, payment_status=UNPAID
+    # (nothing could have been allocated before this sprint existed).
+    paid_fc = models.DecimalField(
+        _("paid"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
+    )
+    balance_fc = models.DecimalField(
+        _("balance"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
+    )
+    payment_status = models.CharField(
+        _("payment status"), max_length=10, choices=PaymentStatus.choices, default=PaymentStatus.UNPAID
     )
 
     created_at = models.DateTimeField(auto_now_add=True)

@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.core.exceptions import ValidationError
@@ -5,6 +6,7 @@ from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 
 from apps.numbering.services import next_document_number
+from apps.parties.models import PartyRole
 
 from .models import Invoice, InvoiceLine
 
@@ -44,8 +46,38 @@ def recalculate_invoice(invoice):
     invoice.tax_total = tax_total
     invoice.total = subtotal + tax_total
     invoice.base_total = (invoice.total * invoice.exchange_rate).quantize(CENTS, rounding=ROUND_HALF_UP)
-    invoice.save(update_fields=["subtotal", "tax_total", "total", "base_total"])
+    # paid_fc is untouched here (only VoucherAllocation in 5.3 changes
+    # it) — recomputing balance_fc/payment_status from it on every
+    # totals recalculation keeps them consistent even if a draft's
+    # lines are edited (paid_fc is always 0 for a draft anyway, since
+    # nothing unissued can be paid against).
+    invoice.balance_fc = invoice.total - invoice.paid_fc
+    invoice.payment_status = _payment_status_for(invoice.paid_fc, invoice.total)
+    invoice.save(
+        update_fields=["subtotal", "tax_total", "total", "base_total", "balance_fc", "payment_status"]
+    )
     return invoice
+
+
+def _payment_status_for(paid_fc, total):
+    if paid_fc <= 0:
+        return Invoice.PaymentStatus.UNPAID
+    if paid_fc >= total:
+        return Invoice.PaymentStatus.PAID
+    return Invoice.PaymentStatus.PARTIAL
+
+
+def _compute_due_date(party, issue_date):
+    """Sprint 5.0: `issue_date + customer.payment_terms_days`, or None
+    if the customer role has no payment terms set (PartyRole.details is
+    a flat JSON bag — see apps/parties/models.py)."""
+    customer_role = party.roles.filter(role=PartyRole.Role.CUSTOMER, is_active=True).first()
+    if customer_role is None:
+        return None
+    days = (customer_role.details or {}).get("payment_terms_days")
+    if not days:
+        return None
+    return issue_date + timedelta(days=int(days))
 
 
 def _build_lines(invoice, line_inputs):
@@ -88,6 +120,7 @@ def create_invoice(tenant, party, legal_entity, issue_date, line_inputs, currenc
         legal_entity=legal_entity,
         number=generate_invoice_number(tenant, legal_entity, issue_date),
         issue_date=issue_date,
+        due_date=_compute_due_date(party, issue_date),
         status=Invoice.Status.DRAFT,
         currency=currency,
         exchange_rate=exchange_rate,
@@ -106,9 +139,12 @@ def update_invoice(invoice, party, legal_entity, issue_date, line_inputs, curren
     invoice.party = party
     invoice.legal_entity = legal_entity
     invoice.issue_date = issue_date
+    invoice.due_date = _compute_due_date(party, issue_date)
     invoice.currency = currency
     invoice.exchange_rate = exchange_rate
-    invoice.save(update_fields=["party", "legal_entity", "issue_date", "currency", "exchange_rate"])
+    invoice.save(
+        update_fields=["party", "legal_entity", "issue_date", "due_date", "currency", "exchange_rate"]
+    )
     invoice.lines.all().delete()
     _build_lines(invoice, line_inputs)
     return recalculate_invoice(invoice)

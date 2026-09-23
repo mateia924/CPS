@@ -203,10 +203,8 @@ export default function CustomersPage() {
         refreshToken={refreshToken}
         onEdit={startEdit}
         renderExtraActions={(party) => (
-          <Link href={`/dashboard/customers/${party.id}`}>
-            <button type="button" className="secondary">
-              {t("viewDetails")}
-            </button>
+          <Link href={`/dashboard/customers/${party.id}`} className="secondary">
+            {t("viewDetails")}
           </Link>
         )}
         columns={[

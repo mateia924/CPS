@@ -140,3 +140,65 @@ def test_owner_bypasses_entity_access_and_sees_both_branches(tenant_with_two_bra
 
     list_response = client.get("/api/invoices/")
     assert list_response.data["count"] == 2
+
+
+# ---------------------------------------------------------------------
+# Sprint 5.0 (post-UAT-4 fix): a new staff user gets entity access
+# granted at creation time, not left at zero until a separate /assign/
+# call — the exact gotcha the UAT-4 script itself had to work around.
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_new_user_in_simplified_mode_tenant_gets_the_single_branch(tenant_a, client_a):
+    response = client_a.post(
+        "/api/users/",
+        {"email": "newstaff@tenant-a.test", "password": "NewStaffPass!2026"},
+        format="json",
+    )
+    assert response.status_code == 201
+    branch = LegalEntity.objects.get(tenant=tenant_a, entity_type=LegalEntity.Type.BRANCH)
+    granted = [str(eid) for eid in response.data["legal_entity_ids"]]
+    assert granted == [str(branch.id)]
+
+
+@pytest.mark.django_db
+def test_new_user_in_multi_entity_tenant_defaults_to_all_entities(tenant_with_two_branches):
+    tenant, branch_a, branch_b = tenant_with_two_branches
+    roles = seed_default_roles(tenant)
+    owner = UserFactory(tenant=tenant, email="owner3@rbac.test")
+    owner.roles.add(roles["Owner"])
+    client = APIClient()
+    client.force_authenticate(user=owner)
+
+    response = client.post(
+        "/api/users/",
+        {"email": "newstaff@rbac.test", "password": "NewStaffPass!2026"},
+        format="json",
+    )
+    assert response.status_code == 201
+    granted = set(str(eid) for eid in response.data["legal_entity_ids"])
+    all_entity_ids = set(str(e.id) for e in LegalEntity.objects.filter(tenant=tenant))
+    assert granted == all_entity_ids
+
+
+@pytest.mark.django_db
+def test_new_user_in_multi_entity_tenant_honors_explicit_entity_list(tenant_with_two_branches):
+    tenant, branch_a, branch_b = tenant_with_two_branches
+    roles = seed_default_roles(tenant)
+    owner = UserFactory(tenant=tenant, email="owner4@rbac.test")
+    owner.roles.add(roles["Owner"])
+    client = APIClient()
+    client.force_authenticate(user=owner)
+
+    response = client.post(
+        "/api/users/",
+        {
+            "email": "newstaff2@rbac.test", "password": "NewStaffPass!2026",
+            "legal_entity_ids": [str(branch_a.id)],
+        },
+        format="json",
+    )
+    assert response.status_code == 201
+    granted = [str(eid) for eid in response.data["legal_entity_ids"]]
+    assert granted == [str(branch_a.id)]

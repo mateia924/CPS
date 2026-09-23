@@ -217,8 +217,19 @@ class JournalLine(models.Model):
     # read.
     debit = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0)
     credit = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0)
-    # Transaction-currency amounts (entry.currency) — sprint 4.2. Equal
-    # to debit/credit whenever entry.currency == base currency (rate 1).
+    # Transaction-currency amounts — sprint 4.2 had these implicitly in
+    # entry.currency; sprint 5.0 (docs/prompts/sprint-5.md decision 6)
+    # moves currency/rate onto the line itself, since a voucher line
+    # (5.3) can legitimately differ from its header currency (e.g. a
+    # USD invoice settled from a SAR bank). `currency`/`exchange_rate`
+    # default to the entry's own at construction time — see
+    # build_journal_lines_with_fx_rounding — so every existing caller
+    # (invoice posting, manual JVs) is unaffected. debit_fc/credit_fc
+    # equal debit/credit whenever currency == base currency (rate 1).
+    currency = models.CharField(_("currency"), max_length=3, default="")
+    exchange_rate = models.DecimalField(
+        _("exchange rate"), max_digits=RATE_MAX_DIGITS, decimal_places=RATE_DECIMAL_PLACES, default=1
+    )
     debit_fc = models.DecimalField(
         max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
     )
