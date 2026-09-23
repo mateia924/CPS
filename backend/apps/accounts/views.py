@@ -81,7 +81,13 @@ class MeView(APIView):
         try:
             features = tenant.features
         except TenantFeatures.DoesNotExist:
-            features = TenantFeatures.objects.create(tenant=tenant)
+            # Sprint 4.8: GET must never write — a real tenant always
+            # gets its row at registration (apply_plan_to_tenant) or via
+            # a backfill migration for pre-existing ones; this branch is
+            # only a defensive fallback (e.g. a tenant created directly
+            # by a factory in tests), so it builds an unsaved instance
+            # with the model's own defaults rather than persisting one.
+            features = TenantFeatures(tenant=tenant)
 
         return Response(
             {

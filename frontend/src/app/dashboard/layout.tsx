@@ -10,7 +10,7 @@ import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import type { PendingApproval } from "@/lib/types";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { user, tenant, me, isReady, logout } = useAuth();
+  const { user, tenant, me, meError, isReady, logout, refreshMe } = useAuth();
   const { t } = useLocale();
   const router = useRouter();
   const [pendingCount, setPendingCount] = useState(0);
@@ -56,6 +56,28 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <div className="app-shell">
       <aside className="sidebar">
         <h2>{tenant?.name}</h2>
+        {meError && (
+          // Sprint 4.8: /me failing must never look like "this tenant
+          // just has fewer permissions" — a visible, explicit error
+          // instead of a silently truncated menu (permission/feature
+          // -gated sections below all evaluate to false when `me` is
+          // null, which is otherwise indistinguishable from a real,
+          // intentionally limited menu).
+          <div
+            className="card"
+            style={{ padding: "0.6rem 0.75rem", marginBottom: "0.75rem", borderColor: "#a3492f" }}
+          >
+            <p style={{ margin: 0, fontSize: "0.85rem" }}>{meError}</p>
+            <button
+              type="button"
+              className="secondary"
+              style={{ marginTop: "0.4rem" }}
+              onClick={() => refreshMe()}
+            >
+              {t("retry")}
+            </button>
+          </div>
+        )}
         <div className="topbar" style={{ marginBottom: "0.5rem" }}>
           <Link href="/dashboard/approvals">
             {t("approvalInbox")}

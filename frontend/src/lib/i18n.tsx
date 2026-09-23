@@ -301,6 +301,11 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     taxCode: "كود الضريبة",
     exchangeRateLabel: "سعر الصرف",
     foldCurrencyFx: "العملة وسعر الصرف",
+
+    // --- Sprint 4.8: /me failure must show a clear error, never a
+    // silently truncated menu ---
+    meLoadError: "تعذّر تحميل بيانات الحساب. قد لا تظهر كل خيارات القائمة حتى يُحل هذا.",
+    retry: "إعادة المحاولة",
   },
   en: {
     appName: "CPS",
@@ -595,6 +600,9 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     taxCode: "Tax code",
     exchangeRateLabel: "Exchange rate",
     foldCurrencyFx: "Currency & exchange rate",
+
+    meLoadError: "Could not load your account data. Some menu options may be missing until this is resolved.",
+    retry: "Retry",
   },
 };
 
