@@ -10,6 +10,7 @@ from apps.treasury.services import ExchangeRateNotFound
 
 from .models import Voucher
 from .serializers import (
+    InternalTransferCreateSerializer,
     RejectVoucherSerializer,
     VoucherCreateSerializer,
     VoucherSerializer,
@@ -18,6 +19,7 @@ from .serializers import (
 from .services import (
     VoucherValidationError,
     approve_voucher,
+    create_internal_transfer_voucher,
     create_voucher,
     post_voucher,
     reject_voucher,
@@ -39,6 +41,7 @@ class VoucherViewSet(
         "list": "vouchers.view",
         "retrieve": "vouchers.view",
         "create": "vouchers.add",
+        "transfer": "vouchers.add",
         "post": "vouchers.post",
         "approve": "vouchers.approve",
         "reject": "vouchers.approve",
@@ -80,6 +83,26 @@ class VoucherViewSet(
                 reference=data.get("reference", ""),
                 description=data.get("description", ""),
                 exchange_rate_override=data.get("exchange_rate"),
+            )
+        except ExchangeRateNotFound as exc:
+            return Response({"detail": str(exc.message)}, status=400)
+        except (VoucherValidationError, ValidationError, ValueError) as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
+            return Response(detail, status=400)
+        return Response(VoucherSerializer(voucher).data, status=201)
+
+    @action(detail=False, methods=["post"])
+    def transfer(self, request):
+        serializer = InternalTransferCreateSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            voucher = create_internal_transfer_voucher(
+                tenant=request.user.tenant, user=request.user, legal_entity=data["legal_entity"],
+                date=data["date"], treasury_kind=data["treasury_kind"], treasury_id=data["treasury_id"],
+                counter_treasury_kind=data["counter_treasury_kind"], counter_treasury_id=data["counter_treasury_id"],
+                amount_fc=data["amount_fc"], counter_amount_fc=data.get("counter_amount_fc"),
+                reference=data.get("reference", ""), description=data.get("description", ""),
             )
         except ExchangeRateNotFound as exc:
             return Response({"detail": str(exc.message)}, status=400)

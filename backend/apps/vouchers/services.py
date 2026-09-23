@@ -149,6 +149,77 @@ def create_voucher(
     return voucher
 
 
+@transaction.atomic
+def create_internal_transfer_voucher(
+    tenant, user, legal_entity, date, treasury_kind, treasury_id,
+    counter_treasury_kind, counter_treasury_id, amount_fc, counter_amount_fc=None,
+    reference="", description="",
+):
+    """Sprint 5.4 (block 5.4): a DRAFT SETTLEMENT/INTERNAL_TRANSFER
+    voucher — no VoucherLine rows at all (unlike RECEIPT/PAYMENT, a
+    transfer has no invoice/on_account/account line concept, just two
+    treasury accounts). `amount_fc` is always in the source's own
+    currency; `counter_amount_fc` (the destination currency's amount
+    that actually arrived) is required only when the two treasury
+    accounts don't already share a currency — decision 5: "لا فرق
+    عملة", the implicit rate between the two is logged as an override,
+    never posted as an FX line (see _build_transfer_posting_specs:
+    both journal lines get the SAME base amount, computed from the
+    source side only)."""
+    if treasury_kind == counter_treasury_kind and str(treasury_id) == str(counter_treasury_id):
+        raise VoucherValidationError(
+            {"counter_treasury_id": [_("The source and destination treasury accounts cannot be the same.")]}
+        )
+    source_instance = _treasury_instance(tenant, treasury_kind, treasury_id)
+    dest_instance = _treasury_instance(tenant, counter_treasury_kind, counter_treasury_id)
+    if source_instance.legal_entity_id != legal_entity.id or dest_instance.legal_entity_id != legal_entity.id:
+        raise VoucherValidationError(
+            {"legal_entity": [_("Both treasury accounts must belong to this legal entity.")]}
+        )
+
+    currency = source_instance.currency
+    base_currency = legal_entity.base_currency
+    if currency == base_currency:
+        exchange_rate = Decimal("1")
+    else:
+        try:
+            exchange_rate = get_rate(tenant, currency, base_currency, date)
+        except ExchangeRateNotFound as exc:
+            raise VoucherValidationError({"exchange_rate": [str(exc.message)]})
+
+    counter_currency = dest_instance.currency
+    overridden = False
+    if counter_currency == currency:
+        resolved_counter_amount = amount_fc
+    else:
+        if not counter_amount_fc:
+            raise VoucherValidationError(
+                {"counter_amount_fc": [_("Required — the two treasury accounts use different currencies.")]}
+            )
+        resolved_counter_amount = counter_amount_fc
+        overridden = True
+
+    total_base = (amount_fc * exchange_rate).quantize(CENTS, rounding=ROUND_HALF_UP)
+    voucher = Voucher.objects.create(
+        tenant=tenant, legal_entity=legal_entity, voucher_type=Voucher.VoucherType.SETTLEMENT,
+        settlement_kind=Voucher.SettlementKind.INTERNAL_TRANSFER, date=date,
+        currency=currency, exchange_rate=exchange_rate, exchange_rate_overridden=overridden,
+        treasury_kind=treasury_kind, counter_treasury_kind=counter_treasury_kind,
+        counter_amount_fc=resolved_counter_amount, reference=reference, description=description,
+        created_by=user, total_fc=amount_fc, total_base=total_base,
+        **{treasury_kind: source_instance, f"counter_{counter_treasury_kind}": dest_instance},
+    )
+    if overridden:
+        implicit_rate = (total_base / resolved_counter_amount).quantize(Decimal("0.00000001"), rounding=ROUND_HALF_UP)
+        log_action(
+            actor_type=AuditLog.ActorType.TENANT_USER, actor_id=user.id,
+            action="voucher.internal_transfer_implicit_rate", target_type="voucher", target_id=voucher.id,
+            tenant_id=tenant.id,
+            after={"from_currency": currency, "to_currency": counter_currency, "implicit_rate": str(implicit_rate)},
+        )
+    return voucher
+
+
 def _account_line_tax_split(amount_fc, tax_code, amount_includes_tax):
     """gross/net/tax for one ACCOUNT-type line — ROUND_HALF_UP to the
     cent, tax = gross - net (never computed the other way, so the two
@@ -210,10 +281,38 @@ def _voucher_tax_account(tenant, tax_code, is_receipt):
     return get_system_account(tenant, "VAT_OUTPUT" if is_receipt else "VAT_INPUT")
 
 
+def _build_transfer_posting_specs(voucher):
+    """SETTLEMENT/INTERNAL_TRANSFER — two lines, both the SAME base
+    amount (decision 5: "لا فرق عملة") even when the two treasury
+    accounts don't share a currency; `counter_amount_fc` is just what
+    the destination line's own fc column shows, not a second,
+    independently-converted base."""
+    source_instance = getattr(voucher, voucher.treasury_kind)
+    dest_instance = getattr(voucher, f"counter_{voucher.counter_treasury_kind}")
+    source_account = _treasury_account(source_instance, voucher.treasury_kind)
+    dest_account = _treasury_account(dest_instance, voucher.counter_treasury_kind)
+    counter_amount = voucher.counter_amount_fc if voucher.counter_amount_fc is not None else voucher.total_fc
+    return [
+        {
+            "account": source_account, "currency": voucher.currency, "exchange_rate": voucher.exchange_rate,
+            "debit_fc": Decimal("0"), "credit_fc": voucher.total_fc,
+            "debit_base": Decimal("0"), "credit_base": voucher.total_base,
+        },
+        {
+            "account": dest_account, "currency": dest_instance.currency, "exchange_rate": voucher.exchange_rate,
+            "debit_fc": counter_amount, "credit_fc": Decimal("0"),
+            "debit_base": voucher.total_base, "credit_base": Decimal("0"),
+        },
+    ]
+
+
 def _build_posting_specs(tenant, voucher):
     """Returns (line_specs for build_journal_lines_with_fx_rounding,
     allocation_specs to create as VoucherAllocation rows after the
     entry is built)."""
+    if voucher.settlement_kind == Voucher.SettlementKind.INTERNAL_TRANSFER:
+        return _build_transfer_posting_specs(voucher), []
+
     is_receipt = voucher.voucher_type == Voucher.VoucherType.RECEIPT
     base_currency = voucher.legal_entity.base_currency
     specs = []
@@ -359,9 +458,44 @@ def _build_posting_specs(tenant, voucher):
     return specs, allocation_specs
 
 
+def _transfer_balance_warnings_and_checks(tenant, voucher):
+    """Same two rules as _balance_warnings_and_checks, applied on BOTH
+    sides of a transfer: the source treasury like a PAYMENT (cash_box/
+    custody hard-blocked from going negative, bank warns), the
+    destination like a RECEIPT (cash_box max_balance / custody
+    limit_amount)."""
+    warnings = []
+    source_instance = getattr(voucher, voucher.treasury_kind)
+    source_current = treasury_balance(tenant, voucher.treasury_kind, source_instance.id)["fc"]
+    projected_source = source_current - voucher.total_fc
+    if voucher.treasury_kind in ("cash_box", "custody") and projected_source < 0:
+        raise VoucherValidationError(
+            {"detail": [_("Insufficient balance in the source treasury account for this transfer.")]}
+        )
+    if voucher.treasury_kind == "bank" and projected_source < 0:
+        warnings.append(str(_("This will make the source bank account balance negative.")))
+
+    dest_instance = getattr(voucher, f"counter_{voucher.counter_treasury_kind}")
+    counter_amount = voucher.counter_amount_fc if voucher.counter_amount_fc is not None else voucher.total_fc
+    dest_current = treasury_balance(tenant, voucher.counter_treasury_kind, dest_instance.id)["fc"]
+    projected_dest = dest_current + counter_amount
+    if voucher.counter_treasury_kind == "cash_box" and dest_instance.max_balance is not None:
+        if projected_dest > dest_instance.max_balance:
+            warnings.append(str(_("This will exceed the destination cash box's configured maximum balance.")))
+    if voucher.counter_treasury_kind == "custody" and dest_instance.limit_amount is not None:
+        if projected_dest > dest_instance.limit_amount:
+            raise VoucherValidationError(
+                {"detail": [_("This would exceed the destination custody's configured limit.")]}
+            )
+    return warnings
+
+
 def _balance_warnings_and_checks(tenant, voucher):
     """Returns a list of warning strings; raises VoucherValidationError
     (400) for the hard-block cases (decision list, block 5.3)."""
+    if voucher.settlement_kind == Voucher.SettlementKind.INTERNAL_TRANSFER:
+        return _transfer_balance_warnings_and_checks(tenant, voucher)
+
     warnings = []
     is_payment_out = voucher.voucher_type == Voucher.VoucherType.PAYMENT
     treasury_instance = getattr(voucher, voucher.treasury_kind)
@@ -380,6 +514,11 @@ def _balance_warnings_and_checks(tenant, voucher):
         if voucher.treasury_kind == "cash_box" and treasury_instance.max_balance is not None:
             if projected > treasury_instance.max_balance:
                 warnings.append(str(_("This will exceed the cash box's configured maximum balance.")))
+        if voucher.treasury_kind == "custody" and treasury_instance.limit_amount is not None:
+            if projected > treasury_instance.limit_amount:
+                raise VoucherValidationError(
+                    {"detail": [_("This would exceed the custody's configured limit.")]}
+                )
 
     return warnings
 

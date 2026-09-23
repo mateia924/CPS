@@ -57,7 +57,7 @@ class CustodySerializer(_TenantScopedRelationsMixin, serializers.ModelSerializer
     class Meta:
         model = Custody
         fields = (
-            "id", "legal_entity", "employee", "name", "currency", "is_active", "created_at",
+            "id", "legal_entity", "employee", "name", "currency", "limit_amount", "is_active", "created_at",
         )
         read_only_fields = ("id", "created_at")
 

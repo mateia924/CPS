@@ -1,8 +1,12 @@
+import datetime
+
 from rest_framework import filters
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 
 from apps.access.permissions import HasModulePermission
-from apps.accounting.services import get_or_create_treasury_account
+from apps.accounting.services import get_or_create_treasury_account, ledger_lines
 from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 
 from .models import Bank, CashBox, Custody, ExchangeRate
@@ -22,10 +26,33 @@ _PERMISSION_MAP = {
     "destroy": "treasury.manage",
     "deactivate": "treasury.manage",
     "activate": "treasury.manage",
+    "movements": "treasury.view",
 }
 
 
-class BankViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
+class _TreasuryMovementsMixin:
+    """Sprint 5.4 (docs/prompts/sprint-5.md block 5.4): "الحركات" tab on
+    the bank/cash-box/custody detail screen — one thin wrapper per
+    ViewSet around the shared `ledger_lines()` service, on the
+    instance's own `gl_account` (auto-provisioned by
+    `get_or_create_treasury_account` at create time)."""
+
+    @action(detail=True, methods=["get"])
+    def movements(self, request, pk=None):
+        instance = self.get_object()
+        if instance.gl_account_id is None:
+            return Response({"opening_balance": "0", "opening_balance_fc": "0", "lines": [], "closing_balance": "0", "closing_balance_fc": "0"})
+        date_from = request.query_params.get("from")
+        date_to = request.query_params.get("to")
+        result = ledger_lines(
+            request.user.tenant, instance.gl_account,
+            date_from=datetime.date.fromisoformat(date_from) if date_from else None,
+            date_to=datetime.date.fromisoformat(date_to) if date_to else None,
+        )
+        return Response(result)
+
+
+class BankViewSet(_TreasuryMovementsMixin, SoftDeleteViewSetMixin, TenantScopedViewSet):
     serializer_class = BankSerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
     queryset = Bank.objects.all()
@@ -39,7 +66,7 @@ class BankViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         get_or_create_treasury_account(serializer.instance, "BANKS")
 
 
-class CashBoxViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
+class CashBoxViewSet(_TreasuryMovementsMixin, SoftDeleteViewSetMixin, TenantScopedViewSet):
     serializer_class = CashBoxSerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
     queryset = CashBox.objects.all()
@@ -53,7 +80,7 @@ class CashBoxViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         get_or_create_treasury_account(serializer.instance, "CASH")
 
 
-class CustodyViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
+class CustodyViewSet(_TreasuryMovementsMixin, SoftDeleteViewSetMixin, TenantScopedViewSet):
     serializer_class = CustodySerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
     queryset = Custody.objects.all()

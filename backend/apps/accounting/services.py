@@ -725,3 +725,66 @@ def compute_trial_balance(tenant, legal_entity_id=None, date_from=None, date_to=
         total_debit += debit
         total_credit += credit
     return {"rows": rows, "total_debit": total_debit, "total_credit": total_credit}
+
+
+def ledger_lines(tenant, account, legal_entity=None, date_from=None, date_to=None):
+    """Sprint 5.4 (docs/prompts/sprint-5.md block 5.4): the one query
+    behind treasury movements (`apps.treasury.views`), party statements
+    (`apps.parties.views.PartyViewSet.statement`) and, in 5.7 (C5), the
+    general ledger screen — same principle as `treasury_balance`, just
+    generalized to any account and to a running balance per line
+    instead of one final total.
+
+    `date_from` is inclusive for the period, exclusive for the opening
+    balance (everything strictly before it is "opening"). Signs every
+    running balance by the account's own `normal_balance` — debit-
+    normal (asset/expense) balances grow on debit, credit-normal
+    (liability/equity/revenue) balances grow on credit — so a caller
+    never has to know or guess which one `account` is.
+    """
+    sign = 1 if account.normal_balance == Account.NormalBalance.DEBIT else -1
+
+    base_qs = account.journal_lines.filter(entry__tenant=tenant, entry__status__in=REPORTABLE_STATUSES)
+    if legal_entity is not None:
+        base_qs = base_qs.filter(entry__legal_entity=legal_entity)
+
+    opening_qs = base_qs
+    if date_from is not None:
+        opening_qs = opening_qs.filter(entry__date__lt=date_from)
+    else:
+        opening_qs = opening_qs.none()
+    opening_totals = opening_qs.aggregate(
+        debit=Sum("debit"), credit=Sum("credit"), debit_fc=Sum("debit_fc"), credit_fc=Sum("credit_fc")
+    )
+    running_base = sign * ((opening_totals["debit"] or Decimal("0")) - (opening_totals["credit"] or Decimal("0")))
+    running_fc = sign * ((opening_totals["debit_fc"] or Decimal("0")) - (opening_totals["credit_fc"] or Decimal("0")))
+    opening_base, opening_fc = running_base, running_fc
+
+    period_qs = base_qs
+    if date_from is not None:
+        period_qs = period_qs.filter(entry__date__gte=date_from)
+    if date_to is not None:
+        period_qs = period_qs.filter(entry__date__lte=date_to)
+    period_qs = period_qs.select_related("entry").order_by("entry__date", "entry__number", "id")
+
+    lines = []
+    for line in period_qs:
+        running_base += sign * (line.debit - line.credit)
+        running_fc += sign * (line.debit_fc - line.credit_fc)
+        lines.append(
+            {
+                "date": line.entry.date,
+                "entry_id": line.entry_id,
+                "entry_number": line.entry.number,
+                "description": line.description or line.entry.memo,
+                "debit": line.debit, "credit": line.credit,
+                "debit_fc": line.debit_fc, "credit_fc": line.credit_fc, "currency": line.currency,
+                "running_balance": running_base, "running_balance_fc": running_fc,
+                "source_type": line.entry.source_type, "source_id": line.entry.source_id,
+            }
+        )
+    return {
+        "opening_balance": opening_base, "opening_balance_fc": opening_fc,
+        "lines": lines,
+        "closing_balance": running_base, "closing_balance_fc": running_fc,
+    }

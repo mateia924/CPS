@@ -1,3 +1,5 @@
+import datetime
+
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 from rest_framework import filters
@@ -6,7 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.access.permissions import HasModulePermission
-from apps.accounting.services import get_or_create_party_role_account
+from apps.accounting.services import get_or_create_party_role_account, ledger_lines
 from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 
 from .models import Party, PartyRole
@@ -47,6 +49,7 @@ class PartyViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         "activate": "parties.manage",
         "add_role": "parties.manage",
         "check_duplicate": "parties.manage",
+        "statement": "parties.view",
     }
 
     @action(detail=False, methods=["get"], url_path="check-duplicate")
@@ -79,6 +82,46 @@ class PartyViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         if role:
             queryset = queryset.filter(roles__role=role, roles__is_active=True)
         return queryset
+
+    @action(detail=True, methods=["get"])
+    def statement(self, request, pk=None):
+        """Sprint 5.4 (block 5.4): "كشف الحساب" tab on the customer/
+        supplier/employee/affiliate detail screen — `role` picks which
+        of this party's (up to four) sub-ledger accounts to read, since
+        a party with two roles has two separate Account rows
+        (get_or_create_party_role_account). Running balance + (for a
+        customer) the still-open invoices, in the party's own account
+        currency (base — a party's sub-ledger account is always in the
+        tenant's base currency by construction, unlike a treasury
+        account)."""
+        from apps.accounting.models import Account
+
+        party = self.get_object()
+        role = request.query_params.get("role")
+        if not role:
+            return Response({"detail": _("The role query parameter is required.")}, status=400)
+        account = Account.objects.filter(tenant=request.user.tenant, party=party, party__roles__role=role).first()
+        if account is None:
+            return Response({"opening_balance": "0", "opening_balance_fc": "0", "lines": [], "closing_balance": "0", "closing_balance_fc": "0", "open_invoices": []})
+        date_from = request.query_params.get("from")
+        date_to = request.query_params.get("to")
+        result = ledger_lines(
+            request.user.tenant, account,
+            date_from=datetime.date.fromisoformat(date_from) if date_from else None,
+            date_to=datetime.date.fromisoformat(date_to) if date_to else None,
+        )
+        if role == PartyRole.Role.CUSTOMER:
+            from apps.sales.models import Invoice
+
+            open_invoices = list(
+                Invoice.objects.filter(
+                    tenant=request.user.tenant, party=party, status=Invoice.Status.ISSUED
+                ).values("id", "number", "issue_date", "due_date", "currency", "total", "balance_fc")
+            )
+            result["open_invoices"] = open_invoices
+        else:
+            result["open_invoices"] = []
+        return Response(result)
 
     @action(detail=True, methods=["post"], url_path="add-role")
     def add_role(self, request, pk=None):

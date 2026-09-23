@@ -29,6 +29,7 @@ class VoucherSerializer(serializers.ModelSerializer):
     legal_entity_name = serializers.CharField(source="legal_entity.name", read_only=True)
     party_name = serializers.CharField(source="party.name", read_only=True)
     treasury_name = serializers.SerializerMethodField()
+    counter_treasury_name = serializers.SerializerMethodField()
     journal_entry_id = serializers.PrimaryKeyRelatedField(source="journal_entry", read_only=True)
 
     class Meta:
@@ -38,6 +39,7 @@ class VoucherSerializer(serializers.ModelSerializer):
             "currency", "exchange_rate", "exchange_rate_overridden",
             "treasury_kind", "bank", "cash_box", "custody", "treasury_name",
             "counter_treasury_kind", "counter_bank", "counter_cash_box", "counter_custody", "counter_amount_fc",
+            "counter_treasury_name",
             "legal_entity", "legal_entity_name", "party", "party_name", "party_role", "payee_name",
             "payment_method", "reference", "description", "status",
             "total_fc", "total_base", "journal_entry_id", "created_by", "posted_at", "reversal_of",
@@ -47,6 +49,12 @@ class VoucherSerializer(serializers.ModelSerializer):
 
     def get_treasury_name(self, obj):
         instance = getattr(obj, obj.treasury_kind, None)
+        return instance.name if instance else ""
+
+    def get_counter_treasury_name(self, obj):
+        if not obj.counter_treasury_kind:
+            return ""
+        instance = getattr(obj, f"counter_{obj.counter_treasury_kind}", None)
         return instance.name if instance else ""
 
 
@@ -153,3 +161,28 @@ def resolve_voucher_lines(tenant, raw_lines):
 
 class RejectVoucherSerializer(serializers.Serializer):
     reason = serializers.CharField(min_length=3)
+
+
+class InternalTransferCreateSerializer(serializers.Serializer):
+    """Sprint 5.4 (block 5.4) — a separate, lines-free input shape:
+    an internal transfer isn't invoice/on_account/account lines, just
+    a source and a destination treasury account."""
+
+    legal_entity = serializers.PrimaryKeyRelatedField(queryset=LegalEntity.objects.none())
+    date = serializers.DateField()
+    treasury_kind = serializers.ChoiceField(choices=Voucher.TreasuryKind.choices)
+    treasury_id = serializers.UUIDField()
+    counter_treasury_kind = serializers.ChoiceField(choices=Voucher.TreasuryKind.choices)
+    counter_treasury_id = serializers.UUIDField()
+    amount_fc = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
+    counter_amount_fc = serializers.DecimalField(max_digits=14, decimal_places=2, required=False, allow_null=True)
+    reference = serializers.CharField(required=False, allow_blank=True, default="")
+    description = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request is not None and request.user.is_authenticated:
+            tenant = request.user.tenant
+            accessible_ids = get_accessible_entity_ids(request.user)
+            self.fields["legal_entity"].queryset = LegalEntity.objects.filter(tenant=tenant, id__in=accessible_ids)
