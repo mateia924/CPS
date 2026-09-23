@@ -7,7 +7,7 @@ from apps.organization.models import CostCenter, LegalEntity
 from apps.organization.services import get_accessible_entity_ids
 from apps.parties.models import Party
 from apps.sales.models import Invoice
-from apps.treasury.models import Bank, CashBox, Custody
+from apps.treasury.models import Bank, BankStatementLine, CashBox, Custody
 
 from .models import Voucher, VoucherLine
 
@@ -103,6 +103,11 @@ class VoucherCreateSerializer(serializers.Serializer):
     payment_method = serializers.ChoiceField(choices=Voucher.PaymentMethod.choices, required=False, default=Voucher.PaymentMethod.CASH)
     reference = serializers.CharField(required=False, allow_blank=True, default="")
     description = serializers.CharField(required=False, allow_blank=True, default="")
+    # Sprint 5.5 (block 5.5.2): "سند من هذا البند" — set only when the
+    # voucher form was opened from a bank statement line's own button.
+    statement_line = serializers.PrimaryKeyRelatedField(
+        queryset=BankStatementLine.objects.none(), required=False, allow_null=True
+    )
     lines = VoucherLineInputSerializer(many=True)
 
     def __init__(self, *args, **kwargs):
@@ -113,6 +118,7 @@ class VoucherCreateSerializer(serializers.Serializer):
             accessible_ids = get_accessible_entity_ids(request.user)
             self.fields["legal_entity"].queryset = LegalEntity.objects.filter(tenant=tenant, id__in=accessible_ids)
             self.fields["party"].queryset = Party.objects.filter(tenant=tenant)
+            self.fields["statement_line"].queryset = BankStatementLine.objects.filter(tenant=tenant)
 
     def validate_lines(self, value):
         if not value:

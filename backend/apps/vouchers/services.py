@@ -60,7 +60,7 @@ def _treasury_account(instance, kind):
 def create_voucher(
     tenant, user, voucher_type, legal_entity, date, treasury_kind, treasury_id, line_specs,
     settlement_kind=None, party=None, party_role="", payee_name="", payment_method=Voucher.PaymentMethod.CASH,
-    reference="", description="", exchange_rate_override=None,
+    reference="", description="", exchange_rate_override=None, statement_line=None,
 ):
     """Builds a DRAFT voucher + lines. No number yet (decision 9 — see
     services.assign_number_and_post below), no journal entry yet
@@ -124,6 +124,7 @@ def create_voucher(
         reference=reference,
         description=description,
         created_by=user,
+        source_statement_line=statement_line,
         **{treasury_kind: treasury_instance},
     )
 
@@ -601,8 +602,8 @@ def post_voucher(voucher, user, request=None):
     if not auto_approved:
         return voucher, warnings
 
-    _actually_post(voucher, user, request=request)
-    return voucher, warnings
+    match_warnings = _actually_post(voucher, user, request=request)
+    return voucher, warnings + match_warnings
 
 
 def _actually_post(voucher, user, request=None):
@@ -654,7 +655,33 @@ def _actually_post(voucher, user, request=None):
         tenant_id=voucher.tenant_id, after={"journal_entry_id": str(entry.id), "number": voucher.number},
         request=request,
     )
-    return voucher
+
+    match_warnings = []
+    if voucher.source_statement_line_id and voucher.treasury_kind == "bank":
+        match_warnings = _try_match_source_statement_line(voucher, entry, user, request=request)
+    return match_warnings
+
+
+def _try_match_source_statement_line(voucher, entry, user, request=None):
+    """CFO_REVIEW_1/v2 decision 1 ("سند من هذا البند"): best-effort —
+    a mismatch (the voucher's actual posted amount differs from what
+    the statement line's own amount requires) only warns, it never
+    blocks posting; the line stays UNMATCHED for ordinary manual
+    matching afterward."""
+    from apps.treasury.reconciliation import manual_match
+
+    bank_line = entry.lines.filter(account=voucher.bank.gl_account).first()
+    if bank_line is None:
+        return []
+    try:
+        manual_match(voucher.source_statement_line, [bank_line.id], user, request=request)
+    except ValidationError as exc:
+        detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": [str(exc)]}
+        return [
+            str(_("Could not auto-match this voucher to its source statement line: %(detail)s"))
+            % {"detail": "; ".join(str(v) for values in detail.values() for v in values)}
+        ]
+    return []
 
 
 def _recompute_invoice_payment_fields(invoices):
@@ -721,6 +748,7 @@ def withdraw_voucher(voucher, user, request=None):
 @transaction.atomic
 def reverse_voucher(voucher, user, reason, request=None):
     from apps.accounting.services import reverse_journal_entry
+    from apps.treasury.reconciliation import matched_lines_warning
 
     voucher.status = Voucher.objects.select_for_update().get(pk=voucher.pk).status
     if voucher.status != Voucher.Status.POSTED:
@@ -728,6 +756,7 @@ def reverse_voucher(voucher, user, reason, request=None):
     if not reason:
         raise VoucherValidationError({"detail": [_("A reason is required to reverse a voucher.")]})
 
+    warnings = matched_lines_warning(voucher.journal_entry)
     reverse_journal_entry(voucher.journal_entry, user, reason)
 
     affected_invoices = []
@@ -752,4 +781,4 @@ def reverse_voucher(voucher, user, reason, request=None):
         target_type="voucher", target_id=voucher.id, tenant_id=voucher.tenant_id,
         after={"reason": reason}, request=request,
     )
-    return voucher
+    return voucher, warnings

@@ -203,3 +203,11 @@ class BankStatementSerializer(_ReconciledRatioMixin, serializers.ModelSerializer
             "import_format", "line_count", "imported_by", "reconciled_ratio", "lines", "created_at",
         )
         read_only_fields = fields
+
+
+class MatchStatementLineSerializer(serializers.Serializer):
+    journal_line_ids = serializers.ListField(child=serializers.UUIDField(), min_length=1)
+
+
+class IgnoreStatementLineSerializer(serializers.Serializer):
+    reason = serializers.CharField(min_length=3)

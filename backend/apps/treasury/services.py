@@ -382,10 +382,9 @@ def import_bank_statement(
         description=f"{import_format} statement import", request=request,
     )
 
-    # Auto-matching wiring lands in block 5.5.2
-    # (apps.treasury.reconciliation.auto_match_statement) — every line
-    # starts UNMATCHED until then.
-    auto_matched = statement.lines.filter(status=BankStatementLine.Status.MATCHED).count()
+    from .reconciliation import auto_match_statement
+
+    auto_matched = auto_match_statement(statement, user=user)
     unmatched = statement.lines.exclude(status=BankStatementLine.Status.MATCHED).count()
     return statement, auto_matched, unmatched, warnings
 

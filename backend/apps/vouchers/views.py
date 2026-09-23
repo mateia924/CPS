@@ -89,6 +89,7 @@ class VoucherViewSet(
                 reference=data.get("reference", ""),
                 description=data.get("description", ""),
                 exchange_rate_override=data.get("exchange_rate"),
+                statement_line=data.get("statement_line"),
             )
         except ExchangeRateNotFound as exc:
             return Response({"detail": str(exc.message)}, status=400)
@@ -176,8 +177,12 @@ class VoucherViewSet(
         serializer = RejectVoucherSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            reverse_voucher(voucher, request.user, serializer.validated_data["reason"], request=request)
+            voucher, warnings = reverse_voucher(
+                voucher, request.user, serializer.validated_data["reason"], request=request
+            )
         except (VoucherValidationError, ValidationError, ValueError) as exc:
             detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
             return Response(detail, status=400)
-        return Response(VoucherSerializer(voucher).data)
+        payload = VoucherSerializer(voucher).data
+        payload["warnings"] = warnings
+        return Response(payload)

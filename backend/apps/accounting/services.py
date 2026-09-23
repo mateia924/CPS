@@ -804,7 +804,7 @@ def compute_trial_balance(tenant, legal_entity_id=None, date_from=None, date_to=
     return {"rows": rows, "total_debit": total_debit, "total_credit": total_credit}
 
 
-def ledger_lines(tenant, account, legal_entity=None, date_from=None, date_to=None):
+def ledger_lines(tenant, account, legal_entity=None, date_from=None, date_to=None, unreconciled=False):
     """Sprint 5.4 (docs/prompts/sprint-5.md block 5.4): the one query
     behind treasury movements (`apps.treasury.views`), party statements
     (`apps.parties.views.PartyViewSet.statement`) and, in 5.7 (C5), the
@@ -842,6 +842,12 @@ def ledger_lines(tenant, account, legal_entity=None, date_from=None, date_to=Non
         period_qs = period_qs.filter(entry__date__gte=date_from)
     if date_to is not None:
         period_qs = period_qs.filter(entry__date__lte=date_to)
+    if unreconciled:
+        # Sprint 5.5 (block 5.5.2): the manual-matching screen's other
+        # column — POSTED lines on this bank account not yet linked to
+        # any statement line. Only narrows the returned `lines`, never
+        # the opening-balance total above (still every POSTED line).
+        period_qs = period_qs.filter(bank_statement_line__isnull=True)
     period_qs = period_qs.select_related("entry").order_by("entry__date", "entry__number", "id")
 
     lines = []

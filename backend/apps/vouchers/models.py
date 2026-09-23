@@ -130,6 +130,14 @@ class Voucher(TenantScopedModel, DocumentStateMixin):
     journal_entry = models.OneToOneField(
         "accounting.JournalEntry", null=True, blank=True, on_delete=models.SET_NULL, related_name="voucher"
     )
+    # Sprint 5.5 (block 5.5.2): "سند من هذا البند" — a voucher created
+    # from a bank statement line's own "create voucher" button carries
+    # this through DRAFT/PENDING_APPROVAL, and _actually_post uses it to
+    # auto-match the voucher's own bank-side journal line to it (a
+    # best-effort match — a mismatch only warns, never blocks posting).
+    source_statement_line = models.ForeignKey(
+        "treasury.BankStatementLine", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     created_by = models.ForeignKey(
         "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )

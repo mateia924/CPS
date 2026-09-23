@@ -10,9 +10,19 @@ from apps.access.permissions import HasModulePermission
 from apps.accounting.services import get_or_create_treasury_account, ledger_lines
 from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 
-from .models import Bank, BankStatement, CashBox, Custody, ExchangeRate, IbanChangeRequest
+from .models import (
+    Bank,
+    BankStatement,
+    BankStatementLine,
+    CashBox,
+    Custody,
+    ExchangeRate,
+    IbanChangeRequest,
+)
+from .reconciliation import find_candidates, ignore_line, manual_match, unmatch
 from .serializers import (
     BankSerializer,
+    BankStatementLineSerializer,
     BankStatementListSerializer,
     BankStatementSerializer,
     CashBoxSerializer,
@@ -20,6 +30,8 @@ from .serializers import (
     ExchangeRateSerializer,
     IbanChangeRequestCreateSerializer,
     IbanChangeRequestSerializer,
+    IgnoreStatementLineSerializer,
+    MatchStatementLineSerializer,
     StatementImportSerializer,
 )
 from .services import (
@@ -284,3 +296,69 @@ class BankStatementViewSet(
         payload["unmatched"] = unmatched
         payload["warnings"] = warnings
         return Response(payload, status=201)
+
+
+class BankStatementLineViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    """`POST /api/statement-lines/{id}/match/`, `unmatch/`, `ignore/`,
+    `GET .../candidates/` — block 5.5.2. Lines are only ever reached
+    through a statement's own list (`BankStatementSerializer.lines`);
+    this ViewSet exists purely to host the matching actions."""
+
+    serializer_class = BankStatementLineSerializer
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    queryset = BankStatementLine.objects.all()
+    permission_map = {
+        "retrieve": "treasury.view",
+        "candidates": "treasury.view",
+        "match": "treasury.reconcile",
+        "unmatch": "treasury.reconcile",
+        "ignore": "treasury.reconcile",
+    }
+
+    def get_queryset(self):
+        return super().get_queryset().filter(tenant=self.request.user.tenant)
+
+    @action(detail=True, methods=["get"])
+    def candidates(self, request, pk=None):
+        line = self.get_object()
+        candidates = find_candidates(line)
+        return Response(
+            [
+                {
+                    "id": str(c.id), "date": c.entry.date, "entry_id": str(c.entry_id),
+                    "entry_number": c.entry.number, "description": c.description or c.entry.memo,
+                    "debit_fc": str(c.debit_fc), "credit_fc": str(c.credit_fc),
+                }
+                for c in candidates
+            ]
+        )
+
+    @action(detail=True, methods=["post"])
+    def match(self, request, pk=None):
+        line = self.get_object()
+        serializer = MatchStatementLineSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            manual_match(line, serializer.validated_data["journal_line_ids"], request.user, request=request)
+        except ValidationError as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
+            return Response(detail, status=400)
+        return Response(BankStatementLineSerializer(line).data)
+
+    @action(detail=True, methods=["post"])
+    def unmatch(self, request, pk=None):
+        line = self.get_object()
+        unmatch(line, request.user, request=request)
+        return Response(BankStatementLineSerializer(line).data)
+
+    @action(detail=True, methods=["post"])
+    def ignore(self, request, pk=None):
+        line = self.get_object()
+        serializer = IgnoreStatementLineSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            ignore_line(line, serializer.validated_data["reason"], request.user, request=request)
+        except ValidationError as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
+            return Response(detail, status=400)
+        return Response(BankStatementLineSerializer(line).data)

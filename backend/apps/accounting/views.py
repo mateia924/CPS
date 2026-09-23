@@ -86,6 +86,9 @@ class AccountViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
             request.user.tenant, account, legal_entity=legal_entity,
             date_from=datetime.date.fromisoformat(date_from) if date_from else None,
             date_to=datetime.date.fromisoformat(date_to) if date_to else None,
+            # Sprint 5.5 (block 5.5.2): ?unreconciled=true narrows to
+            # POSTED lines not yet linked to a bank statement line.
+            unreconciled=request.query_params.get("unreconciled") == "true",
         )
         return Response(result)
 
@@ -263,6 +266,11 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
             )
         serializer = JournalEntryReverseSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        # Sprint 5.5 (block 5.5.2, v2 decision 10): computed before the
+        # reversal, off the original (still-intact) lines.
+        from apps.treasury.reconciliation import matched_lines_warning
+
+        warnings = matched_lines_warning(entry)
         try:
             reversal = reverse_journal_entry(
                 entry, request.user, serializer.validated_data["reason"],
@@ -270,7 +278,9 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
             )
         except (ValidationError, ValueError) as exc:
             return Response({"detail": str(exc)}, status=400)
-        return Response(JournalEntrySerializer(reversal).data, status=201)
+        payload = JournalEntrySerializer(reversal).data
+        payload["warnings"] = warnings
+        return Response(payload, status=201)
 
     @action(detail=False, methods=["get"])
     def trial_balance(self, request):
