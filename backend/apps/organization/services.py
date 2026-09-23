@@ -106,3 +106,29 @@ def get_accessible_entity_ids(user):
         result.add(entity_id)
         stack.extend(children_map.get(entity_id, []))
     return result
+
+
+_COMPANY_PROFILE_FIELDS = (
+    "commercial_registration", "building_number", "street", "district",
+    "city", "postal_code", "short_address", "phone", "email",
+)
+
+
+def effective_company_profile(legal_entity):
+    """Sprint 5.6 (block 5.6): "عنوان مهيكل ... لكل كيان قانوني قيمه
+    الخاصة مع وراثة من الشركة الأم" — a blank field on `legal_entity`
+    falls back to the nearest ancestor that has it set, field by field
+    (not "inherit the whole profile or none of it" — a branch can
+    override just its own street while still inheriting the parent's
+    commercial registration, tax number and phone)."""
+    result = {}
+    for field in _COMPANY_PROFILE_FIELDS:
+        node = legal_entity
+        value = ""
+        while node is not None:
+            value = getattr(node, field)
+            if value:
+                break
+            node = node.parent
+        result[field] = value
+    return result

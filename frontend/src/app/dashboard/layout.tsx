@@ -45,6 +45,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     !!me && !me.simplified_mode && me.permissions.includes("parties.view_all");
   // Sprint 3 (3.13): Free hides both; Business+ shows them.
   const showTreasury = !!me && me.features.treasury;
+  const showVouchers = showTreasury && !!me && me.permissions.includes("vouchers.view");
+  const showCompanySettings = !!me && me.permissions.includes("organization.manage");
   const showAssets = !!me && me.features.assets;
   // Sprint 3.5 (3.18): "المشتريات ... purchasing".
   const showPurchasing = !!me && me.features.purchasing;
@@ -117,6 +119,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <Link href="/dashboard/treasury/banks">{t("banks")}</Link>
             <Link href="/dashboard/treasury/cash-boxes">{t("cashBoxes")}</Link>
             <Link href="/dashboard/treasury/custodies">{t("custodies")}</Link>
+            {showVouchers && (
+              <>
+                <Link href="/dashboard/treasury/vouchers/receipt">{t("receiptVouchers")}</Link>
+                <Link href="/dashboard/treasury/vouchers/payment">{t("paymentVouchers")}</Link>
+                <Link href="/dashboard/treasury/vouchers/settlement">{t("settlementVouchers")}</Link>
+              </>
+            )}
             <Link href="/dashboard/treasury/exchange-rates">{t("exchangeRatesNav")}</Link>
           </>
         )}
@@ -154,7 +163,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           showRoles ||
           showFullPartiesView ||
           showApprovalRules ||
-          showDocumentNumbering) && <div className="sidebar-section-label">{t("settingsSection")}</div>}
+          showDocumentNumbering ||
+          showCompanySettings) && <div className="sidebar-section-label">{t("settingsSection")}</div>}
+        {showCompanySettings && <Link href="/dashboard/settings/company">{t("companySettingsNav")}</Link>}
         {showOrganization && <Link href="/dashboard/organization">{t("organization")}</Link>}
         {showCostCenters && <Link href="/dashboard/cost-centers">{t("costCenters")}</Link>}
         {showAffiliates && <Link href="/dashboard/affiliates">{t("affiliatesNav")}</Link>}

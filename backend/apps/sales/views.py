@@ -80,6 +80,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         "approve": "invoices.approve",
         "reject": "invoices.approve",
         "void": "invoices.approve",
+        "deliver": "invoices.view",
     }
 
     def get_queryset(self):
@@ -175,4 +176,17 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             after={"number": invoice.number},
             request=request,
         )
+        return Response(InvoiceSerializer(invoice).data)
+
+    @action(detail=True, methods=["post"])
+    def deliver(self, request, pk=None):
+        """Sprint 5.6 (block 5.6, print page) — called once, fire-and-
+        forget, the first time the invoice's print page loads. Set-once:
+        a second print never overwrites the original delivery moment."""
+        from django.utils import timezone
+
+        invoice = self.get_object()
+        if invoice.delivered_at is None:
+            invoice.delivered_at = timezone.now()
+            invoice.save(update_fields=["delivered_at"])
         return Response(InvoiceSerializer(invoice).data)

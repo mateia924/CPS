@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
@@ -16,6 +17,7 @@ export default function CashBoxesPage() {
   const [name, setName] = useState("");
   const [currency, setCurrency] = useState("SAR");
   const [custodianId, setCustodianId] = useState("");
+  const [maxBalance, setMaxBalance] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
 
@@ -35,6 +37,7 @@ export default function CashBoxesPage() {
     setName(cashBox.name);
     setCurrency(cashBox.currency);
     setCustodianId(cashBox.custodian || "");
+    setMaxBalance(cashBox.max_balance ?? "");
     setError(null);
   };
 
@@ -44,6 +47,7 @@ export default function CashBoxesPage() {
     setName("");
     setCurrency("SAR");
     setCustodianId("");
+    setMaxBalance("");
     setError(null);
   };
 
@@ -55,6 +59,7 @@ export default function CashBoxesPage() {
       name,
       currency,
       custodian: custodianId || null,
+      max_balance: maxBalance || null,
     };
     try {
       if (editing) {
@@ -114,6 +119,10 @@ export default function CashBoxesPage() {
                   ))}
                 </select>
               </div>
+              <div className="form-field">
+                <label>{t("cashBoxMaxBalance")}</label>
+                <input type="number" step="0.01" value={maxBalance} onChange={(e) => setMaxBalance(e.target.value)} />
+              </div>
             </div>
           </details>
 
@@ -144,6 +153,11 @@ export default function CashBoxesPage() {
           { key: "name", label: t("name"), sortable: true },
           { key: "currency", label: t("currency") },
         ]}
+        renderExtraActions={(cashBox) => (
+          <Link href={`/dashboard/treasury/cash-boxes/${cashBox.id}`} className="secondary">
+            {t("details")}
+          </Link>
+        )}
       />
     </div>
   );

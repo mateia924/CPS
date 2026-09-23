@@ -8,11 +8,17 @@ import type { PendingApproval } from "@/lib/types";
 const DOC_TYPE_LABEL: Record<PendingApproval["doc_type"], string> = {
   journal_entry: "journalEntryDocType",
   invoice: "invoiceDocType",
+  voucher_receipt: "voucherReceiptDocType",
+  voucher_payment: "voucherPaymentDocType",
+  voucher_settlement: "voucherSettlementDocType",
 };
 
 const DOC_TYPE_PATH: Record<PendingApproval["doc_type"], string> = {
   journal_entry: "journal-entries",
   invoice: "invoices",
+  voucher_receipt: "vouchers",
+  voucher_payment: "vouchers",
+  voucher_settlement: "vouchers",
 };
 
 export default function ApprovalInboxPage() {

@@ -61,20 +61,24 @@ class InvoiceSerializer(serializers.ModelSerializer):
     # conceptually it's still "who this invoice is billed to".
     customer = serializers.PrimaryKeyRelatedField(source="party", read_only=True)
     customer_name = serializers.CharField(source="party.name", read_only=True)
+    # Sprint 5.6 (print page): "فاتورة ضريبية" لعميل منشأة / "فاتورة
+    # ضريبية مبسّطة" لعميل فرد — القرار يعتمد على نوع الطرف لا الحالة.
+    customer_party_type = serializers.CharField(source="party.party_type", read_only=True)
     legal_entity_name = serializers.CharField(source="legal_entity.name", read_only=True)
 
     class Meta:
         model = Invoice
         fields = (
             "id", "number", "status", "created_by", "issue_date", "due_date", "customer", "customer_name",
+            "customer_party_type",
             "legal_entity", "legal_entity_name", "currency", "exchange_rate",
             "subtotal", "tax_total", "total", "base_total", "paid_fc", "balance_fc", "payment_status",
-            "lines", "created_at", "updated_at",
+            "delivered_at", "lines", "created_at", "updated_at",
         )
         read_only_fields = (
-            "id", "number", "status", "created_by", "due_date", "customer_name", "legal_entity_name",
-            "currency", "exchange_rate", "subtotal", "tax_total", "total", "base_total", "paid_fc",
-            "balance_fc", "payment_status", "lines", "created_at", "updated_at",
+            "id", "number", "status", "created_by", "due_date", "customer_name", "customer_party_type",
+            "legal_entity_name", "currency", "exchange_rate", "subtotal", "tax_total", "total", "base_total",
+            "paid_fc", "balance_fc", "payment_status", "delivered_at", "lines", "created_at", "updated_at",
         )
 
 

@@ -166,3 +166,49 @@ th, td {
   padding: 1.5rem;
   margin-bottom: 1.5rem;
 }
+
+/* Sprint 5.6 (block 5.6): invoice/voucher print pages — no sidebar (a
+   plain src/app/print/... route, outside the dashboard layout), just
+   this page-level chrome plus @media print to strip it for the actual
+   printed output. */
+.print-page {
+  max-width: 800px;
+  margin: 1.5rem auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2rem;
+}
+
+.print-actions {
+  max-width: 800px;
+  margin: 0 auto 1rem;
+}
+
+.print-signatures {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 3rem;
+}
+
+.print-signatures > div {
+  text-align: center;
+  min-width: 150px;
+  border-top: 1px solid var(--border);
+  padding-top: 0.5rem;
+}
+
+@media print {
+  .print-actions {
+    display: none;
+  }
+  .print-page {
+    border: none;
+    box-shadow: none;
+    margin: 0;
+    max-width: none;
+  }
+  body {
+    background: #fff;
+  }
+}

@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { PartyStatementCard } from "@/components/PartyStatementCard";
+import { StatusBadge } from "@/components/StatusBadge";
 import { useLocale } from "@/lib/i18n";
-import type { CustomerParty, Invoice, Paginated } from "@/lib/types";
+import type { CustomerParty, Invoice, Paginated, Voucher } from "@/lib/types";
 
 // 3.18 rule 2: every list screen leads to a detail screen with the
 // record's data and its relations — for a customer, that's its
@@ -17,14 +19,17 @@ export default function CustomerDetailPage() {
   const { t } = useLocale();
   const [customer, setCustomer] = useState<CustomerParty | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [vouchers, setVouchers] = useState<Voucher[]>([]);
 
   useEffect(() => {
     Promise.all([
       api.get<CustomerParty>(`/parties/customers/${id}/`),
       api.get<Paginated<Invoice>>(`/invoices/?customer=${id}`),
-    ]).then(([customerData, invoiceData]) => {
+      api.get<Paginated<Voucher>>(`/vouchers/?party=${id}`),
+    ]).then(([customerData, invoiceData, voucherData]) => {
       setCustomer(customerData);
       setInvoices(invoiceData.results);
+      setVouchers(voucherData.results);
     });
   }, [id]);
 
@@ -75,6 +80,36 @@ export default function CustomerDetailPage() {
           </table>
         )}
       </div>
+
+      <div className="card">
+        <h3>{t("vouchersTab")}</h3>
+        {vouchers.length === 0 ? (
+          <p style={{ color: "var(--muted)" }}>{t("noData")}</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>{t("number")}</th>
+                <th>{t("voucherDate")}</th>
+                <th>{t("amount")}</th>
+                <th>{t("status")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {vouchers.map((voucher) => (
+                <tr key={voucher.id}>
+                  <td>{voucher.number || `(${t("draft")})`}</td>
+                  <td>{voucher.date}</td>
+                  <td>{voucher.total_fc} {voucher.currency}</td>
+                  <td><StatusBadge status={voucher.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <PartyStatementCard partyId={customer.id} role="customer" />
 
       <AttachmentPanel targetType="party" targetId={customer.id} />
     </div>

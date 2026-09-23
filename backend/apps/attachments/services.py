@@ -22,6 +22,15 @@ ALLOWED_TARGETS = {
     "account": ("accounting", "account"),
     "tax_code": ("accounting", "taxcode"),
     "exchange_rate": ("treasury", "exchangerate"),
+    # Sprint 5.6 (block 5.6): "الشعار" on the company/legal-entity
+    # settings screen reuses AttachmentPanel instead of a dedicated
+    # upload widget (same reasoning as 5.2's screen-mounting decision —
+    # one mechanism, not a second bespoke one for a single field).
+    "legal_entity": ("organization", "legalentity"),
+    # Sprint 5.6: voucher detail screens get AttachmentPanel in
+    # FINANCIAL mode (receipts/photos of expenses) — not versioned,
+    # same treatment as invoice/journal_entry.
+    "voucher": ("vouchers", "voucher"),
 }
 
 # extension -> allowed MIME types (from magic bytes, never trusted from

@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { PartyStatementCard } from "@/components/PartyStatementCard";
+import { StatusBadge } from "@/components/StatusBadge";
 import { useLocale } from "@/lib/i18n";
-import type { Asset, Custody, EmployeeParty, Paginated } from "@/lib/types";
+import type { Asset, Custody, EmployeeParty, Paginated, Voucher } from "@/lib/types";
 
 // 3.18 rule 2 — for an employee, its relations are the custodies and
 // assets held in their name.
@@ -16,16 +18,19 @@ export default function EmployeeDetailPage() {
   const [employee, setEmployee] = useState<EmployeeParty | null>(null);
   const [custodies, setCustodies] = useState<Custody[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [vouchers, setVouchers] = useState<Voucher[]>([]);
 
   useEffect(() => {
     Promise.all([
       api.get<EmployeeParty>(`/parties/employees/${id}/`),
       api.get<Paginated<Custody>>(`/custodies/?employee=${id}`),
       api.get<Paginated<Asset>>(`/assets/?custodian=${id}`),
-    ]).then(([employeeData, custodyData, assetData]) => {
+      api.get<Paginated<Voucher>>(`/vouchers/?party=${id}`),
+    ]).then(([employeeData, custodyData, assetData, voucherData]) => {
       setEmployee(employeeData);
       setCustodies(custodyData.results);
       setAssets(assetData.results);
+      setVouchers(voucherData.results);
     });
   }, [id]);
 
@@ -97,6 +102,36 @@ export default function EmployeeDetailPage() {
           </table>
         )}
       </div>
+
+      <div className="card">
+        <h3>{t("vouchersTab")}</h3>
+        {vouchers.length === 0 ? (
+          <p style={{ color: "var(--muted)" }}>{t("noData")}</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>{t("number")}</th>
+                <th>{t("voucherDate")}</th>
+                <th>{t("amount")}</th>
+                <th>{t("status")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {vouchers.map((voucher) => (
+                <tr key={voucher.id}>
+                  <td>{voucher.number || `(${t("draft")})`}</td>
+                  <td>{voucher.date}</td>
+                  <td>{voucher.total_fc} {voucher.currency}</td>
+                  <td><StatusBadge status={voucher.status} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <PartyStatementCard partyId={employee.id} role="employee" />
 
       <AttachmentPanel targetType="party" targetId={employee.id} />
     </div>

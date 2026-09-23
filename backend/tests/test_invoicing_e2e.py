@@ -118,3 +118,35 @@ def test_register_login_customer_product_invoice_issue_balanced_journal():
     by_system_key = {line["account_system_key"]: line for line in lines if line.get("account_system_key")}
     assert by_system_key["SALES"]["credit"] == "531.00"
     assert by_system_key["VAT_OUTPUT"]["credit"] == "79.65"
+
+
+@pytest.mark.django_db
+def test_invoice_deliver_sets_delivered_at_once(tenant_a, client_a):
+    """Sprint 5.6 (block 5.6, print page): the print page calls this
+    fire-and-forget on load — set-once, never overwritten."""
+    from apps.organization.models import LegalEntity
+    from apps.sales.models import Invoice, Product
+
+    branch = LegalEntity.objects.get(tenant=tenant_a, entity_type=LegalEntity.Type.BRANCH)
+    tax_code = TaxCode.objects.get(tenant=tenant_a, code="Z")
+    product = Product.objects.create(tenant=tenant_a, sku="P-DELIVER", name="Item", unit_price="50.00")
+    customer = client_a.post("/api/parties/customers/", {"name": "Deliver Co"}, format="json").data
+
+    invoice = client_a.post(
+        "/api/invoices/",
+        {
+            "customer": customer["id"], "legal_entity": str(branch.id),
+            "lines": [{"product": product.id.__str__(), "quantity": "1", "tax_code": str(tax_code.id)}],
+        },
+        format="json",
+    ).data
+    assert Invoice.objects.get(id=invoice["id"]).delivered_at is None
+
+    first = client_a.post(f"/api/invoices/{invoice['id']}/deliver/")
+    assert first.status_code == 200, first.data
+    first_timestamp = Invoice.objects.get(id=invoice["id"]).delivered_at
+    assert first_timestamp is not None
+
+    second = client_a.post(f"/api/invoices/{invoice['id']}/deliver/")
+    assert second.status_code == 200, second.data
+    assert Invoice.objects.get(id=invoice["id"]).delivered_at == first_timestamp

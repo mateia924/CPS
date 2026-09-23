@@ -57,6 +57,12 @@ class VoucherViewSet(
         voucher_type = self.request.query_params.get("voucher_type")
         if voucher_type:
             queryset = queryset.filter(voucher_type=voucher_type)
+        # Sprint 5.6: backs the customer/employee detail screen's
+        # "السندات" tab (3.18 rule 2), same pattern as Invoice's own
+        # ?customer= filter (sprint 3.5).
+        party_id = self.request.query_params.get("party")
+        if party_id:
+            queryset = queryset.filter(party_id=party_id)
         return queryset
 
     def create(self, request, *args, **kwargs):

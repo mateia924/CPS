@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
@@ -16,6 +17,7 @@ export default function CustodiesPage() {
   const [employeeId, setEmployeeId] = useState("");
   const [name, setName] = useState("");
   const [currency, setCurrency] = useState("SAR");
+  const [limitAmount, setLimitAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
 
@@ -35,6 +37,7 @@ export default function CustodiesPage() {
     setEmployeeId(custody.employee);
     setName(custody.name);
     setCurrency(custody.currency);
+    setLimitAmount(custody.limit_amount ?? "");
     setError(null);
   };
 
@@ -44,13 +47,17 @@ export default function CustodiesPage() {
     setEmployeeId("");
     setName("");
     setCurrency("SAR");
+    setLimitAmount("");
     setError(null);
   };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    const payload = { legal_entity: legalEntityId, employee: employeeId, name, currency };
+    const payload = {
+      legal_entity: legalEntityId, employee: employeeId, name, currency,
+      limit_amount: limitAmount || null,
+    };
     try {
       if (editing) {
         await api.patch(`/custodies/${editing.id}/`, payload);
@@ -111,6 +118,10 @@ export default function CustodiesPage() {
                 <label>{t("currency")}</label>
                 <input value={currency} onChange={(e) => setCurrency(e.target.value)} maxLength={3} />
               </div>
+              <div className="form-field">
+                <label>{t("custodyLimit")}</label>
+                <input type="number" step="0.01" value={limitAmount} onChange={(e) => setLimitAmount(e.target.value)} />
+              </div>
             </div>
           </details>
 
@@ -140,7 +151,13 @@ export default function CustodiesPage() {
         columns={[
           { key: "name", label: t("name"), sortable: true },
           { key: "currency", label: t("currency") },
+          { key: "limit_amount", label: t("custodyLimit"), render: (row) => row.limit_amount ?? "—" },
         ]}
+        renderExtraActions={(custody) => (
+          <Link href={`/dashboard/treasury/custodies/${custody.id}`} className="secondary">
+            {t("details")}
+          </Link>
+        )}
       />
     </div>
   );

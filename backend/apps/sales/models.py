@@ -157,6 +157,12 @@ class Invoice(TenantScopedModel):
     payment_status = models.CharField(
         _("payment status"), max_length=10, choices=PaymentStatus.choices, default=PaymentStatus.UNPAID
     )
+    # Sprint 5.6 (block 5.6, print page): set once, the first time the
+    # invoice is printed or downloaded — never cleared, never updated
+    # again. Purely informational this sprint; CFO_REVIEW_1 C7 (not yet
+    # built) will use it as a guard against cancelling an invoice the
+    # customer has already seen.
+    delivered_at = models.DateTimeField(_("delivered at"), null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

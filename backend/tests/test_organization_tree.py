@@ -100,3 +100,68 @@ def test_tree_endpoint_returns_correct_nesting_depth_4(owner_client):
     assert root["children"][0]["children"][0]["code"] == "L3"
     assert root["children"][0]["children"][0]["children"][0]["code"] == "L4"
     assert root["children"][0]["children"][0]["children"][0]["children"] == []
+
+
+# ---------------------------------------------------------------------
+# Sprint 5.6 (block 5.6): شاشة "الشركة" — structured address + CR +
+# Saudi tax-number format validation + field-by-field inheritance from
+# the parent entity.
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_saudi_tax_number_format_validated(owner_client):
+    client, tenant = owner_client
+    entity = LegalEntity.objects.create(
+        tenant=tenant, code="C1", name="Co", entity_type=LegalEntity.Type.COMPANY
+    )
+
+    bad = client.patch(f"/api/legal-entities/{entity.id}/", {"tax_number": "12345"}, format="json")
+    assert bad.status_code == 400, bad.data
+
+    bad_edges = client.patch(f"/api/legal-entities/{entity.id}/", {"tax_number": "1" * 15}, format="json")
+    assert bad_edges.status_code == 400, bad_edges.data
+
+    good = client.patch(
+        f"/api/legal-entities/{entity.id}/", {"tax_number": "3" + "1" * 13 + "3"}, format="json"
+    )
+    assert good.status_code == 200, good.data
+    assert good.data["tax_number"] == "3" + "1" * 13 + "3"
+
+
+@pytest.mark.django_db
+def test_commercial_registration_format_validated(owner_client):
+    client, tenant = owner_client
+    entity = LegalEntity.objects.create(
+        tenant=tenant, code="C1", name="Co", entity_type=LegalEntity.Type.COMPANY
+    )
+
+    bad = client.patch(f"/api/legal-entities/{entity.id}/", {"commercial_registration": "123"}, format="json")
+    assert bad.status_code == 400, bad.data
+
+    good = client.patch(
+        f"/api/legal-entities/{entity.id}/", {"commercial_registration": "1010101010"}, format="json"
+    )
+    assert good.status_code == 200, good.data
+
+
+@pytest.mark.django_db
+def test_branch_inherits_blank_company_profile_fields_from_parent(owner_client):
+    client, tenant = owner_client
+    company = LegalEntity.objects.create(
+        tenant=tenant, code="C1", name="Co", entity_type=LegalEntity.Type.COMPANY,
+        commercial_registration="1010101010", city="Riyadh", phone="0112345678",
+    )
+    branch = LegalEntity.objects.create(
+        tenant=tenant, code="B1", name="Branch", entity_type=LegalEntity.Type.BRANCH, parent=company,
+        city="Jeddah",
+    )
+
+    response = client.get(f"/api/legal-entities/{branch.id}/")
+    assert response.status_code == 200
+    profile = response.data["effective_profile"]
+    # own value wins where set...
+    assert profile["city"] == "Jeddah"
+    # ...blank fields fall back to the parent's.
+    assert profile["commercial_registration"] == "1010101010"
+    assert profile["phone"] == "0112345678"

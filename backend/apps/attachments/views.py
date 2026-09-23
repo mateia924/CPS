@@ -32,7 +32,7 @@ from .tasks import scan_attachment
 # Master-data/settings targets get versioned (a same-category re-upload
 # supersedes the previous one); financial documents never do — a second
 # receipt on an invoice is an ADDITION, not a replacement (3.17 table).
-VERSIONED_TARGETS = {"party", "bank", "cash_box", "custody", "asset", "account", "tax_code", "exchange_rate"}
+VERSIONED_TARGETS = {"party", "bank", "cash_box", "custody", "asset", "account", "tax_code", "exchange_rate", "legal_entity"}
 
 
 class AttachmentViewSet(

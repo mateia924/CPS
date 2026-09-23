@@ -1,7 +1,11 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
+from apps.common.validators import validate_saudi_commercial_registration, validate_saudi_tax_number
+
 from .models import CostCenter, LegalEntity
+from .services import effective_company_profile
 
 
 def _validate_no_cycle(instance, parent, label):
@@ -23,13 +27,18 @@ def _validate_no_cycle(instance, parent, label):
 
 
 class LegalEntitySerializer(serializers.ModelSerializer):
+    effective_profile = serializers.SerializerMethodField()
+
     class Meta:
         model = LegalEntity
         fields = (
             "id", "parent", "code", "name", "entity_type", "country_code",
-            "tax_number", "base_currency", "is_active", "created_at",
+            "tax_number", "base_currency",
+            "commercial_registration", "building_number", "street", "district",
+            "city", "postal_code", "short_address", "phone", "email", "effective_profile",
+            "is_active", "created_at",
         )
-        read_only_fields = ("id", "created_at")
+        read_only_fields = ("id", "created_at", "effective_profile")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -40,6 +49,33 @@ class LegalEntitySerializer(serializers.ModelSerializer):
             self.fields["parent"].queryset = LegalEntity.objects.filter(
                 tenant=request.user.tenant
             )
+
+    def get_effective_profile(self, obj):
+        """Sprint 5.6: the company-screen form shows this alongside the
+        entity's own (possibly blank) fields, so a branch that inherits
+        everything from its parent company still displays real values,
+        not blanks."""
+        if obj.pk is None:
+            return {}
+        return effective_company_profile(obj)
+
+    def validate_tax_number(self, value):
+        country_code = self.initial_data.get("country_code") or getattr(self.instance, "country_code", "SA")
+        if country_code == "SA":
+            try:
+                validate_saudi_tax_number(value)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError(exc.message)
+        return value
+
+    def validate_commercial_registration(self, value):
+        country_code = self.initial_data.get("country_code") or getattr(self.instance, "country_code", "SA")
+        if country_code == "SA":
+            try:
+                validate_saudi_commercial_registration(value)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError(exc.message)
+        return value
 
     def validate(self, attrs):
         parent = attrs.get("parent", getattr(self.instance, "parent", None))

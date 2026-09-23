@@ -389,3 +389,91 @@ def test_approval_rules_are_tenant_isolated(tenant_a, tenant_b, client_a):
 
     response = client_a.get(f"/api/approval-rules/{rule_b.id}/")
     assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------
+# Sprint 5.3/5.6: vouchers join the same approval engine and the same
+# inbox (apps.approvals.views.PendingApprovalsView) — this was missing
+# from block 5.3's own test coverage (no approval-rule scenario was
+# exercised for vouchers there) and PendingApprovalsView itself only
+# looped over JournalEntry/Invoice until this fix.
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_voucher_blocked_by_rule_appears_in_inbox_and_creator_cannot_self_approve(db):
+    from apps.access.models import UserEntityAccess
+
+    tenant = TenantFactory()
+    seed_chart_of_accounts(tenant)
+    seed_tax_codes_for_country(tenant, "SA")
+    _company, entity = create_default_legal_entities(tenant, tenant.name)
+    roles = seed_default_roles(tenant)
+    ApprovalRule.objects.create(
+        tenant=tenant, doc_type=ApprovalRule.DocType.VOUCHER_PAYMENT, min_amount="5000.00",
+        required_role=roles["Owner"],
+    )
+
+    creator = UserFactory(tenant=tenant, email="creator@voucher-inbox.test")
+    creator.roles.add(roles["Accountant"])
+    UserEntityAccess.objects.create(user=creator, legal_entity=entity)
+    owner = UserFactory(tenant=tenant, email="owner@voucher-inbox.test")
+    owner.roles.add(roles["Owner"])
+
+    owner_setup_client = APIClient()
+    owner_setup_client.force_authenticate(user=owner)
+    cash_box = owner_setup_client.post(
+        "/api/cash-boxes/", {"legal_entity": str(entity.id), "name": "Cash box"}, format="json"
+    )
+    assert cash_box.status_code == 201, cash_box.data
+    revenue = Account.objects.filter(tenant=tenant, code="4100").first()
+    tax_code = TaxCode.objects.get(tenant=tenant, code="Z")
+    funding = owner_setup_client.post(
+        "/api/vouchers/",
+        {
+            "voucher_type": "receipt", "legal_entity": str(entity.id), "date": "2026-01-01",
+            "treasury_kind": "cash_box", "treasury_id": cash_box.data["id"], "payee_name": "Funding",
+            "lines": [{"line_type": "account", "account": str(revenue.id), "tax_code": str(tax_code.id), "amount_fc": "10000.00"}],
+        },
+        format="json",
+    )
+    assert funding.status_code == 201, funding.data
+    funded = owner_setup_client.post(f"/api/vouchers/{funding.data['id']}/post/")
+    assert funded.status_code == 200, funded.data
+
+    creator_client = APIClient()
+    creator_client.force_authenticate(user=creator)
+    expense = Account.objects.filter(tenant=tenant, code="5100").first()
+
+    voucher = creator_client.post(
+        "/api/vouchers/",
+        {
+            "voucher_type": "payment", "legal_entity": str(entity.id), "date": "2026-01-01",
+            "treasury_kind": "cash_box", "treasury_id": cash_box.data["id"], "payee_name": "Big vendor",
+            "lines": [{"line_type": "account", "account": str(expense.id), "tax_code": str(tax_code.id), "amount_fc": "6000.00"}],
+        },
+        format="json",
+    )
+    assert voucher.status_code == 201, voucher.data
+
+    posted = creator_client.post(f"/api/vouchers/{voucher.data['id']}/post/")
+    assert posted.status_code == 202, posted.data
+    assert posted.data["status"] == "pending_approval"
+
+    self_approve = creator_client.post(f"/api/vouchers/{voucher.data['id']}/approve/")
+    assert self_approve.status_code == 403, self_approve.data
+
+    owner_client = APIClient()
+    owner_client.force_authenticate(user=owner)
+    inbox = owner_client.get("/api/approvals/pending/")
+    assert inbox.status_code == 200
+    assert len(inbox.data) == 1
+    assert inbox.data[0]["doc_type"] == "voucher_payment"
+    assert inbox.data[0]["id"] == voucher.data["id"]
+
+    approved = owner_client.post(f"/api/vouchers/{voucher.data['id']}/approve/")
+    assert approved.status_code == 200, approved.data
+    assert approved.data["status"] == "posted"
+
+    empty_inbox = owner_client.get("/api/approvals/pending/")
+    assert empty_inbox.data == []

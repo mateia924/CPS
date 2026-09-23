@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
@@ -156,6 +157,11 @@ export default function BanksPage() {
           { key: "account_number", label: t("accountNumber") },
           { key: "currency", label: t("currency") },
         ]}
+        renderExtraActions={(bank) => (
+          <Link href={`/dashboard/treasury/banks/${bank.id}`} className="secondary">
+            {t("details")}
+          </Link>
+        )}
       />
     </div>
   );

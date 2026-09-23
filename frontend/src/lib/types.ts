@@ -50,14 +50,18 @@ export type DocumentStatus =
   | "paid"
   | "cancelled";
 
+export type PaymentStatus = "unpaid" | "partial" | "paid";
+
 export interface Invoice {
   id: string;
   number: string;
   status: DocumentStatus;
   created_by: string | null;
   issue_date: string;
+  due_date: string | null;
   customer: string;
   customer_name: string;
+  customer_party_type: PartyType;
   legal_entity: string;
   legal_entity_name: string;
   currency: string;
@@ -66,12 +70,28 @@ export interface Invoice {
   tax_total: string;
   total: string;
   base_total: string;
+  paid_fc: string;
+  balance_fc: string;
+  payment_status: PaymentStatus;
+  delivered_at: string | null;
   lines: InvoiceLine[];
 }
 
 export type LegalEntityType = "holding" | "company" | "branch";
 
-export interface LegalEntity {
+export interface CompanyProfile {
+  commercial_registration: string;
+  building_number: string;
+  street: string;
+  district: string;
+  city: string;
+  postal_code: string;
+  short_address: string;
+  phone: string;
+  email: string;
+}
+
+export interface LegalEntity extends CompanyProfile {
   id: string;
   parent: string | null;
   code: string;
@@ -80,6 +100,7 @@ export interface LegalEntity {
   country_code: string;
   tax_number: string;
   base_currency: string;
+  effective_profile: CompanyProfile;
   is_active: boolean;
 }
 
@@ -272,6 +293,7 @@ export interface CashBox {
   name: string;
   currency: string;
   custodian: string | null;
+  max_balance: string | null;
   is_active: boolean;
   created_at: string;
 }
@@ -282,8 +304,49 @@ export interface Custody {
   employee: string;
   name: string;
   currency: string;
+  limit_amount: string | null;
   is_active: boolean;
   created_at: string;
+}
+
+// --- Sprint 5.4 (block 5.4): shared by treasury movements + party
+// statements (and 5.7's general ledger, same shape).
+export interface LedgerLine {
+  date: string;
+  entry_id: string;
+  entry_number: string;
+  description: string;
+  debit: string;
+  credit: string;
+  debit_fc: string;
+  credit_fc: string;
+  currency: string;
+  running_balance: string;
+  running_balance_fc: string;
+  source_type: string;
+  source_id: string | null;
+}
+
+export interface LedgerStatement {
+  opening_balance: string;
+  opening_balance_fc: string;
+  lines: LedgerLine[];
+  closing_balance: string;
+  closing_balance_fc: string;
+}
+
+export interface OpenInvoiceSummary {
+  id: string;
+  number: string;
+  issue_date: string;
+  due_date: string | null;
+  currency: string;
+  total: string;
+  balance_fc: string;
+}
+
+export interface PartyStatement extends LedgerStatement {
+  open_invoices: OpenInvoiceSummary[];
 }
 
 export type AssetCategory = "vehicle" | "equipment" | "building" | "furniture" | "it" | "other";
@@ -514,7 +577,9 @@ export interface TaxPeriod {
   created_at: string;
 }
 
-export type ApprovalDocType = "journal_entry" | "invoice";
+export type ApprovalDocType =
+  | "journal_entry" | "invoice"
+  | "voucher_receipt" | "voucher_payment" | "voucher_settlement";
 
 export interface ApprovalRule {
   id: string;
@@ -548,8 +613,8 @@ export interface DocumentNumberingSetting {
 
 export type AttachmentTargetType =
   | "party" | "bank" | "cash_box" | "custody" | "asset"
-  | "invoice" | "journal_entry"
-  | "account" | "tax_code" | "exchange_rate";
+  | "invoice" | "journal_entry" | "voucher"
+  | "account" | "tax_code" | "exchange_rate" | "legal_entity";
 
 export type AttachmentCategory =
   | "fatura_original" | "receipt" | "contract" | "bank_letter"
@@ -589,4 +654,72 @@ export interface PendingApproval {
   description: string;
   amount_base: string;
   created_by: string | null;
+}
+
+// --- Sprint 5.3/5.4 (docs/SYSTEM_ANALYSIS.md 3.8): سندات القبض/الصرف/التسوية ---
+
+export type VoucherType = "receipt" | "payment" | "settlement";
+export type SettlementKind = "internal_transfer";
+export type TreasuryKind = "bank" | "cash_box" | "custody";
+export type VoucherPaymentMethod = "cash" | "bank_transfer" | "cheque" | "card" | "other";
+export type VoucherLineType = "invoice" | "on_account" | "account";
+
+export interface VoucherLine {
+  id: string;
+  line_no: number;
+  line_type: VoucherLineType;
+  invoice: string | null;
+  allocated_invoice_fc: string | null;
+  account: string | null;
+  tax_code: string | null;
+  amount_includes_tax: boolean;
+  tax_amount_fc: string;
+  ext_supplier_name: string;
+  ext_supplier_tax_number: string;
+  ext_invoice_ref: string;
+  cost_center: string | null;
+  description: string;
+  amount_fc: string;
+  amount_base: string;
+  tax_amount_base: string;
+}
+
+export interface Voucher {
+  id: string;
+  voucher_type: VoucherType;
+  settlement_kind: SettlementKind | null;
+  number: string;
+  date: string;
+  currency: string;
+  exchange_rate: string;
+  exchange_rate_overridden: boolean;
+  treasury_kind: TreasuryKind;
+  bank: string | null;
+  cash_box: string | null;
+  custody: string | null;
+  treasury_name: string;
+  counter_treasury_kind: TreasuryKind | null;
+  counter_bank: string | null;
+  counter_cash_box: string | null;
+  counter_custody: string | null;
+  counter_amount_fc: string | null;
+  counter_treasury_name: string;
+  legal_entity: string;
+  legal_entity_name: string;
+  party: string | null;
+  party_name: string;
+  party_role: PartyRoleType | null;
+  payee_name: string;
+  payment_method: VoucherPaymentMethod;
+  reference: string;
+  description: string;
+  status: DocumentStatus;
+  total_fc: string;
+  total_base: string;
+  journal_entry_id: string | null;
+  created_by: string | null;
+  posted_at: string | null;
+  reversal_of: string | null;
+  lines: VoucherLine[];
+  created_at: string;
 }

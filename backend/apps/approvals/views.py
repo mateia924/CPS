@@ -42,6 +42,7 @@ class PendingApprovalsView(APIView):
     def get(self, request):
         from apps.accounting.models import JournalEntry
         from apps.sales.models import Invoice
+        from apps.vouchers.models import Voucher
 
         user = request.user
         tenant = user.tenant
@@ -76,6 +77,25 @@ class PendingApprovalsView(APIView):
                         "description": invoice.party.name,
                         "amount_base": str(invoice.base_total),
                         "created_by": str(invoice.created_by_id) if invoice.created_by_id else None,
+                    }
+                )
+
+        # Sprint 5.4: vouchers (3.8) join the same inbox, same pattern —
+        # doc_type is f"voucher_{voucher_type}" (matching submit_for_
+        # approval's call in apps.vouchers.services.post_voucher).
+        for voucher in Voucher.objects.filter(tenant=tenant, status="pending_approval"):
+            doc_type = f"voucher_{voucher.voucher_type}"
+            rule = get_matching_rule(tenant, doc_type, voucher.total_base)
+            if rule is not None and rule.required_role_id in user_role_ids:
+                results.append(
+                    {
+                        "doc_type": doc_type,
+                        "id": str(voucher.id),
+                        "number": voucher.number,
+                        "date": voucher.date,
+                        "description": voucher.party.name if voucher.party_id else voucher.payee_name,
+                        "amount_base": str(voucher.total_base),
+                        "created_by": str(voucher.created_by_id) if voucher.created_by_id else None,
                     }
                 )
 

@@ -38,6 +38,20 @@ class LegalEntity(TenantScopedModel):
     tax_period_type = models.CharField(
         _("tax period type"), max_length=10, choices=TaxPeriodType.choices, default=TaxPeriodType.MONTHLY
     )
+    # Sprint 5.6 (block 5.6): شاشة "الشركة" — السجل التجاري + عنوان
+    # مهيكل (بصيغة الهيئة السعودية لسبرنت 9، انظر الترويسة أعلاه) +
+    # اتصال. كلها فارغة اختياريًا؛ فارغ على كيان فرعي = يرث من الأب
+    # (organization.services.effective_company_profile) بدل تكرار
+    # القيم على كل فرع.
+    commercial_registration = models.CharField(_("commercial registration"), max_length=20, blank=True)
+    building_number = models.CharField(_("building number"), max_length=20, blank=True)
+    street = models.CharField(_("street"), max_length=255, blank=True)
+    district = models.CharField(_("district"), max_length=255, blank=True)
+    city = models.CharField(_("city"), max_length=255, blank=True)
+    postal_code = models.CharField(_("postal code"), max_length=10, blank=True)
+    short_address = models.CharField(_("short address"), max_length=10, blank=True)
+    phone = models.CharField(_("phone"), max_length=30, blank=True)
+    email = models.EmailField(_("email"), blank=True)
     is_active = models.BooleanField(_("active"), default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

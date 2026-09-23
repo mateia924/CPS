@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
@@ -343,6 +344,9 @@ export default function InvoicesPage() {
         ]}
         renderExtraActions={(invoice, reload) => (
           <>
+            <Link href={`/dashboard/invoices/${invoice.id}`} className="secondary" style={{ marginInlineEnd: "0.4rem" }}>
+              {t("details")}
+            </Link>
             {invoice.status === "draft" && (
               <button
                 className="secondary"

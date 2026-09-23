@@ -6,10 +6,15 @@ import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import type { ApprovalDocType, ApprovalRule, Paginated, Role } from "@/lib/types";
 
-const DOC_TYPES: ApprovalDocType[] = ["journal_entry", "invoice"];
+const DOC_TYPES: ApprovalDocType[] = [
+  "journal_entry", "invoice", "voucher_receipt", "voucher_payment", "voucher_settlement",
+];
 const DOC_TYPE_LABEL: Record<ApprovalDocType, string> = {
   journal_entry: "journalEntryDocType",
   invoice: "invoiceDocType",
+  voucher_receipt: "voucherReceiptDocType",
+  voucher_payment: "voucherPaymentDocType",
+  voucher_settlement: "voucherSettlementDocType",
 };
 
 export default function ApprovalRulesPage() {
