@@ -12,6 +12,7 @@ const CATEGORY_LABEL_KEY: Record<AttachmentCategory, string> = {
   bank_letter: "categoryBankLetter",
   id_document: "categoryIdDocument",
   approval_minutes: "categoryApprovalMinutes",
+  bank_statement: "categoryBankStatement",
   other: "categoryOther",
 };
 const CATEGORIES = Object.keys(CATEGORY_LABEL_KEY) as AttachmentCategory[];

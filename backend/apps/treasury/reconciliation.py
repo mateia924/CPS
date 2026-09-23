@@ -176,6 +176,98 @@ def unmatch(statement_line, user, request=None):
     return statement_line
 
 
+def reconciliation_report(tenant, bank, as_of=None):
+    """v2 decision 9 — "بصيغة المدقق" (two adjusted sides, not a plain
+    opening+pending−pending): the bank's own latest statement closing
+    balance adjusted for what the books don't show yet, vs. the book
+    balance adjusted for what the bank hasn't shown yet. Both should
+    land on the same number; the difference is always displayed, never
+    hidden when nonzero. Everything is in the bank's own currency
+    (ledger_lines' *_fc figures), the base-currency amount is display
+    only."""
+    from apps.accounting.services import ledger_lines
+
+    from .models import BankStatement, BankStatementLine
+
+    as_of = as_of or timezone.now().date()
+    account = bank.gl_account
+
+    latest_statement = (
+        BankStatement.objects.filter(tenant=tenant, bank=bank, period_end__lte=as_of)
+        .order_by("-period_end")
+        .first()
+    )
+    statement_closing_balance = latest_statement.closing_balance if latest_statement else Decimal("0")
+
+    if account is None:
+        ledger = {"closing_balance_fc": Decimal("0")}
+        outstanding_deposits, outstanding_payments = [], []
+    else:
+        ledger = ledger_lines(tenant, account, date_to=as_of)
+        unmatched_lines = JournalLine.objects.filter(
+            entry__tenant=tenant, entry__status=JournalEntry.Status.POSTED, account=account,
+            bank_statement_line__isnull=True, entry__date__lte=as_of,
+        ).select_related("entry")
+        outstanding_deposits = [
+            {"date": jl.entry.date, "entry_id": str(jl.entry_id), "entry_number": jl.entry.number,
+             "description": jl.description or jl.entry.memo, "amount": jl.debit_fc - jl.credit_fc}
+            for jl in unmatched_lines if (jl.debit_fc - jl.credit_fc) > 0
+        ]
+        outstanding_payments = [
+            {"date": jl.entry.date, "entry_id": str(jl.entry_id), "entry_number": jl.entry.number,
+             "description": jl.description or jl.entry.memo, "amount": jl.debit_fc - jl.credit_fc}
+            for jl in unmatched_lines if (jl.debit_fc - jl.credit_fc) < 0
+        ]
+
+    bank_side_adjustment = sum((d["amount"] for d in outstanding_deposits), Decimal("0")) + sum(
+        (p["amount"] for p in outstanding_payments), Decimal("0")
+    )
+    bank_adjusted = statement_closing_balance + bank_side_adjustment
+
+    all_statement_ids = BankStatement.objects.filter(tenant=tenant, bank=bank).values_list("id", flat=True)
+    pending_statement_lines = BankStatementLine.objects.filter(
+        tenant=tenant, statement_id__in=all_statement_ids, date__lte=as_of,
+        status__in=[BankStatementLine.Status.UNMATCHED, BankStatementLine.Status.IGNORED],
+    )
+    unrecorded_credits = [
+        {"id": str(sl.id), "date": sl.date, "description": sl.description, "amount": sl.amount, "status": sl.status}
+        for sl in pending_statement_lines if sl.amount > 0
+    ]
+    unrecorded_debits = [
+        {"id": str(sl.id), "date": sl.date, "description": sl.description, "amount": sl.amount, "status": sl.status}
+        for sl in pending_statement_lines if sl.amount < 0
+    ]
+    ignored_items = [
+        {"id": str(sl.id), "date": sl.date, "description": sl.description, "amount": sl.amount}
+        for sl in pending_statement_lines if sl.status == BankStatementLine.Status.IGNORED
+    ]
+    book_side_adjustment = sum((c["amount"] for c in unrecorded_credits), Decimal("0")) + sum(
+        (d["amount"] for d in unrecorded_debits), Decimal("0")
+    )
+    book_adjusted = ledger["closing_balance_fc"] + book_side_adjustment
+
+    total_lines = BankStatementLine.objects.filter(tenant=tenant, statement_id__in=all_statement_ids)
+    total_count = total_lines.count()
+    settled_count = total_lines.exclude(status=BankStatementLine.Status.UNMATCHED).count()
+
+    return {
+        "as_of": as_of,
+        "currency": bank.currency,
+        "bank_closing_balance": statement_closing_balance,
+        "outstanding_deposits": outstanding_deposits,
+        "outstanding_payments": outstanding_payments,
+        "bank_adjusted_balance": bank_adjusted,
+        "book_closing_balance": ledger["closing_balance_fc"],
+        "unrecorded_credits": unrecorded_credits,
+        "unrecorded_debits": unrecorded_debits,
+        "ignored_items": ignored_items,
+        "book_adjusted_balance": book_adjusted,
+        "difference": bank_adjusted - book_adjusted,
+        "reconciled_ratio": round(settled_count / total_count, 4) if total_count else 0.0,
+        "latest_statement_id": str(latest_statement.id) if latest_statement else None,
+    }
+
+
 @transaction.atomic
 def ignore_line(statement_line, reason, user, request=None):
     if statement_line.status != BankStatementLine.Status.UNMATCHED:

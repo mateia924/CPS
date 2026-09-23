@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { CashCountCard } from "@/components/CashCountCard";
 import { TreasuryMovementsCard } from "@/components/TreasuryMovementsCard";
 import { useLocale } from "@/lib/i18n";
 import type { CashBox } from "@/lib/types";
@@ -49,6 +50,8 @@ export default function CashBoxDetailPage() {
       </div>
 
       <TreasuryMovementsCard kind="cash_box" id={cashBox.id} />
+
+      <CashCountCard cashBoxId={cashBox.id} />
 
       <AttachmentPanel targetType="cash_box" targetId={cashBox.id} />
     </div>

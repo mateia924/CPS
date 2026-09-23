@@ -335,6 +335,93 @@ export interface LedgerStatement {
   closing_balance_fc: string;
 }
 
+// --- Sprint 5.5 (block 5.5.1-5.5.3): bank statement import + matching
+// + reconciliation report + cash count.
+export interface BankStatementLine {
+  id: string;
+  line_no: number;
+  date: string;
+  amount: string;
+  description: string;
+  reference: string;
+  status: "unmatched" | "matched" | "ignored";
+  matched_by: "auto" | "manual" | "";
+  matched_by_user: string | null;
+  matched_at: string | null;
+  ignored_reason: string;
+}
+
+export interface BankStatement {
+  id: string;
+  bank: string;
+  period_start: string;
+  period_end: string;
+  currency: string;
+  opening_balance: string;
+  closing_balance: string;
+  import_format: string;
+  line_count: number;
+  imported_by: string | null;
+  reconciled_ratio: number;
+  created_at: string;
+  lines?: BankStatementLine[];
+}
+
+export interface StatementLineCandidate {
+  id: string;
+  date: string;
+  entry_id: string;
+  entry_number: string;
+  description: string;
+  debit_fc: string;
+  credit_fc: string;
+}
+
+export interface ReconciliationReportItem {
+  date?: string;
+  entry_id?: string;
+  entry_number?: string;
+  id?: string;
+  description: string;
+  amount: string;
+  status?: string;
+}
+
+export interface ReconciliationReport {
+  as_of: string;
+  currency: string;
+  bank_closing_balance: string;
+  outstanding_deposits: ReconciliationReportItem[];
+  outstanding_payments: ReconciliationReportItem[];
+  bank_adjusted_balance: string;
+  book_closing_balance: string;
+  unrecorded_credits: ReconciliationReportItem[];
+  unrecorded_debits: ReconciliationReportItem[];
+  ignored_items: ReconciliationReportItem[];
+  book_adjusted_balance: string;
+  difference: string;
+  reconciled_ratio: number;
+  latest_statement_id: string | null;
+}
+
+export interface CashCount {
+  id: string;
+  cash_box: string;
+  number: string;
+  count_date: string;
+  counted_by: string;
+  denominations: Record<string, number>;
+  counted_amount: string;
+  book_balance_snapshot: string;
+  difference: string;
+  reason: string;
+  status: "draft" | "confirmed";
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  variance_voucher: string | null;
+  created_at: string;
+}
+
 export interface OpenInvoiceSummary {
   id: string;
   number: string;
@@ -616,11 +703,13 @@ export interface DocumentNumberingSetting {
 export type AttachmentTargetType =
   | "party" | "bank" | "cash_box" | "custody" | "asset"
   | "invoice" | "journal_entry" | "voucher"
-  | "account" | "tax_code" | "exchange_rate" | "legal_entity";
+  | "account" | "tax_code" | "exchange_rate" | "legal_entity"
+  // Sprint 5.5: IBAN letter, imported statement file, cash count sheet.
+  | "iban_change_request" | "bank_statement" | "cash_count";
 
 export type AttachmentCategory =
   | "fatura_original" | "receipt" | "contract" | "bank_letter"
-  | "id_document" | "approval_minutes" | "other";
+  | "id_document" | "approval_minutes" | "bank_statement" | "other";
 
 export type AttachmentScanStatus = "pending" | "clean" | "infected" | "error" | "skipped";
 export type AttachmentIntegrityStatus = "unchecked" | "ok" | "mismatch";

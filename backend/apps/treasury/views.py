@@ -15,17 +15,27 @@ from .models import (
     BankStatement,
     BankStatementLine,
     CashBox,
+    CashCount,
     Custody,
     ExchangeRate,
     IbanChangeRequest,
 )
-from .reconciliation import find_candidates, ignore_line, manual_match, unmatch
+from .reconciliation import (
+    find_candidates,
+    ignore_line,
+    manual_match,
+    reconciliation_report,
+    unmatch,
+)
 from .serializers import (
     BankSerializer,
     BankStatementLineSerializer,
     BankStatementListSerializer,
     BankStatementSerializer,
     CashBoxSerializer,
+    CashCountConfirmSerializer,
+    CashCountCreateSerializer,
+    CashCountSerializer,
     CustodySerializer,
     ExchangeRateSerializer,
     IbanChangeRequestCreateSerializer,
@@ -37,6 +47,8 @@ from .serializers import (
 from .services import (
     TreasuryConflictError,
     approve_iban_change_request,
+    confirm_cash_count,
+    create_cash_count,
     create_iban_change_request,
     import_bank_statement,
     reject_iban_change_request,
@@ -54,6 +66,7 @@ _PERMISSION_MAP = {
     "deactivate": "treasury.manage",
     "activate": "treasury.manage",
     "movements": "treasury.view",
+    "reconciliation_report_": "treasury.view",
 }
 
 
@@ -91,6 +104,15 @@ class BankViewSet(_TreasuryMovementsMixin, SoftDeleteViewSetMixin, TenantScopedV
     def perform_create(self, serializer):
         super().perform_create(serializer)
         get_or_create_treasury_account(serializer.instance, "BANKS")
+
+    @action(detail=True, methods=["get"], url_path="reconciliation-report")
+    def reconciliation_report_(self, request, pk=None):
+        bank = self.get_object()
+        as_of = request.query_params.get("as_of")
+        result = reconciliation_report(
+            request.user.tenant, bank, as_of=datetime.date.fromisoformat(as_of) if as_of else None
+        )
+        return Response(result)
 
 
 class CashBoxViewSet(_TreasuryMovementsMixin, SoftDeleteViewSetMixin, TenantScopedViewSet):
@@ -362,3 +384,58 @@ class BankStatementLineViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
             return Response(detail, status=400)
         return Response(BankStatementLineSerializer(line).data)
+
+
+class CashCountViewSet(
+    mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet
+):
+    """`GET /api/cash-counts/?cash_box=<id>`, `POST /api/cash-counts/`
+    (draft, block 5.5.3), `POST /api/cash-counts/{id}/confirm/`."""
+
+    serializer_class = CashCountSerializer
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    queryset = CashCount.objects.all()
+    permission_map = {
+        "list": "treasury.view",
+        "retrieve": "treasury.view",
+        "create": "treasury.count_cash",
+        "confirm": "treasury.count_cash",
+    }
+
+    def get_queryset(self):
+        queryset = super().get_queryset().filter(tenant=self.request.user.tenant)
+        cash_box_id = self.request.query_params.get("cash_box")
+        if cash_box_id:
+            queryset = queryset.filter(cash_box_id=cash_box_id)
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        serializer = CashCountCreateSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            cash_count = create_cash_count(
+                tenant=request.user.tenant, user=request.user, cash_box=data["cash_box"],
+                count_date=data["count_date"], counted_amount=data.get("counted_amount"),
+                denominations=data.get("denominations"),
+            )
+        except ValidationError as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
+            return Response(detail, status=400)
+        return Response(CashCountSerializer(cash_count).data, status=201)
+
+    @action(detail=True, methods=["post"])
+    def confirm(self, request, pk=None):
+        cash_count = self.get_object()
+        serializer = CashCountConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            confirm_cash_count(
+                cash_count, request.user, reason=data["reason"],
+                create_variance_voucher=data["create_variance_voucher"], request=request,
+            )
+        except ValidationError as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
+            return Response(detail, status=400)
+        return Response(CashCountSerializer(cash_count).data)

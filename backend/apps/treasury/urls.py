@@ -5,6 +5,7 @@ from .views import (
     BankStatementViewSet,
     BankViewSet,
     CashBoxViewSet,
+    CashCountViewSet,
     CustodyViewSet,
     ExchangeRateViewSet,
     IbanChangeRequestViewSet,
@@ -18,5 +19,6 @@ router.register("exchange-rates", ExchangeRateViewSet, basename="exchange-rate")
 router.register("iban-requests", IbanChangeRequestViewSet, basename="iban-change-request")
 router.register("bank-statements", BankStatementViewSet, basename="bank-statement")
 router.register("statement-lines", BankStatementLineViewSet, basename="statement-line")
+router.register("cash-counts", CashCountViewSet, basename="cash-count")
 
 urlpatterns = router.urls

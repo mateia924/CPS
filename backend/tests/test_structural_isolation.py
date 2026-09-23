@@ -38,6 +38,7 @@ TENANT_FILTER_EXEMPTIONS = {
     "apps.treasury.views.IbanChangeRequestViewSet": "get_queryset() filters IbanChangeRequest.objects.filter(tenant=request.user.tenant) by hand, same pattern as VoucherViewSet (sprint 5.5 block 5.5.0)",
     "apps.treasury.views.BankStatementViewSet": "get_queryset() filters BankStatement.objects.filter(tenant=request.user.tenant) by hand, same pattern as VoucherViewSet (sprint 5.5 block 5.5.1)",
     "apps.treasury.views.BankStatementLineViewSet": "get_queryset() filters BankStatementLine.objects.filter(tenant=request.user.tenant) by hand, same pattern as VoucherViewSet (sprint 5.5 block 5.5.2)",
+    "apps.treasury.views.CashCountViewSet": "get_queryset() filters CashCount.objects.filter(tenant=request.user.tenant) by hand, same pattern as VoucherViewSet (sprint 5.5 block 5.5.3)",
     "apps.platform.views.TenantAuditLogViewSet": "AuditLog is not a TenantScopedModel (a plain tenant_id UUID, not a FK — shared with the platform-side AuditLogViewSet) — get_queryset() filters AuditLog.objects.filter(tenant_id=request.user.tenant_id) by hand",
 }
 

@@ -20,6 +20,10 @@ DEFAULT_PREFIXES = {
     "voucher_receipt": "RV",
     "voucher_payment": "PV",
     "voucher_settlement": "SV",
+    # Sprint 5.5 (block 5.5.3): CFO_REVIEW_1 F14 — granted at
+    # confirmation, not at creation (same "at issue, not at draft"
+    # principle as every other document number in this project).
+    "cash_count": "CC",
 }
 
 

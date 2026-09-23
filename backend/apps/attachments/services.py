@@ -38,6 +38,8 @@ ALLOWED_TARGETS = {
     # Sprint 5.5 (block 5.5.1): the original imported statement file
     # itself, kept as an audit trail (v2 decision 5).
     "bank_statement": ("treasury", "bankstatement"),
+    # Sprint 5.5 (block 5.5.3): the signed cash-count sheet photo.
+    "cash_count": ("treasury", "cashcount"),
 }
 
 # extension -> allowed MIME types (from magic bytes, never trusted from

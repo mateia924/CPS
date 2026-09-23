@@ -429,3 +429,106 @@ def check_iban_change_guard(party):
             % {"date": recent.decided_at.date()}
         )
     ]
+
+
+# ---------------------------------------------------------------------
+# Cash count (sprint 5.5, block 5.5.3 — CFO_REVIEW_1 F14)
+# ---------------------------------------------------------------------
+
+
+def create_cash_count(tenant, user, cash_box, count_date, counted_amount=None, denominations=None):
+    denominations = denominations or {}
+    if denominations:
+        try:
+            computed = sum(
+                (Decimal(str(denom)) * Decimal(str(qty)) for denom, qty in denominations.items()), Decimal("0")
+            )
+        except Exception:
+            raise ValidationError({"denominations": [_("Invalid denominations breakdown.")]})
+        if counted_amount is not None and computed != counted_amount:
+            raise ValidationError(
+                {"counted_amount": [_("Counted amount does not match the sum of the denominations breakdown.")]}
+            )
+        counted_amount = computed
+    if counted_amount is None:
+        raise ValidationError({"counted_amount": [_("Either counted_amount or denominations is required.")]})
+
+    snapshot = treasury_balance(tenant, "cash_box", cash_box.id, as_of=count_date)["base"]
+    difference = counted_amount - snapshot
+
+    from .models import CashCount
+
+    return CashCount.objects.create(
+        tenant=tenant, cash_box=cash_box, count_date=count_date, counted_by=user,
+        denominations=denominations, counted_amount=counted_amount,
+        book_balance_snapshot=snapshot, difference=difference,
+    )
+
+
+@transaction.atomic
+def confirm_cash_count(cash_count, user, reason="", create_variance_voucher=False, request=None):
+    from .models import CashCount
+
+    cash_count.status = CashCount.objects.select_for_update().get(pk=cash_count.pk).status
+    if cash_count.status != CashCount.Status.DRAFT:
+        raise ValidationError({"detail": [_("Only a draft cash count can be confirmed.")]})
+    if cash_count.difference != 0 and not reason:
+        raise ValidationError({"reason": [_("A reason is required when the count does not match the book balance.")]})
+
+    from apps.numbering.services import next_document_number
+
+    cash_count.reason = reason
+    cash_count.status = CashCount.Status.CONFIRMED
+    cash_count.confirmed_by = user
+    cash_count.confirmed_at = timezone.now()
+    cash_count.number = next_document_number(
+        cash_count.tenant, "cash_count", cash_count.cash_box.legal_entity, cash_count.count_date
+    )
+    cash_count.save(
+        update_fields=["reason", "status", "confirmed_by", "confirmed_at", "number"]
+    )
+
+    if cash_count.difference != 0 and create_variance_voucher:
+        voucher = _create_cash_count_variance_voucher(cash_count, user, request=request)
+        cash_count.variance_voucher = voucher
+        cash_count.save(update_fields=["variance_voucher"])
+
+    from apps.platform.models import AuditLog
+    from apps.platform.services import log_action
+
+    log_action(
+        actor_type=AuditLog.ActorType.TENANT_USER, actor_id=user.id if user else None,
+        action="cash_count.confirmed", target_type="cash_count", target_id=cash_count.id,
+        tenant_id=cash_count.tenant_id,
+        after={"difference": str(cash_count.difference), "number": cash_count.number},
+        request=request,
+    )
+    return cash_count
+
+
+def _create_cash_count_variance_voucher(cash_count, user, request=None):
+    from apps.accounting.services import get_system_account
+    from apps.vouchers.models import Voucher
+    from apps.vouchers.services import create_voucher, post_voucher
+
+    variance_account = get_system_account(cash_count.tenant, "CASH_COUNT_VARIANCE")
+    if variance_account is None:
+        raise ValidationError(
+            {"detail": [_("No CASH_COUNT_VARIANCE account found in this tenant's chart of accounts.")]}
+        )
+    amount = abs(cash_count.difference)
+    # Surplus (counted > book): cash came from "nowhere" -> a RECEIPT
+    # into the box. Deficit (counted < book): cash is "missing" -> a
+    # PAYMENT out of the box. Either way the other leg is the variance
+    # account, never a party.
+    voucher_type = Voucher.VoucherType.RECEIPT if cash_count.difference > 0 else Voucher.VoucherType.PAYMENT
+    voucher = create_voucher(
+        tenant=cash_count.tenant, user=user, voucher_type=voucher_type,
+        legal_entity=cash_count.cash_box.legal_entity, date=cash_count.count_date,
+        treasury_kind="cash_box", treasury_id=cash_count.cash_box.id,
+        line_specs=[{"line_type": "account", "account": variance_account, "amount_fc": amount}],
+        payee_name=_("Cash count variance"),
+        description=str(_("Variance from cash count %(number)s") % {"number": cash_count.number}),
+    )
+    post_voucher(voucher, user, request=request)
+    return voucher

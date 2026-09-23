@@ -236,6 +236,61 @@ class Custody(TenantScopedModel):
         return self.name
 
 
+class CashCount(TenantScopedModel):
+    """Sprint 5.5 (block 5.5.3, CFO_REVIEW_1 F14) — "جرد الصندوق": a
+    physical cash count against the book balance, same auditor-control
+    logic as bank reconciliation (v2 decision 8). `book_balance_snapshot`
+    is computed once at creation (from treasury_balance(as_of=count_date,
+    end of day)) and never recomputed — a genuine point-in-time snapshot,
+    not a live value."""
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", _("Draft")
+        CONFIRMED = "confirmed", _("Confirmed")
+
+    cash_box = models.ForeignKey(CashBox, on_delete=models.PROTECT, related_name="counts")
+    number = models.CharField(_("number"), max_length=30, blank=True)
+    count_date = models.DateField(_("count date"))
+    counted_by = models.ForeignKey(
+        "accounts.User", on_delete=models.PROTECT, related_name="+"
+    )
+    # Optional denomination breakdown — {"500": 2, "100": 5, ...} — used
+    # only to compute counted_amount when given; a mismatch against a
+    # separately-supplied counted_amount is rejected (v2 decision 8).
+    denominations = models.JSONField(_("denominations"), default=dict, blank=True)
+    counted_amount = models.DecimalField(
+        _("counted amount"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES
+    )
+    book_balance_snapshot = models.DecimalField(
+        _("book balance snapshot"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES
+    )
+    difference = models.DecimalField(
+        _("difference"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES
+    )
+    reason = models.TextField(_("reason"), blank=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.DRAFT)
+    confirmed_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    variance_voucher = models.ForeignKey(
+        "vouchers.Voucher", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-count_date", "-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "number"], name="unique_cash_count_number_per_tenant",
+                condition=~models.Q(number=""),
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.cash_box} — {self.count_date}"
+
+
 class IbanChangeRequest(TenantScopedModel):
     """Sprint 5.5 (block 5.5.0, CFO_REVIEW_1 C10, SYSTEM_ANALYSIS.md
     3.15.9): the only path a *non-empty* Bank.iban or Party.iban may

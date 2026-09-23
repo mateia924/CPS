@@ -47,6 +47,10 @@ FX_ROUNDING_TOLERANCE = Decimal("0.05")
 CONTROL_SYSTEM_KEYS = {
     "VAT_OUTPUT", "VAT_INPUT", "VAT_NON_DEDUCTIBLE", "FX_REALIZED", "FX_UNREALIZED",
     "ROUNDING", "OPENING_BALANCE", "RETAINED_EARNINGS",
+    # Sprint 5.5 (block 5.5.3): same class as FX_REALIZED/ROUNDING — a
+    # system-managed variance account touched only through the cash
+    # count -> variance voucher flow, never a free-form manual JV.
+    "CASH_COUNT_VARIANCE",
 }
 
 # Sprint 3.3/3.4: which system_key parent a given PartyRole.Role's

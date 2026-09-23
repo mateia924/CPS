@@ -11,6 +11,7 @@ from .models import (
     BankStatement,
     BankStatementLine,
     CashBox,
+    CashCount,
     Custody,
     ExchangeRate,
     IbanChangeRequest,
@@ -211,3 +212,37 @@ class MatchStatementLineSerializer(serializers.Serializer):
 
 class IgnoreStatementLineSerializer(serializers.Serializer):
     reason = serializers.CharField(min_length=3)
+
+
+class CashCountCreateSerializer(serializers.Serializer):
+    """Sprint 5.5 (block 5.5.3, CFO_REVIEW_1 F14). Plain input
+    serializer — the row is built by
+    apps.treasury.services.create_cash_count, same split as every
+    other create-flow in this project."""
+
+    cash_box = serializers.PrimaryKeyRelatedField(queryset=CashBox.objects.none())
+    count_date = serializers.DateField()
+    counted_amount = serializers.DecimalField(max_digits=18, decimal_places=2, required=False)
+    denominations = serializers.JSONField(required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request is not None and request.user.is_authenticated:
+            self.fields["cash_box"].queryset = CashBox.objects.filter(tenant=request.user.tenant)
+
+
+class CashCountConfirmSerializer(serializers.Serializer):
+    reason = serializers.CharField(required=False, allow_blank=True, default="")
+    create_variance_voucher = serializers.BooleanField(required=False, default=False)
+
+
+class CashCountSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CashCount
+        fields = (
+            "id", "cash_box", "number", "count_date", "counted_by", "denominations", "counted_amount",
+            "book_balance_snapshot", "difference", "reason", "status", "confirmed_by", "confirmed_at",
+            "variance_voucher", "created_at",
+        )
+        read_only_fields = fields

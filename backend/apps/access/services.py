@@ -75,6 +75,7 @@ DEFAULT_PERMISSIONS = [
     # reconciliation workflow (not split add/approve like vouchers) —
     # nothing here posts a journal entry on its own.
     ("treasury.reconcile", _("Import bank statements and match statement lines")),
+    ("treasury.count_cash", _("Record and confirm a cash box physical count")),
 ]
 
 # Reasonable, editable defaults per system role — not specified in full
@@ -108,6 +109,7 @@ SYSTEM_ROLES = {
         "vouchers.reverse",
         "treasury.request_iban_change",
         "treasury.reconcile",
+        "treasury.count_cash",
     ],
     "Sales": [
         "customers.view",

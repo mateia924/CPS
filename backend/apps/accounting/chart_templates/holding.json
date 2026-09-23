@@ -30,6 +30,7 @@
     {"code": "5100", "name": "مصروفات عمومية وإدارية", "type": "expense"},
     {"code": "5900", "name": "فروق تقريب العملة", "type": "expense", "system_key": "ROUNDING"},
     {"code": "5910", "name": "فروق عملة محققة", "type": "expense", "system_key": "FX_REALIZED"},
-    {"code": "5920", "name": "فروق عملة غير محققة", "type": "expense", "system_key": "FX_UNREALIZED"}
+    {"code": "5920", "name": "فروق عملة غير محققة", "type": "expense", "system_key": "FX_UNREALIZED"},
+    {"code": "5930", "name": "فروق جرد الصندوق", "type": "expense", "system_key": "CASH_COUNT_VARIANCE"}
   ]}
 ]
