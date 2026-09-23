@@ -1,0 +1,72 @@
+/* CPS — design tokens (from the company logo). Source of truth for every color in the UI.
+   Usage: import in globals.css before anything else; components use var(--…) only. */
+
+:root {
+  /* brand */
+  --navy-50: #EEF2F9; --navy-100: #DCE4F2; --navy-200: #B9C8E3; --navy-300: #9DB3DB;
+  --navy-500: #3A5286; --navy-600: #33487A; --navy-700: #2E4270; --navy-800: #24345A; --navy-900: #1B2A44;
+  --sky-50: #E8F4FA; --sky-100: #DCEFF8; --sky-200: #B7DDF0; --sky-300: #8FD0EE;
+  --sky-500: #45A9D9; --sky-600: #2C93C8; --sky-700: #1A749F; --sky-800: #12587A; --sky-900: #0E4560;
+
+  /* neutrals */
+  --ground: #F5F8FB; --surface: #FFFFFF; --surface-2: #F8FAFC;
+  --border: #DCE4EE; --border-strong: #C9D4E3;
+  --ink: #1B2A44; --ink-2: #3D4D66; --muted: #5A6B84; --disabled: #9AA8BC;
+
+  /* semantic */
+  --success: #17804F; --success-bg: #DDF3E8;
+  --warning: #7A4E00; --warning-bg: #FFF1D6;
+  --danger: #9B2C2C; --danger-bg: #FCE4E4;
+  --info: #12587A; --info-bg: #DCEFF8;
+
+  /* roles */
+  --color-primary: var(--navy-500);
+  --color-primary-hover: var(--navy-600);
+  --color-primary-active: var(--navy-700);
+  --color-on-primary: #FFFFFF;
+  --color-accent: var(--sky-500);          /* icons, highlights, active indicators — never text on light */
+  --color-link: var(--sky-700);            /* text-safe sky (5.19:1 on white) */
+  --color-focus: var(--navy-500);
+  --sidebar-bg: var(--navy-500); --sidebar-text: #E8F4FA; --sidebar-active-bg: var(--navy-700); --sidebar-active-bar: var(--sky-500);
+  --topbar-bg: #FFFFFF;
+
+  /* document status badges (StatusBadge reads ONLY these) */
+  --status-draft: #4A5568; --status-draft-bg: #EDF1F5;
+  --status-pending: #7A4E00; --status-pending-bg: #FFF1D6;
+  --status-approved: #12587A; --status-approved-bg: #DCEFF8;
+  --status-posted: #0F5C3A; --status-posted-bg: #DDF3E8;
+  --status-reversed: #5B3A99; --status-reversed-bg: #EEE8F8;
+  --status-void: #9B2C2C; --status-void-bg: #FCE4E4;
+
+  /* charts (max 6 series) */
+  --chart-1: #3A5286; --chart-2: #45A9D9; --chart-3: #8FD0EE; --chart-4: #24345A; --chart-5: #C9A227; --chart-6: #9AA8BC;
+
+  /* shape & type */
+  --radius-sm: 8px; --radius: 12px; --radius-lg: 16px; --radius-pill: 999px;
+  --shadow: 0 8px 24px rgba(27, 42, 68, 0.08);
+  --font-display: 'Tajawal', 'IBM Plex Sans Arabic', system-ui, sans-serif;
+  --font-body: 'IBM Plex Sans Arabic', 'IBM Plex Sans', system-ui, sans-serif;
+  --font-size-base: 15px; --line-height: 1.6;
+}
+
+:root[data-theme="dark"] {
+  --ground: #0F1A2E; --surface: #16223A; --surface-2: #1C2A45;
+  --border: #2A3A57; --border-strong: #36486A;
+  --ink: #E6EDF5; --ink-2: #C7D3E6; --muted: #A5B3C9; --disabled: #6C7A93;
+  --color-primary: #3A5286; --color-primary-hover: #4A63A0; --color-primary-active: #2E4270;
+  --color-accent: #5BB8E3; --color-link: #5BB8E3; --color-focus: #9DB3DB;
+  --sidebar-bg: #121C31; --sidebar-text: #DCE4F2; --sidebar-active-bg: #1C2A45; --sidebar-active-bar: #5BB8E3;
+  --topbar-bg: #16223A;
+  --success: #6FD19E; --success-bg: #12301F;
+  --warning: #F2C066; --warning-bg: #3A2A08;
+  --danger: #F08A8A; --danger-bg: #3C1616;
+  --info: #8FD0EE; --info-bg: #0E2A3A;
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* base */
+html { font-family: var(--font-body); font-size: var(--font-size-base); line-height: var(--line-height); color: var(--ink); background: var(--ground); }
+h1, h2, h3, h4 { font-family: var(--font-display); }
+.num, td.num, .amount { font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; }
+a { color: var(--color-link); }
+:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }

@@ -1,0 +1,154 @@
+{
+  "_meta": {
+    "version": "0.9-proposal",
+    "date": "2026-09-23",
+    "status": "مقترح للمناقشة — الأرقام غير نهائية حتى قرار المالك (انظر MARKETING_SITE_SPEC.md §5)",
+    "benchmark": "دفترة (السعودية، سنوي): Basic ≈ 75 ر.س، Advanced ≈ 155 ر.س، Comprehensive ≈ 188 ر.س شهريًا؛ مستخدم إضافي 26.25، فرع 155، مستودع 45، موظف HR 8.25، وحدة تأجير 7.5، POS Offline 37.5",
+    "pricing_rules": [
+      "الأسعار لا تشمل ضريبة القيمة المضافة (السعودية 15%، مصر 14%) — تُعرض بوضوح",
+      "الفوترة السنوية = السعر المعروض؛ الشهرية أعلى بـ 25%",
+      "تجربة 14 يومًا بلا بطاقة؛ لا خطة مجانية دائمة",
+      "كل حد له إضافة مسعّرة؛ لا يُقفل النظام عند التجاوز بل يُنبَّه ثم يُقيَّد الإنشاء الجديد فقط",
+      "مصفوفة الخطط تُولَّد من modules.json: الوحدة تظهر ✓ في خطتها فما فوق، ومع شارة «قريبًا» إذا لم تكن available"
+    ],
+    "currencies": ["SAR", "EGP", "USD"]
+  },
+  "plans": [
+    {
+      "code": "basic",
+      "name_ar": "الأساسي",
+      "name_en": "Basic",
+      "tagline_ar": "للمكاتب والمحلات الصغيرة: فواتير وسندات ومحاسبة كاملة بضوابط",
+      "price": {"SAR": {"annual_monthly": 79, "monthly": 99}, "EGP": {"annual_monthly": 499, "monthly": 599}, "USD": {"annual_monthly": 21, "monthly": 26}},
+      "limits": {"invoices_per_month": 200, "customers": 200, "users": 2, "legal_entities": 1, "cash_accounts": 2, "warehouses": 1, "storage_gb": 5, "hr_employees": 1, "rental_units": 0, "pos_terminals_cloud": "unlimited", "pos_offline": 0, "managed_companies": 0},
+      "einvoice_phase": "1",
+      "api_access": false,
+      "branch_backup_control": false,
+      "support": "بريد ودردشة في أوقات العمل"
+    },
+    {
+      "code": "advanced",
+      "name_ar": "المتقدم",
+      "name_en": "Advanced",
+      "tagline_ar": "للشركات التجارية: مخزون ومشتريات ومراكز تكلفة وتسوية بنكية وقوائم مالية",
+      "price": {"SAR": {"annual_monthly": 159, "monthly": 199}, "EGP": {"annual_monthly": 999, "monthly": 1199}, "USD": {"annual_monthly": 42, "monthly": 53}},
+      "limits": {"invoices_per_month": "unlimited", "customers": "unlimited", "users": 3, "legal_entities": 3, "cash_accounts": 5, "warehouses": 3, "storage_gb": 15, "hr_employees": 2, "rental_units": 6, "pos_terminals_cloud": "unlimited", "pos_offline": 0, "managed_companies": 0},
+      "einvoice_phase": "1+2",
+      "api_access": true,
+      "branch_backup_control": true,
+      "support": "24/7 دردشة وبريد"
+    },
+    {
+      "code": "comprehensive",
+      "name_ar": "الشامل",
+      "name_en": "Comprehensive",
+      "tagline_ar": "للمجموعات والقطاعات التشغيلية: كل الوحدات + القابضة والتجميع + الموارد البشرية + دور المدقق",
+      "price": {"SAR": {"annual_monthly": 249, "monthly": 309}, "EGP": {"annual_monthly": 1599, "monthly": 1899}, "USD": {"annual_monthly": 66, "monthly": 83}},
+      "limits": {"invoices_per_month": "unlimited", "customers": "unlimited", "users": 5, "legal_entities": 5, "cash_accounts": "unlimited", "warehouses": 5, "storage_gb": 30, "hr_employees": 3, "rental_units": 10, "pos_terminals_cloud": "unlimited", "pos_offline": 1, "managed_companies": 0},
+      "einvoice_phase": "1+2",
+      "api_access": true,
+      "branch_backup_control": true,
+      "support": "24/7 + مدير حساب"
+    }
+  ],
+  "add_ons": [
+    {"code": "extra_user", "name_ar": "مستخدم إضافي", "unit_ar": "شهريًا لكل مستخدم", "price": {"SAR": 25, "EGP": 149, "USD": 7}, "plans": ["basic", "advanced", "comprehensive"]},
+    {"code": "extra_entity", "name_ar": "فرع / كيان قانوني إضافي", "unit_ar": "شهريًا لكل فرع", "price": {"SAR": 99, "EGP": 599, "USD": 26}, "plans": ["advanced", "comprehensive"]},
+    {"code": "extra_warehouse", "name_ar": "مستودع إضافي", "unit_ar": "شهريًا لكل مستودع", "price": {"SAR": 39, "EGP": 249, "USD": 10}, "plans": ["advanced", "comprehensive"]},
+    {"code": "pos_offline", "name_ar": "نقطة بيع بدون إنترنت", "unit_ar": "شهريًا لكل جهاز", "price": {"SAR": 35, "EGP": 219, "USD": 9}, "plans": ["advanced", "comprehensive"]},
+    {"code": "extra_hr_employee", "name_ar": "موظف إضافي (الموارد البشرية)", "unit_ar": "شهريًا لكل موظف", "price": {"SAR": 8, "EGP": 49, "USD": 2}, "plans": ["advanced", "comprehensive"]},
+    {"code": "extra_rental_unit", "name_ar": "وحدة تأجير إضافية", "unit_ar": "شهريًا لكل وحدة", "price": {"SAR": 7, "EGP": 45, "USD": 2}, "plans": ["advanced", "comprehensive"]},
+    {"code": "extra_storage", "name_ar": "مساحة تخزين إضافية", "unit_ar": "شهريًا لكل GB", "price": {"SAR": 2, "EGP": 12, "USD": 0.5}, "plans": ["basic", "advanced", "comprehensive"]},
+    {"code": "managed_company", "name_ar": "شركة مُدارة (مكاتب المحاسبة)", "unit_ar": "شهريًا لكل شركة عميلة — الحد الأدنى 5", "price": {"SAR": 30, "EGP": 199, "USD": 8}, "plans": ["comprehensive"], "notes": "بدل اشتراك مستقل لكل شركة؛ خصم ≈ 60% مقابل الأساسي"}
+  ],
+  "feature_matrix": [
+    {"group_ar": "إدارة المبيعات", "rows": [
+      {"label_ar": "الفواتير وعروض الأسعار", "type": "limit", "key": "invoices_per_month", "values": {"basic": "200 شهريًا", "advanced": "غير محدود", "comprehensive": "غير محدود"}},
+      {"label_ar": "الفاتورة الإلكترونية", "type": "limit", "key": "einvoice_phase", "values": {"basic": "المرحلة الأولى", "advanced": "الأولى والثانية", "comprehensive": "الأولى والثانية"}},
+      {"label_ar": "نقاط بيع سحابية", "type": "limit", "key": "pos_terminals_cloud", "values": {"basic": "غير محدود", "advanced": "غير محدود", "comprehensive": "غير محدود"}},
+      {"label_ar": "تقارير المبيعات", "type": "module", "module": "ledger_reports"},
+      {"label_ar": "المدفوعات عبر الإنترنت", "type": "module", "module": "online_payments"},
+      {"label_ar": "العروض على المبيعات", "type": "module", "module": "offers"},
+      {"label_ar": "قائمة الأسعار وأوامر المبيعات", "type": "module", "module": "quotes_orders"},
+      {"label_ar": "العمولات والمبيعات المستهدفة", "type": "module", "module": "sales_targets"},
+      {"label_ar": "نقاط الولاء", "type": "module", "module": "loyalty"},
+      {"label_ar": "إدارة أقساط المبيعات", "type": "module", "module": "installments"},
+      {"label_ar": "نقاط بيع بدون إنترنت", "type": "limit", "key": "pos_offline", "values": {"basic": "—", "advanced": "إضافة", "comprehensive": "1 متضمنة + إضافة"}}
+    ]},
+    {"group_ar": "إدارة الحسابات", "rows": [
+      {"label_ar": "دليل الحسابات الشجري بقوالب النشاط", "type": "module", "module": "chart_of_accounts"},
+      {"label_ar": "القيود اليومية باعتماد وعكس", "type": "module", "module": "journal_entries"},
+      {"label_ar": "سندات القبض والصرف ودورة العهدة", "type": "module", "module": "vouchers"},
+      {"label_ar": "المصروفات بضريبة وإيصال", "type": "module", "module": "expenses"},
+      {"label_ar": "المرفقات كدليل إثبات (بصمة + فحص)", "type": "module", "module": "attachments"},
+      {"label_ar": "دورة الاعتماد وفصل الواجبات", "type": "module", "module": "approvals"},
+      {"label_ar": "الأصول والإهلاكات", "type": "module", "module": "assets"},
+      {"label_ar": "مراكز التكلفة", "type": "module", "module": "cost_centers"},
+      {"label_ar": "دورة الشيكات", "type": "module", "module": "cheques"},
+      {"label_ar": "التسوية البنكية", "type": "module", "module": "bank_reconciliation"},
+      {"label_ar": "الفترات المالية والأرصدة الافتتاحية", "type": "module", "module": "fiscal_periods"},
+      {"label_ar": "القيود الدورية", "type": "module", "module": "recurring"},
+      {"label_ar": "حسابات الأستاذ والتقارير المحاسبية", "type": "module", "module": "ledger_reports"},
+      {"label_ar": "التقارير المالية والحسابات الختامية", "type": "module", "module": "financial_statements"},
+      {"label_ar": "تقارير أعمار الديون", "type": "module", "module": "aging_reports"},
+      {"label_ar": "الإقرارات الضريبية", "type": "module", "module": "tax_returns"},
+      {"label_ar": "تعدد العملات وفروق العملة", "type": "module", "module": "multi_currency"},
+      {"label_ar": "الميزانية التقديرية والانحراف", "type": "module", "module": "budgets"},
+      {"label_ar": "التتبع حتى المستند (Drill-down)", "type": "module", "module": "drilldown"},
+      {"label_ar": "الشركات القابضة والتقارير المجمّعة", "type": "module", "module": "multi_entity"},
+      {"label_ar": "سجل التدقيق ودور المدقق", "type": "module", "module": "audit_trail"},
+      {"label_ar": "الخزن النقدية والبنوك", "type": "limit", "key": "cash_accounts", "values": {"basic": "2", "advanced": "5", "comprehensive": "غير محدود"}}
+    ]},
+    {"group_ar": "إدارة المخزون والمشتريات", "rows": [
+      {"label_ar": "المنتجات والخدمات", "type": "limit", "key": "products", "values": {"basic": "غير محدود", "advanced": "غير محدود", "comprehensive": "غير محدود"}},
+      {"label_ar": "إدارة الموردين", "type": "module", "module": "suppliers"},
+      {"label_ar": "تتبع المخزون والمستودعات", "type": "module", "module": "warehouses"},
+      {"label_ar": "جرد المخزون", "type": "module", "module": "stocktaking"},
+      {"label_ar": "تتبع المنتجات (رقم مسلسل / رقم الشحنة / تاريخ الانتهاء)", "type": "module", "module": "item_tracking"},
+      {"label_ar": "وحدات المنتجات", "type": "module", "module": "units"},
+      {"label_ar": "تنبيهات المخزون والمخزون المحجوز", "type": "module", "module": "stock_alerts"},
+      {"label_ar": "الأذون المخزنية", "type": "module", "module": "stock_permits"},
+      {"label_ar": "فواتير المشتريات وتقاريرها", "type": "module", "module": "purchases"},
+      {"label_ar": "المنتجات المجمعة", "type": "module", "module": "bundles"},
+      {"label_ar": "توزيع مصروفات الشراء", "type": "module", "module": "landed_cost"},
+      {"label_ar": "أوامر الشراء وعروض أسعار الشراء", "type": "module", "module": "purchase_cycle"},
+      {"label_ar": "المستودعات", "type": "limit", "key": "warehouses", "values": {"basic": "1", "advanced": "3", "comprehensive": "5 + إضافة"}}
+    ]},
+    {"group_ar": "إدارة العمليات", "rows": [
+      {"label_ar": "أوامر الشغل", "type": "module", "module": "work_orders"},
+      {"label_ar": "الحجوزات والمواعيد", "type": "module", "module": "bookings"},
+      {"label_ar": "ملفات الموضوع (مريض / سيارة / طالب / قضية)", "type": "module", "module": "subject_files"},
+      {"label_ar": "المشاريع والمستخلصات", "type": "module", "module": "projects"},
+      {"label_ar": "تتبع الوقت", "type": "module", "module": "time_tracking"},
+      {"label_ar": "عقود الإيجار", "type": "module", "module": "rental_contracts"},
+      {"label_ar": "دورة العمل", "type": "module", "module": "workflow"},
+      {"label_ar": "التصنيع (BOM، أوامر إنتاج، تكاليف)", "type": "module", "module": "manufacturing"},
+      {"label_ar": "إدارة الإيجارات والوحدات", "type": "limit", "key": "rental_units", "values": {"basic": "—", "advanced": "6 متضمنة + إضافة", "comprehensive": "10 متضمنة + إضافة"}}
+    ]},
+    {"group_ar": "إدارة الموارد البشرية", "rows": [
+      {"label_ar": "الهيكل التنظيمي", "type": "module", "module": "org_structure"},
+      {"label_ar": "شؤون الموظفين والعُهد والسلف", "type": "module", "module": "employees"},
+      {"label_ar": "العقود", "type": "module", "module": "contracts"},
+      {"label_ar": "إدارة الحضور", "type": "module", "module": "attendance"},
+      {"label_ar": "الأجور والمرتبات", "type": "module", "module": "payroll"},
+      {"label_ar": "إدارة طلبات الموظفين", "type": "module", "module": "employee_requests"},
+      {"label_ar": "الموظفون", "type": "limit", "key": "hr_employees", "values": {"basic": "1 متضمن", "advanced": "2 متضمنان + إضافة", "comprehensive": "3 متضمنون + إضافة"}}
+    ]},
+    {"group_ar": "المنصة والتكاملات", "rows": [
+      {"label_ar": "إمكانية الوصول إلى واجهة API ووثائقها", "type": "limit", "key": "api_access", "values": {"basic": false, "advanced": true, "comprehensive": true}},
+      {"label_ar": "تطبيقات الجوال (PWA)", "type": "module", "module": "mobile_pwa"},
+      {"label_ar": "تسجيل المصروفات بتصوير الإيصال", "type": "module", "module": "ocr_expenses"},
+      {"label_ar": "التكامل مع المتاجر الإلكترونية", "type": "module", "module": "ecommerce"},
+      {"label_ar": "مساحة عمل مكاتب المحاسبة", "type": "module", "module": "accounting_firms"},
+      {"label_ar": "النسخ الاحتياطي اليومي", "type": "module", "module": "backups"},
+      {"label_ar": "التحكم في النسخ الاحتياطي للفرع", "type": "limit", "key": "branch_backup_control", "values": {"basic": false, "advanced": true, "comprehensive": true}},
+      {"label_ar": "الدعم الفني", "type": "limit", "key": "support", "values": {"basic": "أوقات العمل", "advanced": "24/7", "comprehensive": "24/7 + مدير حساب"}}
+    ]},
+    {"group_ar": "الحدود والإضافات", "rows": [
+      {"label_ar": "المستخدمون", "type": "limit", "key": "users", "values": {"basic": "2 + إضافة", "advanced": "3 + إضافة", "comprehensive": "5 + إضافة"}},
+      {"label_ar": "الفروع / الكيانات القانونية", "type": "limit", "key": "legal_entities", "values": {"basic": "1", "advanced": "3 + إضافة", "comprehensive": "5 + إضافة"}},
+      {"label_ar": "العملاء", "type": "limit", "key": "customers", "values": {"basic": "200", "advanced": "غير محدود", "comprehensive": "غير محدود"}},
+      {"label_ar": "مساحة التخزين", "type": "limit", "key": "storage_gb", "values": {"basic": "5GB + إضافة", "advanced": "15GB + إضافة", "comprehensive": "30GB + إضافة"}}
+    ]}
+  ]
+}

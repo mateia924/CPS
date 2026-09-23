@@ -1,0 +1,182 @@
+{
+  "_meta": {
+    "version": "1.0",
+    "date": "2026-09-23",
+    "purpose": "القطاعات الـ 12 كما تظهر في قائمة «مجالات العمل» — كل قطاع يجمع أنشطة من industries.json ويحدد الوحدات التي تجعله «متاحًا».",
+    "availability_rule": "القطاع يُعرض «متاح» فقط عندما تكون كل وحداته المطلوبة بحالة available في modules.json؛ وإلا «قريبًا» مع الربع المتوقع لآخر وحدة."
+  },
+  "sectors": [
+    {
+      "code": "retail",
+      "name_ar": "المحلات التجارية",
+      "name_en": "Retail",
+      "tagline_ar": "نقطة بيع سريعة، مخزون دقيق، ونقدية تُطابق الدفتر كل يوم — لكل محل أو سلسلة فروع.",
+      "required_modules": [
+        "invoices",
+        "vouchers",
+        "products",
+        "item_tracking",
+        "warehouses",
+        "pos"
+      ],
+      "available_after_sprint": 7.5
+    },
+    {
+      "code": "logistics",
+      "name_ar": "الخدمات اللوجستية",
+      "name_en": "Logistics",
+      "tagline_ar": "تكلفة كل شحنة ورحلة وسيارة معروفة، وذمم الشاحنين والوكلاء تحت السيطرة.",
+      "required_modules": [
+        "invoices",
+        "vouchers",
+        "cost_centers",
+        "purchases",
+        "cheques"
+      ],
+      "available_after_sprint": 8
+    },
+    {
+      "code": "automotive",
+      "name_ar": "السيارات",
+      "name_en": "Automotive",
+      "tagline_ar": "من قطعة الغيار إلى أمر الإصلاح إلى عقد التأجير — ملف لكل سيارة وربحية لكل خدمة.",
+      "required_modules": [
+        "invoices",
+        "products",
+        "item_tracking",
+        "pos",
+        "work_orders",
+        "subject_files",
+        "rentals"
+      ],
+      "available_after_sprint": 20
+    },
+    {
+      "code": "trades_services",
+      "name_ar": "الحِرَف والخدمات المهنية",
+      "name_en": "Trades & Professional Services",
+      "tagline_ar": "طلب العميل يتحول إلى أمر خدمة ثم فاتورة ثم سند قبض — بلا ورق وبلا ضياع.",
+      "required_modules": [
+        "invoices",
+        "vouchers",
+        "work_orders",
+        "subject_files"
+      ],
+      "available_after_sprint": 16
+    },
+    {
+      "code": "hospitality",
+      "name_ar": "السياحة والضيافة",
+      "name_en": "Tourism & Hospitality",
+      "tagline_ar": "حجوزات ووحدات وتكاليف تشغيل في نظام واحد، وقائمة دخل لكل فرع.",
+      "required_modules": [
+        "invoices",
+        "vouchers",
+        "bookings",
+        "rentals",
+        "rental_contracts"
+      ],
+      "available_after_sprint": 20
+    },
+    {
+      "code": "transport",
+      "name_ar": "النقل",
+      "name_en": "Transport",
+      "tagline_ar": "جدولة الرحلات والحجوزات وتأجير السيارات، وتكلفة كل مركبة كمركز ربحية.",
+      "required_modules": [
+        "invoices",
+        "vouchers",
+        "cost_centers",
+        "bookings",
+        "rentals",
+        "rental_contracts"
+      ],
+      "available_after_sprint": 20
+    },
+    {
+      "code": "offices",
+      "name_ar": "المكاتب وخدمات الأعمال",
+      "name_en": "Offices & Business Services",
+      "tagline_ar": "مشاريع وقضايا وساعات عمل تتحول إلى فواتير، مع متابعة المواعيد والعملاء.",
+      "required_modules": [
+        "invoices",
+        "vouchers",
+        "projects",
+        "time_tracking",
+        "bookings"
+      ],
+      "available_after_sprint": 19
+    },
+    {
+      "code": "beauty_fitness",
+      "name_ar": "التجميل واللياقة البدنية",
+      "name_en": "Beauty & Fitness",
+      "tagline_ar": "عضويات وباقات ومواعيد وحضور، وتجديد تلقائي بلا متابعة يدوية.",
+      "required_modules": [
+        "invoices",
+        "pos",
+        "bookings",
+        "subscriptions"
+      ],
+      "available_after_sprint": 17
+    },
+    {
+      "code": "construction_realestate",
+      "name_ar": "المقاولات والعقارات",
+      "name_en": "Construction & Real Estate",
+      "tagline_ar": "مستخلصات ومحتجزات وتكلفة مشروع، وعقود إيجار للوحدات — بضوابط يقبلها المالك والمدقق.",
+      "required_modules": [
+        "invoices",
+        "vouchers",
+        "purchases",
+        "cost_centers",
+        "projects",
+        "rentals",
+        "rental_contracts"
+      ],
+      "available_after_sprint": 20
+    },
+    {
+      "code": "healthcare",
+      "name_ar": "الرعاية الطبية",
+      "name_en": "Healthcare",
+      "tagline_ar": "مواعيد وملف مريض وفاتورة علاج، بمصطلحات الطاقم الطبي لا مصطلحات المحاسب.",
+      "required_modules": [
+        "invoices",
+        "vouchers",
+        "bookings",
+        "work_orders",
+        "subject_files"
+      ],
+      "available_after_sprint": 16
+    },
+    {
+      "code": "education",
+      "name_ar": "التعليم",
+      "name_en": "Education",
+      "tagline_ar": "خطط رسوم وأقساط وقوائم طلاب، وتذكير أولياء الأمور بالمستحق.",
+      "required_modules": [
+        "invoices",
+        "vouchers",
+        "subscriptions",
+        "installments",
+        "subject_files"
+      ],
+      "available_after_sprint": 26
+    },
+    {
+      "code": "industry_agri",
+      "name_ar": "الصناعة والزراعة",
+      "name_en": "Industry & Agriculture",
+      "tagline_ar": "قوائم مواد وأوامر إنتاج وتكلفة حقيقية للوحدة، أو موسم زراعي كمركز تكلفة.",
+      "required_modules": [
+        "invoices",
+        "purchases",
+        "warehouses",
+        "cost_centers",
+        "manufacturing"
+      ],
+      "available_after_sprint": 25
+    }
+  ]
+}
