@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: CPS\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-19 00:34+0000\n"
+"POT-Creation-Date: 2026-09-23 18:19+0000\n"
 "PO-Revision-Date: 2026-09-19 00:00+0000\n"
 "Last-Translator: CPS\n"
 "Language-Team: Arabic\n"
@@ -14,23 +14,26 @@ msgstr ""
 "Plural-Forms: nplurals=6; plural=n==0 ? 0 : n==1 ? 1 : n==2 ? 2 : n%100>=3 "
 "&& n%100<=10 ? 3 : n%100>=11 && n%100<=99 ? 4 : 5;\n"
 
-#: apps/access/models.py:14 apps/accounting/models.py:17
-#: apps/assets/models.py:31 apps/organization/models.py:25
-#: apps/organization/models.py:81 apps/parties/models.py:23
-#: apps/platform/models.py:83
+#: apps/access/models.py:14 apps/accounting/models.py:54
+#: apps/accounting/models.py:286 apps/assets/models.py:32
+#: apps/organization/models.py:29 apps/organization/models.py:105
+#: apps/parties/models.py:23 apps/platform/models.py:83
 msgid "code"
 msgstr "الكود"
 
-#: apps/access/models.py:15 apps/sales/models.py:104
+#: apps/access/models.py:15 apps/accounting/models.py:220
+#: apps/attachments/models.py:76 apps/sales/models.py:216
+#: apps/treasury/models.py:189 apps/vouchers/models.py:126
+#: apps/vouchers/models.py:218
 msgid "description"
 msgstr "الوصف"
 
-#: apps/access/models.py:29 apps/accounting/models.py:18
-#: apps/assets/models.py:32 apps/organization/models.py:26
-#: apps/organization/models.py:82 apps/parties/models.py:24
-#: apps/platform/models.py:84 apps/sales/models.py:10 apps/sales/models.py:27
-#: apps/treasury/models.py:15 apps/treasury/models.py:38
-#: apps/treasury/models.py:70
+#: apps/access/models.py:29 apps/accounting/models.py:55
+#: apps/accounting/models.py:287 apps/assets/models.py:33
+#: apps/organization/models.py:30 apps/organization/models.py:106
+#: apps/parties/models.py:24 apps/platform/models.py:84 apps/sales/models.py:22
+#: apps/sales/models.py:39 apps/treasury/models.py:23
+#: apps/treasury/models.py:51 apps/treasury/models.py:217
 msgid "name"
 msgstr "الاسم"
 
@@ -70,49 +73,127 @@ msgstr "اعتماد الفواتير"
 msgid "View the chart of accounts and journal entries"
 msgstr "عرض دليل الحسابات وقيود اليومية"
 
-#: apps/access/services.py:16
+#: apps/access/services.py:18
+#, fuzzy
+#| msgid "Create, edit and deactivate cost centers"
+msgid "Create, edit and deactivate accounts in the chart of accounts"
+msgstr "إنشاء وتعديل وتعطيل مراكز التكلفة"
+
+#: apps/access/services.py:19
 msgid "View legal entities"
 msgstr "عرض الكيانات القانونية"
 
-#: apps/access/services.py:17
+#: apps/access/services.py:20
 msgid "Create, edit and deactivate legal entities"
 msgstr "إنشاء وتعديل وتعطيل الكيانات القانونية"
 
-#: apps/access/services.py:18
+#: apps/access/services.py:21
 msgid "View cost centers"
 msgstr "عرض مراكز التكلفة"
 
-#: apps/access/services.py:19
+#: apps/access/services.py:22
 msgid "Create, edit and deactivate cost centers"
 msgstr "إنشاء وتعديل وتعطيل مراكز التكلفة"
 
-#: apps/access/services.py:20
+#: apps/access/services.py:23
 msgid "Manage roles, permissions and user assignments"
 msgstr "إدارة الأدوار والصلاحيات وتعيينها للمستخدمين"
 
-#: apps/access/services.py:26
+#: apps/access/services.py:29
 msgid "View parties (customers, suppliers, employees, affiliates)"
 msgstr "عرض الأطراف (عملاء، موردون، موظفون، شركات شقيقة)"
 
-#: apps/access/services.py:27
+#: apps/access/services.py:30
 msgid "Create, edit and deactivate parties and their roles"
 msgstr "إنشاء وتعديل وتعطيل الأطراف وأدوارها"
 
-#: apps/access/services.py:28
+#: apps/access/services.py:31
 msgid "View banks, cash boxes and custodies"
 msgstr "عرض البنوك والصناديق والعُهد"
 
-#: apps/access/services.py:29
+#: apps/access/services.py:32
 msgid "Create, edit and deactivate banks, cash boxes and custodies"
 msgstr "إنشاء وتعديل وتعطيل البنوك والصناديق والعُهد"
 
-#: apps/access/services.py:30
+#: apps/access/services.py:33
 msgid "View fixed assets"
 msgstr "عرض الأصول الثابتة"
 
-#: apps/access/services.py:31
+#: apps/access/services.py:34
 msgid "Create, edit and deactivate fixed assets"
 msgstr "إنشاء وتعديل وتعطيل الأصول الثابتة"
+
+#: apps/access/services.py:39
+msgid "View the unified parties screen (all roles at once)"
+msgstr "عرض شاشة الأطراف الشاملة (كل الأدوار معًا)"
+
+#: apps/access/services.py:42
+msgid "View document numbering settings"
+msgstr "عرض إعدادات ترقيم المستندات"
+
+#: apps/access/services.py:43
+msgid "Edit document numbering prefixes and yearly reset"
+msgstr "تعديل بادئات ترقيم المستندات وإعادة الضبط السنوية"
+
+#: apps/access/services.py:46
+msgid "View approval rules and the approval inbox"
+msgstr "عرض قواعد الاعتماد وصندوق الاعتماد"
+
+#: apps/access/services.py:47
+#, fuzzy
+#| msgid "Create, edit and deactivate legal entities"
+msgid "Create, edit and deactivate approval rules"
+msgstr "إنشاء وتعديل وتعطيل الكيانات القانونية"
+
+#: apps/access/services.py:51
+#, fuzzy
+#| msgid "View cost centers"
+msgid "View attachments"
+msgstr "عرض مراكز التكلفة"
+
+#: apps/access/services.py:52
+msgid "Upload and void attachments"
+msgstr "رفع المرفقات وإلغاؤها"
+
+#: apps/access/services.py:57
+#, fuzzy
+#| msgid "View invoices"
+msgid "View vouchers"
+msgstr "عرض الفواتير"
+
+#: apps/access/services.py:58
+#, fuzzy
+#| msgid "Create, edit and delete products"
+msgid "Create and edit draft vouchers"
+msgstr "إنشاء وتعديل وحذف المنتجات"
+
+#: apps/access/services.py:59
+msgid "Submit/post vouchers"
+msgstr "إرسال/ترحيل السندات"
+
+#: apps/access/services.py:60
+msgid "Approve or reject vouchers pending approval"
+msgstr "اعتماد أو رفض السندات بانتظار الاعتماد"
+
+#: apps/access/services.py:61
+msgid "Reverse a posted voucher"
+msgstr "عكس سند مرحّل"
+
+#: apps/access/services.py:67
+msgid "Override the manual-posting block on a control account"
+msgstr "تجاوز حظر الترحيل اليدوي على حساب رقابة"
+
+#: apps/access/services.py:72
+msgid "Request an IBAN change for a bank or supplier"
+msgstr "طلب تغيير IBAN لبنك أو مورد"
+
+#: apps/access/services.py:77
+msgid "Import bank statements and match statement lines"
+msgstr "استيراد كشوفات بنكية ومطابقة سطورها"
+
+#: apps/access/services.py:78
+msgid "Record and confirm a cash box physical count"
+msgstr "تسجيل وتأكيد جرد صندوق نقدية"
 
 #: apps/access/views.py:58
 msgid "System roles cannot be deleted."
@@ -126,74 +207,355 @@ msgstr "هذا الدور مُسند لمستخدم واحد على الأقل �
 msgid "At least one active Owner is required per tenant."
 msgstr "يجب وجود مالك (Owner) نشط واحد على الأقل لكل مستأجر."
 
-#: apps/accounting/models.py:11
+#: apps/accounting/models.py:27
 msgid "Asset"
 msgstr "أصول"
 
-#: apps/accounting/models.py:12
+#: apps/accounting/models.py:28
 msgid "Liability"
 msgstr "خصوم"
 
-#: apps/accounting/models.py:13
+#: apps/accounting/models.py:29
 msgid "Equity"
 msgstr "حقوق ملكية"
 
-#: apps/accounting/models.py:14
+#: apps/accounting/models.py:30
 msgid "Revenue"
 msgstr "إيرادات"
 
-#: apps/accounting/models.py:15
+#: apps/accounting/models.py:31
 msgid "Expense"
 msgstr "مصروفات"
 
-#: apps/accounting/models.py:19 apps/organization/models.py:27
-#: apps/organization/models.py:83
+#: apps/accounting/models.py:34
+msgid "Debit"
+msgstr "مدين"
+
+#: apps/accounting/models.py:35
+msgid "Credit"
+msgstr "دائن"
+
+#: apps/accounting/models.py:56 apps/organization/models.py:31
+#: apps/organization/models.py:107
 msgid "type"
 msgstr "النوع"
 
-#: apps/accounting/models.py:20
+#: apps/accounting/models.py:58
+msgid "normal balance"
+msgstr "الطبيعة"
+
+#: apps/accounting/models.py:62
+msgid "allow posting"
+msgstr "يقبل الترحيل"
+
+#: apps/accounting/models.py:71
+msgid "allow manual posting"
+msgstr "يقبل الترحيل اليدوي"
+
+#: apps/accounting/models.py:72
+#, fuzzy
+#| msgid "Affiliate company"
+msgid "intercompany"
+msgstr "شركة شقيقة"
+
+#: apps/accounting/models.py:87
+#, fuzzy
+#| msgid "system role"
+msgid "system key"
+msgstr "دور نظامي"
+
+#: apps/accounting/models.py:88
 msgid "system account"
 msgstr "حساب نظامي"
 
-#: apps/accounting/models.py:39
+#: apps/accounting/models.py:89 apps/accounting/models.py:309
+#: apps/accounts/models.py:26 apps/approvals/models.py:42
+#: apps/assets/models.py:55 apps/organization/models.py:55
+#: apps/organization/models.py:118 apps/parties/models.py:37
+#: apps/parties/models.py:88 apps/platform/models.py:30
+#: apps/platform/models.py:85 apps/sales/models.py:27 apps/sales/models.py:56
+#: apps/tenants/models.py:32 apps/treasury/models.py:32
+#: apps/treasury/models.py:71 apps/treasury/models.py:228
+msgid "active"
+msgstr "نشط"
+
+#: apps/accounting/models.py:119
+#, fuzzy
+#| msgid "An entity cannot be its own parent."
+msgid "An account cannot be its own parent."
+msgstr "لا يمكن أن يكون الكيان أبًا لنفسه."
+
+#: apps/accounting/models.py:121 apps/accounting/serializers.py:49
+msgid "An account must have the same type as its parent."
+msgstr "يجب أن يكون نوع الحساب مطابقًا لنوع الحساب الأب."
+
+#: apps/accounting/models.py:126
+#, fuzzy
+#| msgid "This would create a cycle in the cost center tree."
+msgid "This would create a cycle in the chart of accounts."
+msgstr "هذا سيُنشئ دورة في شجرة مراكز التكلفة."
+
+#: apps/accounting/models.py:143 apps/treasury/models.py:98
+#: apps/treasury/models.py:183 apps/vouchers/models.py:64
 msgid "date"
 msgstr "التاريخ"
 
-#: apps/accounting/models.py:40
+#: apps/accounting/models.py:144
 msgid "memo"
 msgstr "ملاحظة"
 
-#: apps/accounting/models.py:41
+#: apps/accounting/models.py:148 apps/sales/models.py:114
+#: apps/treasury/models.py:252 apps/vouchers/models.py:63
+msgid "number"
+msgstr "الرقم"
+
+#: apps/accounting/models.py:149 apps/accounting/models.py:344
+#: apps/treasury/models.py:190 apps/vouchers/models.py:125
+msgid "reference"
+msgstr "المرجع"
+
+#: apps/accounting/models.py:168
 msgid "source type"
 msgstr "نوع المصدر"
 
-#: apps/accounting/models.py:42
+#: apps/accounting/models.py:169
 msgid "source id"
 msgstr "معرّف المصدر"
 
-#: apps/accounting/services.py:10
-msgid "Cash"
-msgstr "النقدية"
+#: apps/accounting/models.py:180 apps/accounting/models.py:249
+#: apps/assets/models.py:39 apps/parties/models.py:35 apps/sales/models.py:128
+#: apps/treasury/models.py:28 apps/treasury/models.py:52
+#: apps/treasury/models.py:135 apps/treasury/models.py:218
+#: apps/vouchers/models.py:66
+msgid "currency"
+msgstr "العملة"
 
-#: apps/accounting/services.py:11
-msgid "Accounts Receivable"
-msgstr "حسابات العملاء (المدينون)"
+#: apps/accounting/models.py:182 apps/accounting/models.py:251
+#: apps/sales/models.py:130 apps/vouchers/models.py:68
+msgid "exchange rate"
+msgstr "سعر الصرف"
 
-#: apps/accounting/services.py:12
-msgid "Tax Payable"
-msgstr "ضريبة مستحقة"
+#: apps/accounting/models.py:187
+msgid "reversed at"
+msgstr "تاريخ العكس"
 
-#: apps/accounting/services.py:13
-msgid "Owner's Equity"
-msgstr "حقوق الملكية"
+#: apps/accounting/models.py:191
+msgid "control override"
+msgstr "تجاوز رقابة"
 
-#: apps/accounting/services.py:14
-msgid "Sales Revenue"
-msgstr "إيرادات المبيعات"
+#: apps/accounting/models.py:224
+msgid "reconciled at"
+msgstr "تاريخ التسوية"
 
-#: apps/accounting/services.py:15
-msgid "General Expenses"
-msgstr "مصروفات عامة"
+#: apps/accounting/models.py:271
+msgid "Standard"
+msgstr "قياسي"
+
+#: apps/accounting/models.py:272
+msgid "Zero rated"
+msgstr "صفري"
+
+#: apps/accounting/models.py:273
+msgid "Exempt"
+msgstr "معفى"
+
+#: apps/accounting/models.py:274
+msgid "Out of scope"
+msgstr "خارج النطاق"
+
+#: apps/accounting/models.py:275
+msgid "Reverse charge"
+msgstr "الاحتساب العكسي"
+
+#: apps/accounting/models.py:278
+msgid "Output"
+msgstr "مخرجات"
+
+#: apps/accounting/models.py:279
+msgid "Input"
+msgstr "مدخلات"
+
+#: apps/accounting/models.py:280
+msgid "Both"
+msgstr "كلاهما"
+
+#: apps/accounting/models.py:283
+msgid "Full"
+msgstr "كامل"
+
+#: apps/accounting/models.py:284
+msgid "None"
+msgstr "بلا"
+
+#: apps/accounting/models.py:289
+#, fuzzy
+#| msgid "tax rate (%)"
+msgid "rate (%)"
+msgstr "نسبة الضريبة (%)"
+
+#: apps/accounting/models.py:291
+msgid "kind"
+msgstr "النوع"
+
+#: apps/accounting/models.py:292
+#, fuzzy
+#| msgid "description"
+msgid "direction"
+msgstr "الوصف"
+
+#: apps/accounting/models.py:294
+msgid "deductible"
+msgstr "قابلية الخصم"
+
+#: apps/accounting/models.py:307 apps/organization/models.py:32
+#: apps/parties/models.py:34
+msgid "country code"
+msgstr "رمز الدولة"
+
+#: apps/accounting/models.py:308
+msgid "effective from"
+msgstr "سارٍ من"
+
+#: apps/accounting/models.py:328 apps/organization/models.py:23
+msgid "Monthly"
+msgstr "شهري"
+
+#: apps/accounting/models.py:329 apps/organization/models.py:24
+msgid "Quarterly"
+msgstr "ربع سنوي"
+
+#: apps/accounting/models.py:332
+msgid "Open"
+msgstr "مفتوحة"
+
+#: apps/accounting/models.py:333
+msgid "Filed"
+msgstr "مُقدَّم"
+
+#: apps/accounting/models.py:334 apps/sales/models.py:83
+#: apps/sales/models.py:89
+msgid "Paid"
+msgstr "مدفوعة"
+
+#: apps/accounting/models.py:339
+#, fuzzy
+#| msgid "party type"
+msgid "period type"
+msgstr "نوع الطرف"
+
+#: apps/accounting/models.py:340
+msgid "start"
+msgstr "البداية"
+
+#: apps/accounting/models.py:341
+msgid "end"
+msgstr "النهاية"
+
+#: apps/accounting/models.py:342 apps/assets/models.py:54
+#: apps/attachments/models.py:84 apps/sales/models.py:115
+#: apps/tenants/models.py:36
+msgid "status"
+msgstr "الحالة"
+
+#: apps/accounting/models.py:343
+#, fuzzy
+#| msgid "fixed assets"
+msgid "filed at"
+msgstr "الأصول الثابتة"
+
+#: apps/accounting/serializers.py:61
+msgid "Cannot change the type of an account with posted lines."
+msgstr "لا يمكن تغيير نوع حساب له سطور قيود مرحّلة."
+
+#: apps/accounting/serializers.py:65
+msgid "Cannot change the parent of an account with posted lines."
+msgstr "لا يمكن تغيير الحساب الأب لحساب له سطور قيود مرحّلة."
+
+#: apps/accounting/serializers.py:152
+msgid "A line cannot have both a debit and a credit amount."
+msgstr "لا يجوز أن يحمل السطر مبلغًا مدينًا ودائنًا معًا."
+
+#: apps/accounting/serializers.py:154
+msgid "A line needs either a debit or a credit amount."
+msgstr "يجب أن يحمل السطر مبلغًا مدينًا أو دائنًا."
+
+#: apps/accounting/serializers.py:185
+#, fuzzy
+#| msgid "At least one invoice line is required."
+msgid "At least two lines are required."
+msgstr "مطلوب بند واحد على الأقل في الفاتورة."
+
+#: apps/accounting/serializers.py:217
+msgid "Only name and is_active can be edited after creation."
+msgstr "بعد الإنشاء لا يمكن تعديل غير الاسم وحالة التفعيل."
+
+#: apps/accounting/services.py:127
+#, python-format
+msgid "لا يوجد حساب في الدليل بمفتاح %(key)s — راجع دليل الحسابات."
+msgstr "لا يوجد حساب في الدليل بمفتاح %(key)s — راجع دليل الحسابات."
+
+#: apps/accounting/services.py:322
+#, python-format
+msgid ""
+"لا يمكن الترحيل على الحساب %(code)s: إما أنه حساب أب له فروع أو أن الترحيل "
+"عليه معطّل."
+msgstr ""
+"لا يمكن الترحيل على الحساب %(code)s: إما أنه حساب أب له فروع أو أن الترحيل "
+"عليه معطّل."
+
+#: apps/accounting/services.py:567
+#, python-format
+msgid ""
+"لا يمكن الترحيل يدويًا على حساب رقابة (%(codes)s) بدون تجاوز مسجَّل بسبب — "
+"استخدم سند قبض/صرف أو حرّك الضريبة من الفاتورة."
+msgstr ""
+"لا يمكن الترحيل يدويًا على حساب رقابة (%(codes)s) بدون تجاوز مسجَّل بسبب — "
+"استخدم سند قبض/صرف أو حرّك الضريبة من الفاتورة."
+
+#: apps/accounting/services.py:576
+msgid ""
+"You do not have permission to override a control account's posting "
+"restriction."
+msgstr "لا تملك صلاحية تجاوز حظر الترحيل على حساب الرقابة."
+
+#: apps/accounting/services.py:625
+#, python-format
+msgid ""
+"القيد غير متوازن بعملة المعاملة: إجمالي المدين %(debit)s لا يساوي إجمالي "
+"الدائن %(credit)s."
+msgstr ""
+"القيد غير متوازن بعملة المعاملة: إجمالي المدين %(debit)s لا يساوي إجمالي "
+"الدائن %(credit)s."
+
+#: apps/accounting/services.py:696
+msgid "Only an approved entry can be posted."
+msgstr "لا يُرحَّل إلا قيد معتمد."
+
+#: apps/accounting/services.py:709
+#, fuzzy
+#| msgid "Only issued invoices can be voided."
+msgid "Only a posted entry can be reversed."
+msgstr "يمكن إلغاء (Void) الفواتير المعتمدة فقط."
+
+#: apps/accounting/services.py:711
+msgid "A reason is required to reverse a journal entry."
+msgstr "سبب العكس إلزامي."
+
+#: apps/accounting/services.py:714
+msgid "The reversal date cannot precede the original entry's date."
+msgstr "لا يجوز أن يسبق تاريخ العكس تاريخ القيد الأصلي."
+
+#: apps/accounting/views.py:107
+#, fuzzy
+#| msgid "This role is assigned to at least one user and cannot be deleted."
+msgid "This account has active child accounts and cannot be deactivated."
+msgstr "هذا الدور مُسند لمستخدم واحد على الأقل ولا يمكن حذفه."
+
+#: apps/accounting/views.py:116
+#, fuzzy
+#| msgid "This role is assigned to at least one user and cannot be deleted."
+msgid "This account has a nonzero balance and cannot be deactivated."
+msgstr "هذا الدور مُسند لمستخدم واحد على الأقل ولا يمكن حذفه."
 
 #: apps/accounts/models.py:12
 msgid "Owner"
@@ -219,20 +581,10 @@ msgstr "الاسم الأول"
 msgid "last name"
 msgstr "اسم العائلة"
 
-#: apps/accounts/models.py:24 apps/parties/models.py:76
+#: apps/accounts/models.py:24 apps/parties/models.py:87
 #: apps/platform/models.py:29
 msgid "role"
 msgstr "الدور"
-
-#: apps/accounts/models.py:26 apps/assets/models.py:52
-#: apps/organization/models.py:31 apps/organization/models.py:94
-#: apps/parties/models.py:37 apps/parties/models.py:77
-#: apps/platform/models.py:30 apps/platform/models.py:85
-#: apps/sales/models.py:15 apps/sales/models.py:32 apps/tenants/models.py:18
-#: apps/treasury/models.py:24 apps/treasury/models.py:49
-#: apps/treasury/models.py:75
-msgid "active"
-msgstr "نشط"
 
 #: apps/accounts/models.py:27
 msgid "staff status"
@@ -250,91 +602,398 @@ msgstr "مستخدم"
 msgid "users"
 msgstr "مستخدمون"
 
-#: apps/accounts/serializers.py:48
+#: apps/accounts/serializers.py:59
 msgid "This subdomain is already taken."
 msgstr "هذا النطاق الفرعي مستخدم بالفعل."
 
-#: apps/accounts/serializers.py:118
+#: apps/accounts/serializers.py:153
 msgid "Invalid subdomain, email or password."
 msgstr "النطاق الفرعي أو البريد الإلكتروني أو كلمة المرور غير صحيحة."
 
-#: apps/accounts/serializers.py:120
+#: apps/accounts/serializers.py:155
 msgid "This account is inactive."
 msgstr "هذا الحساب غير نشط."
 
-#: apps/assets/models.py:13 apps/organization/models.py:72
+#: apps/approvals/models.py:19
+msgid "Journal Entry"
+msgstr "قيد يومية"
+
+#: apps/approvals/models.py:20
+#, fuzzy
+#| msgid "View invoices"
+msgid "Invoice"
+msgstr "عرض الفواتير"
+
+#: apps/approvals/models.py:25 apps/vouchers/models.py:28
+msgid "Receipt Voucher"
+msgstr "سند قبض"
+
+#: apps/approvals/models.py:26 apps/vouchers/models.py:29
+msgid "Payment Voucher"
+msgstr "سند صرف"
+
+#: apps/approvals/models.py:27 apps/vouchers/models.py:30
+msgid "Settlement Voucher"
+msgstr "سند تسوية"
+
+#: apps/approvals/models.py:33
+msgid "IBAN Change Request"
+msgstr "طلب تغيير IBAN"
+
+#: apps/approvals/models.py:35 apps/numbering/models.py:17
+#, fuzzy
+#| msgid "source type"
+msgid "document type"
+msgstr "نوع المصدر"
+
+#: apps/approvals/models.py:37
+msgid "minimum amount"
+msgstr "الحد الأدنى للمبلغ"
+
+#: apps/approvals/services.py:70
+#, fuzzy
+#| msgid "Only draft invoices can be issued."
+msgid "Only a draft document can be submitted for approval."
+msgstr "يمكن اعتماد الفواتير في حالة المسودة فقط."
+
+#: apps/approvals/services.py:110
+msgid "Only a pending-approval document can be approved."
+msgstr "لا يُعتمَد إلا مستند بانتظار الاعتماد."
+
+#: apps/approvals/services.py:116
+msgid "You cannot approve a document you created yourself."
+msgstr "لا يمكنك اعتماد مستند أنشأته بنفسك."
+
+#: apps/approvals/services.py:118
+msgid "You do not have the required role to approve this document."
+msgstr "لا تحمل الدور المطلوب لاعتماد هذا المستند."
+
+#: apps/approvals/services.py:134
+msgid "Only a pending-approval document can be rejected."
+msgstr "لا يُرفَض إلا مستند بانتظار الاعتماد."
+
+#: apps/approvals/services.py:136
+msgid "A reason is required to reject a document."
+msgstr "سبب الرفض إلزامي."
+
+#: apps/approvals/services.py:154
+msgid "Only a pending-approval document can be withdrawn."
+msgstr "لا يُسحَب إلا مستند بانتظار الاعتماد."
+
+#: apps/approvals/services.py:156
+msgid "Only the creator can withdraw this document."
+msgstr "لا يجوز السحب إلا لمُنشئ المستند."
+
+#: apps/assets/models.py:14 apps/organization/models.py:96
 msgid "Vehicle"
 msgstr "سيارة"
 
-#: apps/assets/models.py:14
+#: apps/assets/models.py:15
 msgid "Equipment"
 msgstr "معدات"
 
-#: apps/assets/models.py:15
+#: apps/assets/models.py:16
 msgid "Building"
 msgstr "مبنى"
 
-#: apps/assets/models.py:16
+#: apps/assets/models.py:17
 msgid "Furniture"
 msgstr "أثاث"
 
-#: apps/assets/models.py:17
+#: apps/assets/models.py:18
 msgid "IT"
 msgstr "تقنية معلومات"
 
-#: apps/assets/models.py:18
+#: apps/assets/models.py:19 apps/attachments/models.py:43
+#: apps/vouchers/models.py:51
 msgid "Other"
 msgstr "أخرى"
 
-#: apps/assets/models.py:21
+#: apps/assets/models.py:22
 msgid "Straight line"
 msgstr "القسط الثابت"
 
-#: apps/assets/models.py:24 apps/tenants/models.py:10
+#: apps/assets/models.py:25 apps/attachments/models.py:46
+#: apps/tenants/models.py:10
 msgid "Active"
 msgstr "نشط"
 
-#: apps/assets/models.py:25
+#: apps/assets/models.py:26
 msgid "Disposed"
 msgstr "مستبعد"
 
-#: apps/assets/models.py:26
+#: apps/assets/models.py:27
 msgid "Under maintenance"
 msgstr "تحت الصيانة"
 
-#: apps/assets/models.py:33
+#: apps/assets/models.py:34 apps/attachments/models.py:75
 msgid "category"
 msgstr "الفئة"
 
-#: apps/assets/models.py:34
+#: apps/assets/models.py:35
 msgid "purchase date"
 msgstr "تاريخ الشراء"
 
-#: apps/assets/models.py:35
+#: apps/assets/models.py:37
 msgid "purchase cost"
 msgstr "تكلفة الشراء"
 
-#: apps/assets/models.py:36 apps/parties/models.py:35
-#: apps/treasury/models.py:20 apps/treasury/models.py:39
-#: apps/treasury/models.py:71
-msgid "currency"
-msgstr "العملة"
-
-#: apps/assets/models.py:37
+#: apps/assets/models.py:40
 msgid "useful life (months)"
 msgstr "العمر الإنتاجي (بالشهور)"
 
-#: apps/assets/models.py:39
+#: apps/assets/models.py:42
 msgid "salvage value"
 msgstr "قيمة الخردة"
 
-#: apps/assets/models.py:42
+#: apps/assets/models.py:45
 msgid "depreciation method"
 msgstr "طريقة الإهلاك"
 
-#: apps/assets/models.py:51 apps/sales/models.py:67 apps/tenants/models.py:22
-msgid "status"
-msgstr "الحالة"
+#: apps/attachments/models.py:34
+msgid "Original supplier invoice"
+msgstr "فاتورة المورد الأصلية"
+
+#: apps/attachments/models.py:35
+msgid "Receipt"
+msgstr "إيصال"
+
+#: apps/attachments/models.py:36
+msgid "Contract"
+msgstr "عقد"
+
+#: apps/attachments/models.py:37
+msgid "Bank letter"
+msgstr "خطاب بنكي"
+
+#: apps/attachments/models.py:38
+msgid "ID document"
+msgstr "وثيقة هوية"
+
+#: apps/attachments/models.py:39
+msgid "Approval minutes"
+msgstr "محضر اعتماد"
+
+#: apps/attachments/models.py:42
+#, fuzzy
+#| msgid "bank name"
+msgid "Bank statement"
+msgstr "اسم البنك"
+
+#: apps/attachments/models.py:47
+msgid "Voided"
+msgstr "ملغى"
+
+#: apps/attachments/models.py:50
+msgid "Pending"
+msgstr "قيد الفحص"
+
+#: apps/attachments/models.py:51
+msgid "Clean"
+msgstr "سليم"
+
+#: apps/attachments/models.py:52
+msgid "Infected"
+msgstr "مصاب"
+
+#: apps/attachments/models.py:53
+msgid "Error"
+msgstr "خطأ"
+
+#: apps/attachments/models.py:54
+msgid "Skipped (scanning disabled)"
+msgstr "تخطّي (الفحص معطَّل)"
+
+#: apps/attachments/models.py:57
+msgid "Unchecked"
+msgstr "غير مُتحقَّق"
+
+#: apps/attachments/models.py:58
+msgid "OK"
+msgstr "سليم"
+
+#: apps/attachments/models.py:59
+msgid "Mismatch"
+msgstr "تعارض"
+
+#: apps/attachments/models.py:67
+msgid "file"
+msgstr "الملف"
+
+#: apps/attachments/models.py:68
+msgid "original file name"
+msgstr "الاسم الأصلي للملف"
+
+#: apps/attachments/models.py:71
+#, fuzzy
+#| msgid "type"
+msgid "MIME type"
+msgstr "النوع"
+
+#: apps/attachments/models.py:72
+msgid "size (bytes)"
+msgstr "الحجم (بايت)"
+
+#: apps/attachments/models.py:73
+msgid "SHA-256"
+msgstr "بصمة SHA-256"
+
+#: apps/attachments/models.py:81
+msgid "uploaded at"
+msgstr "تاريخ الرفع"
+
+#: apps/attachments/models.py:82
+msgid "upload IP"
+msgstr "عنوان IP للرفع"
+
+#: apps/attachments/models.py:85
+msgid "void reason"
+msgstr "سبب الإلغاء"
+
+#: apps/attachments/models.py:89
+msgid "voided at"
+msgstr "تاريخ الإلغاء"
+
+#: apps/attachments/models.py:94
+msgid "version"
+msgstr "النسخة"
+
+#: apps/attachments/models.py:100
+#, fuzzy
+#| msgid "staff status"
+msgid "scan status"
+msgstr "حالة الموظف"
+
+#: apps/attachments/models.py:102
+msgid "scanned at"
+msgstr "تاريخ الفحص"
+
+#: apps/attachments/models.py:105
+msgid "integrity status"
+msgstr "حالة السلامة"
+
+#: apps/attachments/models.py:108
+msgid "integrity checked at"
+msgstr "تاريخ التحقق من السلامة"
+
+#: apps/attachments/models.py:112
+msgid "extracted amount"
+msgstr "المبلغ المستخرَج"
+
+#: apps/attachments/models.py:115
+msgid "extracted date"
+msgstr "التاريخ المستخرَج"
+
+#: apps/attachments/models.py:116
+msgid "extracted reference"
+msgstr "المرجع المستخرَج"
+
+#: apps/attachments/services.py:91
+msgid "Unknown attachment target type."
+msgstr "نوع هدف المرفق غير معروف."
+
+#: apps/attachments/services.py:98 apps/treasury/services.py:178
+#, fuzzy
+#| msgid "Product not found."
+msgid "Target record not found."
+msgstr "المنتج غير موجود."
+
+#: apps/attachments/services.py:124
+msgid ""
+"File type not allowed. Allowed: pdf, jpg, jpeg, png, webp, xlsx, docx, csv."
+msgstr ""
+"نوع الملف غير مسموح. المسموح: pdf, jpg, jpeg, png, webp, xlsx, docx, csv."
+
+#: apps/attachments/services.py:131
+#, python-format
+msgid "The file's actual content does not match its extension (%(ext)s)."
+msgstr "محتوى الملف الفعلي لا يطابق امتداده (%(ext)s)."
+
+#: apps/attachments/services.py:206
+#, python-format
+msgid ""
+"This upload would exceed your plan's storage limit (%(limit)s MB). Upgrade "
+"your plan or remove old attachments first."
+msgstr ""
+"هذا الرفع يتجاوز حد التخزين في باقتك (%(limit)s ميجابايت). رقِّ الباقة أو احذف "
+"مرفقات قديمة أولًا."
+
+#: apps/attachments/services.py:217
+#, python-format
+msgid ""
+"This file is larger than the maximum allowed size (%(max)s MB) for your plan."
+msgstr "حجم الملف أكبر من الحد المسموح (%(max)s ميجابايت) في باقتك."
+
+#: apps/common/models.py:40 apps/sales/models.py:71 apps/treasury/models.py:248
+#: apps/treasury/models.py:307
+msgid "Draft"
+msgstr "مسودة"
+
+#: apps/common/models.py:41 apps/sales/models.py:80 apps/treasury/models.py:308
+msgid "Pending approval"
+msgstr "بانتظار الاعتماد"
+
+#: apps/common/models.py:42 apps/sales/models.py:81 apps/treasury/models.py:309
+msgid "Approved"
+msgstr "معتمد"
+
+#: apps/common/models.py:43
+msgid "Posted"
+msgstr "مرحّل"
+
+#: apps/common/models.py:44
+#, fuzzy
+#| msgid "Revenue"
+msgid "Reversed"
+msgstr "إيرادات"
+
+#: apps/common/ratelimit.py:49
+msgid "محاولات كثيرة جدًا. حاول مرة أخرى بعد دقيقة."
+msgstr "محاولات كثيرة جدًا. حاول مرة أخرى بعد دقيقة."
+
+#: apps/common/serializers.py:26
+msgid ""
+"This IBAN is already set. Request a change from «طلبات تغيير IBAN» instead "
+"of editing it directly."
+msgstr "IBAN مسجَّل مسبقًا. اطلب تغييره من «طلبات تغيير IBAN» بدل تعديله مباشرة."
+
+#: apps/common/validators.py:17
+msgid "Saudi tax number must be 15 digits, starting and ending with 3."
+msgstr "الرقم الضريبي السعودي يجب أن يكون 15 رقمًا يبدأ وينتهي بالرقم 3."
+
+#: apps/common/validators.py:25
+msgid "Commercial registration number must be 10 digits."
+msgstr "رقم السجل التجاري يجب أن يكون 10 أرقام."
+
+#: apps/common/validators.py:34
+msgid "This document is dated in the future."
+msgstr "تاريخ هذا المستند في المستقبل."
+
+#: apps/common/validators.py:45
+msgid ""
+"Saudi national ID / iqama number must be 10 digits, starting with 1 or 2."
+msgstr ""
+"رقم الهوية الوطنية/الإقامة السعودي يجب أن يكون 10 أرقام يبدأ بـ 1 أو 2."
+
+#: apps/common/validators.py:67 apps/common/validators.py:69
+msgid "Invalid IBAN format."
+msgstr "صيغة IBAN غير صحيحة."
+
+#: apps/common/validators.py:73
+#, python-format
+msgid "IBAN for %(country)s must be %(length)s characters long."
+msgstr "يجب أن يتكون IBAN الخاص بـ %(country)s من %(length)s حرفًا."
+
+#: apps/common/validators.py:78
+#, python-format
+msgid ""
+"IBAN country prefix (%(iban_country)s) does not match the party's country "
+"(%(country)s)."
+msgstr "بادئة دولة IBAN (%(iban_country)s) لا تطابق دولة الطرف (%(country)s)."
+
+#: apps/common/validators.py:87
+msgid "IBAN checksum is invalid."
+msgstr "رقم التحقق (checksum) في IBAN غير صحيح."
 
 #: apps/common/viewsets.py:58
 msgid ""
@@ -342,7 +1001,19 @@ msgid ""
 "instead."
 msgstr "هذا السجل مرتبط بسجلات أخرى ولا يمكن حذفه. عطّله بدلًا من ذلك."
 
-#: apps/organization/models.py:18
+#: apps/numbering/models.py:18
+msgid "prefix"
+msgstr "البادئة"
+
+#: apps/numbering/models.py:19
+msgid "reset numbering every year"
+msgstr "إعادة الترقيم كل سنة"
+
+#: apps/numbering/models.py:32
+msgid "include entity code in the number"
+msgstr "تضمين كود الكيان في الرقم"
+
+#: apps/organization/models.py:18 apps/tenants/models.py:19
 msgid "Holding"
 msgstr "قابضة"
 
@@ -354,60 +1025,107 @@ msgstr "شركة"
 msgid "Branch"
 msgstr "فرع"
 
-#: apps/organization/models.py:28 apps/parties/models.py:34
-msgid "country code"
-msgstr "رمز الدولة"
-
-#: apps/organization/models.py:29 apps/parties/models.py:29
-#: apps/sales/models.py:13
+#: apps/organization/models.py:33 apps/parties/models.py:29
+#: apps/sales/models.py:25
 msgid "tax number"
 msgstr "الرقم الضريبي"
 
-#: apps/organization/models.py:30
+#: apps/organization/models.py:34
 msgid "base currency"
 msgstr "العملة الأساسية"
 
-#: apps/organization/models.py:50 apps/organization/serializers.py:13
+#: apps/organization/models.py:39
+msgid "tax period type"
+msgstr "نوع الفترة الضريبية"
+
+#: apps/organization/models.py:46
+#, fuzzy
+#| msgid "national ID / commercial registration"
+msgid "commercial registration"
+msgstr "الهوية الوطنية / السجل التجاري"
+
+#: apps/organization/models.py:47
+#, fuzzy
+#| msgid "account number"
+msgid "building number"
+msgstr "رقم الحساب"
+
+#: apps/organization/models.py:48
+msgid "street"
+msgstr "الشارع"
+
+#: apps/organization/models.py:49
+msgid "district"
+msgstr "الحي"
+
+#: apps/organization/models.py:50
+msgid "city"
+msgstr "المدينة"
+
+#: apps/organization/models.py:51
+#, fuzzy
+#| msgid "country code"
+msgid "postal code"
+msgstr "رمز الدولة"
+
+#: apps/organization/models.py:52
+#, fuzzy
+#| msgid "address"
+msgid "short address"
+msgstr "العنوان"
+
+#: apps/organization/models.py:53 apps/parties/models.py:31
+#: apps/sales/models.py:24
+msgid "phone"
+msgstr "الهاتف"
+
+#: apps/organization/models.py:54 apps/parties/models.py:32
+#: apps/platform/models.py:27 apps/sales/models.py:23
+msgid "email"
+msgstr "البريد الإلكتروني"
+
+#: apps/organization/models.py:74 apps/organization/serializers.py:17
 msgid "An entity cannot be its own parent."
 msgstr "لا يمكن أن يكون الكيان أبًا لنفسه."
 
-#: apps/organization/models.py:52 apps/organization/serializers.py:48
+#: apps/organization/models.py:76 apps/organization/serializers.py:84
 msgid "A branch cannot have child entities."
 msgstr "لا يمكن أن يكون للفرع كيانات فرعية."
 
-#: apps/organization/models.py:58
+#: apps/organization/models.py:82
 msgid "This would create a cycle in the legal entity tree."
 msgstr "هذا سيُنشئ دورة في شجرة الكيانات القانونية."
 
-#: apps/organization/models.py:71
+#: apps/organization/models.py:95
 msgid "Department"
 msgstr "إدارة"
 
-#: apps/organization/models.py:73
+#: apps/organization/models.py:97
 msgid "Warehouse"
 msgstr "مستودع"
 
-#: apps/organization/models.py:74 apps/parties/models.py:70
+#: apps/organization/models.py:98 apps/parties/models.py:81
+#: apps/vouchers/models.py:43
 msgid "Employee"
 msgstr "موظف"
 
-#: apps/organization/models.py:75
+#: apps/organization/models.py:99
 msgid "Project"
 msgstr "مشروع"
 
-#: apps/organization/models.py:76
+#: apps/organization/models.py:100
 msgid "General"
 msgstr "عام"
 
-#: apps/organization/models.py:112
+#: apps/organization/models.py:136
 msgid "A cost center cannot be its own parent."
 msgstr "لا يمكن أن يكون مركز التكلفة أبًا لنفسه."
 
-#: apps/organization/models.py:118
+#: apps/organization/models.py:142
 msgid "This would create a cycle in the cost center tree."
 msgstr "هذا سيُنشئ دورة في شجرة مراكز التكلفة."
 
-#: apps/organization/serializers.py:19
+#: apps/organization/serializers.py:23
 #, python-format
 msgid "This would create a cycle in the %(label)s tree."
 msgstr "هذا سيُنشئ دورة في شجرة %(label)s."
@@ -436,15 +1154,7 @@ msgstr "نوع الطرف"
 msgid "national ID / commercial registration"
 msgstr "الهوية الوطنية / السجل التجاري"
 
-#: apps/parties/models.py:31 apps/sales/models.py:12
-msgid "phone"
-msgstr "الهاتف"
-
-#: apps/parties/models.py:32 apps/platform/models.py:27 apps/sales/models.py:11
-msgid "email"
-msgstr "البريد الإلكتروني"
-
-#: apps/parties/models.py:33 apps/sales/models.py:14
+#: apps/parties/models.py:33 apps/sales/models.py:26
 msgid "address"
 msgstr "العنوان"
 
@@ -452,31 +1162,45 @@ msgstr "العنوان"
 msgid "notes"
 msgstr "ملاحظات"
 
-#: apps/parties/models.py:68
+#: apps/parties/models.py:58 apps/treasury/models.py:26
+msgid "IBAN"
+msgstr "رقم الآيبان (IBAN)"
+
+#: apps/parties/models.py:79 apps/vouchers/models.py:41
 msgid "Customer"
 msgstr "عميل"
 
-#: apps/parties/models.py:69
+#: apps/parties/models.py:80 apps/vouchers/models.py:42
 msgid "Supplier"
 msgstr "مورّد"
 
-#: apps/parties/models.py:71
+#: apps/parties/models.py:82
 msgid "Affiliate company"
 msgstr "شركة شقيقة"
 
-#: apps/parties/models.py:72
+#: apps/parties/models.py:83 apps/vouchers/models.py:36
 msgid "Bank"
 msgstr "بنك"
 
-#: apps/parties/models.py:83
+#: apps/parties/models.py:94
 msgid "role details"
 msgstr "تفاصيل الدور"
 
-#: apps/parties/serializers.py:42 apps/parties/serializers.py:91
+#: apps/parties/serializers.py:59
+msgid ""
+"This screen creates one specific role automatically — it does not accept a "
+"role field."
+msgstr "هذه الشاشة تنشئ دورًا محددًا تلقائيًا — لا تقبل حقل دور."
+
+#: apps/parties/serializers.py:113 apps/parties/serializers.py:168
 msgid "An affiliate role requires a matching legal entity."
 msgstr "دور الشركة الشقيقة يتطلب كيانًا قانونيًا مطابقًا."
 
-#: apps/parties/views.py:52
+#: apps/parties/views.py:102
+msgid "The role query parameter is required."
+msgstr "معامل الدور (role) إلزامي."
+
+#: apps/parties/views.py:134
 msgid "This party already has this role."
 msgstr "هذا الطرف يحمل هذا الدور بالفعل."
 
@@ -524,132 +1248,170 @@ msgstr "الحد الأقصى للفواتير شهريًا"
 msgid "storage (MB)"
 msgstr "التخزين (ميجابايت)"
 
-#: apps/platform/models.py:94 apps/tenants/models.py:40
+#: apps/platform/models.py:96
+msgid "max file size (MB)"
+msgstr "الحد الأقصى لحجم الملف (ميجابايت)"
+
+#: apps/platform/models.py:98 apps/tenants/models.py:61
 msgid "organization structure"
 msgstr "الهيكل التنظيمي"
 
-#: apps/platform/models.py:95 apps/tenants/models.py:41
+#: apps/platform/models.py:99 apps/tenants/models.py:62
 msgid "cost centers"
 msgstr "مراكز التكلفة"
 
-#: apps/platform/models.py:96 apps/tenants/models.py:42
+#: apps/platform/models.py:100 apps/tenants/models.py:63
 msgid "inventory"
 msgstr "المخزون"
 
-#: apps/platform/models.py:97 apps/tenants/models.py:43
+#: apps/platform/models.py:101 apps/tenants/models.py:64
 msgid "purchasing"
 msgstr "المشتريات"
 
-#: apps/platform/models.py:98 apps/tenants/models.py:44
+#: apps/platform/models.py:102 apps/tenants/models.py:65
 msgid "HR"
 msgstr "الموارد البشرية"
 
-#: apps/platform/models.py:99 apps/tenants/models.py:48
+#: apps/platform/models.py:103 apps/tenants/models.py:69
 msgid "treasury"
 msgstr "الخزينة"
 
-#: apps/platform/models.py:100 apps/tenants/models.py:49
+#: apps/platform/models.py:104 apps/tenants/models.py:70
 msgid "fixed assets"
 msgstr "الأصول الثابتة"
 
-#: apps/platform/models.py:121
+#: apps/platform/models.py:125
 msgid "Platform"
 msgstr "المنصة"
 
-#: apps/platform/models.py:122
+#: apps/platform/models.py:126
 msgid "Tenant user"
 msgstr "مستخدم المستأجر"
 
-#: apps/platform/views.py:46
+#: apps/platform/views.py:52
 msgid "Invalid email or password."
 msgstr "البريد الإلكتروني أو كلمة المرور غير صحيحة."
 
-#: apps/platform/views.py:50
+#: apps/platform/views.py:56
 msgid "A TOTP or backup code is required."
 msgstr "رمز TOTP أو رمز احتياطي مطلوب."
 
-#: apps/platform/views.py:60
+#: apps/platform/views.py:66
 msgid "Invalid or expired code."
 msgstr "الرمز غير صحيح أو منتهي الصلاحية."
 
-#: apps/sales/models.py:26
+#: apps/sales/models.py:38
 msgid "SKU"
 msgstr "رمز المنتج"
 
-#: apps/sales/models.py:28 apps/sales/models.py:106
+#: apps/sales/models.py:41 apps/sales/models.py:221
 msgid "unit price"
 msgstr "سعر الوحدة"
 
-#: apps/sales/models.py:30 apps/sales/models.py:107
+#: apps/sales/models.py:44 apps/sales/models.py:224
 msgid "tax rate (%)"
 msgstr "نسبة الضريبة (%)"
 
-#: apps/sales/models.py:47
-msgid "Draft"
-msgstr "مسودة"
-
-#: apps/sales/models.py:48
+#: apps/sales/models.py:82
 msgid "Issued"
-msgstr "معتمدة"
+msgstr "مُصدرة"
 
-#: apps/sales/models.py:49
-msgid "Paid"
-msgstr "مدفوعة"
-
-#: apps/sales/models.py:50
+#: apps/sales/models.py:84
 msgid "Cancelled"
 msgstr "ملغاة"
 
-#: apps/sales/models.py:66
-msgid "number"
-msgstr "الرقم"
+#: apps/sales/models.py:87
+msgid "Unpaid"
+msgstr "غير مسدَّدة"
 
-#: apps/sales/models.py:68
+#: apps/sales/models.py:88
+msgid "Partially paid"
+msgstr "مسدَّدة جزئيًا"
+
+#: apps/sales/models.py:116
 msgid "issue date"
 msgstr "تاريخ الإصدار"
 
-#: apps/sales/models.py:71
+#: apps/sales/models.py:121
+#, fuzzy
+#| msgid "issue date"
+msgid "due date"
+msgstr "تاريخ الإصدار"
+
+#: apps/sales/models.py:135
 msgid "subtotal"
 msgstr "الإجمالي قبل الضريبة"
 
-#: apps/sales/models.py:72
+#: apps/sales/models.py:138
 msgid "tax total"
 msgstr "إجمالي الضريبة"
 
-#: apps/sales/models.py:73
+#: apps/sales/models.py:141 apps/vouchers/models.py:129
 msgid "total"
 msgstr "الإجمالي"
 
-#: apps/sales/models.py:105
+#: apps/sales/models.py:148
+#, fuzzy
+#| msgid "tax total"
+msgid "base total"
+msgstr "إجمالي الضريبة"
+
+#: apps/sales/models.py:156
+msgid "paid"
+msgstr "المسدَّد"
+
+#: apps/sales/models.py:159
+msgid "balance"
+msgstr "الرصيد"
+
+#: apps/sales/models.py:162
+#, fuzzy
+#| msgid "staff status"
+msgid "payment status"
+msgstr "حالة الموظف"
+
+#: apps/sales/models.py:169
+msgid "delivered at"
+msgstr "تاريخ التسليم"
+
+#: apps/sales/models.py:218
 msgid "quantity"
 msgstr "الكمية"
 
-#: apps/sales/serializers.py:110
+#: apps/sales/serializers.py:180
 msgid "At least one invoice line is required."
 msgstr "مطلوب بند واحد على الأقل في الفاتورة."
 
-#: apps/sales/serializers.py:119
+#: apps/sales/serializers.py:189
 msgid "This field is required."
 msgstr "هذا الحقل مطلوب."
 
-#: apps/sales/serializers.py:133
+#: apps/sales/serializers.py:240
 msgid "Product not found."
 msgstr "المنتج غير موجود."
 
-#: apps/sales/serializers.py:142
+#: apps/sales/serializers.py:249
 msgid "Cost center not found."
 msgstr "مركز التكلفة غير موجود."
 
-#: apps/sales/serializers.py:179
-msgid "Only draft invoices can be issued."
+#: apps/sales/serializers.py:254
+#, fuzzy
+#| msgid "Product not found."
+msgid "Tax code not found."
+msgstr "المنتج غير موجود."
+
+#: apps/sales/services.py:190
+#, fuzzy
+#| msgid "Only draft invoices can be issued."
+msgid "Only a draft or approved invoice can be issued."
 msgstr "يمكن اعتماد الفواتير في حالة المسودة فقط."
 
-#: apps/sales/views.py:110
+#: apps/sales/views.py:128
 msgid "Only draft invoices can be edited. Void it instead."
 msgstr ""
 "يمكن تعديل الفواتير في حالة المسودة فقط. ألغِ الفاتورة (Void) بدلًا من ذلك."
 
-#: apps/sales/views.py:129
+#: apps/sales/views.py:182
 msgid "Only issued invoices can be voided."
 msgstr "يمكن إلغاء (Void) الفواتير المعتمدة فقط."
 
@@ -678,26 +1440,48 @@ msgid "Archived"
 msgstr "مؤرشف"
 
 #: apps/tenants/models.py:16
+msgid "Service"
+msgstr "خدمي"
+
+#: apps/tenants/models.py:17
+msgid "Trading"
+msgstr "تجاري"
+
+#: apps/tenants/models.py:18
+msgid "Manufacturing"
+msgstr "صناعي"
+
+#: apps/tenants/models.py:22
 msgid "company name"
 msgstr "اسم الشركة"
 
-#: apps/tenants/models.py:17
+#: apps/tenants/models.py:23
 msgid "subdomain"
 msgstr "النطاق الفرعي"
 
-#: apps/tenants/models.py:23
+#: apps/tenants/models.py:30
+msgid "business type"
+msgstr "نوع النشاط"
+
+#: apps/tenants/models.py:37
 msgid "trial ends at"
 msgstr "تاريخ انتهاء التجربة"
 
-#: apps/tenants/models.py:27
+#: apps/tenants/models.py:44
+#, fuzzy
+#| msgid "storage (MB)"
+msgid "storage used (bytes)"
+msgstr "التخزين (ميجابايت)"
+
+#: apps/tenants/models.py:48
 msgid "tenant"
 msgstr "المستأجر"
 
-#: apps/tenants/models.py:28
+#: apps/tenants/models.py:49
 msgid "tenants"
 msgstr "المستأجرون"
 
-#: apps/tenants/models.py:52 apps/tenants/models.py:53
+#: apps/tenants/models.py:73 apps/tenants/models.py:74
 msgid "tenant features"
 msgstr "وحدات المستأجر"
 
@@ -728,18 +1512,662 @@ msgstr ""
 "لقد بلغت الحد الأقصى لعدد الفواتير الشهرية المسموح به في باقتك الحالية "
 "(%(max)s). قم بترقية باقتك لإنشاء المزيد."
 
-#: apps/treasury/models.py:16
+#: apps/treasury/models.py:24
 msgid "bank name"
 msgstr "اسم البنك"
 
-#: apps/treasury/models.py:17
+#: apps/treasury/models.py:25
 msgid "account number"
 msgstr "رقم الحساب"
 
-#: apps/treasury/models.py:18
-msgid "IBAN"
-msgstr "رقم الآيبان (IBAN)"
-
-#: apps/treasury/models.py:19
+#: apps/treasury/models.py:27
 msgid "SWIFT"
 msgstr "رمز السويفت (SWIFT)"
+
+#: apps/treasury/models.py:37
+msgid "import column mapping"
+msgstr "تخطيط أعمدة الاستيراد"
+
+#: apps/treasury/models.py:68
+#, fuzzy
+#| msgid "max branches"
+msgid "max cash balance"
+msgstr "الحد الأقصى للفروع"
+
+#: apps/treasury/models.py:93 apps/treasury/models.py:179
+msgid "Manual"
+msgstr "يدوي"
+
+#: apps/treasury/models.py:94
+msgid "API"
+msgstr "واجهة برمجية"
+
+#: apps/treasury/models.py:96
+#, fuzzy
+#| msgid "currency"
+msgid "from currency"
+msgstr "العملة"
+
+#: apps/treasury/models.py:97
+#, fuzzy
+#| msgid "currency"
+msgid "to currency"
+msgstr "العملة"
+
+#: apps/treasury/models.py:99
+msgid "rate"
+msgstr "السعر"
+
+#: apps/treasury/models.py:100
+#, fuzzy
+#| msgid "source id"
+msgid "source"
+msgstr "معرّف المصدر"
+
+#: apps/treasury/models.py:133
+msgid "period start"
+msgstr "بداية الفترة"
+
+#: apps/treasury/models.py:134
+msgid "period end"
+msgstr "نهاية الفترة"
+
+#: apps/treasury/models.py:137
+msgid "opening balance"
+msgstr "الرصيد الافتتاحي"
+
+#: apps/treasury/models.py:140
+msgid "closing balance"
+msgstr "الرصيد الختامي"
+
+#: apps/treasury/models.py:142
+msgid "import format"
+msgstr "صيغة الاستيراد"
+
+#: apps/treasury/models.py:143
+msgid "file SHA-256"
+msgstr "بصمة SHA-256 للملف"
+
+#: apps/treasury/models.py:144
+msgid "line count"
+msgstr "عدد السطور"
+
+#: apps/treasury/models.py:148
+#, fuzzy
+#| msgid "source id"
+msgid "source file"
+msgstr "معرّف المصدر"
+
+#: apps/treasury/models.py:173
+msgid "Unmatched"
+msgstr "غير مطابَق"
+
+#: apps/treasury/models.py:174
+msgid "Matched"
+msgstr "مطابَق"
+
+#: apps/treasury/models.py:175
+msgid "Ignored"
+msgstr "متجاهَل"
+
+#: apps/treasury/models.py:178
+msgid "Automatic"
+msgstr "تلقائي"
+
+#: apps/treasury/models.py:182 apps/vouchers/models.py:186
+#, fuzzy
+#| msgid "number"
+msgid "line number"
+msgstr "الرقم"
+
+#: apps/treasury/models.py:187 apps/vouchers/models.py:224
+msgid "amount"
+msgstr "المبلغ"
+
+#: apps/treasury/models.py:197
+msgid "ignored reason"
+msgstr "سبب التجاهل"
+
+#: apps/treasury/models.py:225
+msgid "custody limit"
+msgstr "حد العهدة"
+
+#: apps/treasury/models.py:249
+msgid "Confirmed"
+msgstr "مؤكَّد"
+
+#: apps/treasury/models.py:253
+#, fuzzy
+#| msgid "country code"
+msgid "count date"
+msgstr "رمز الدولة"
+
+#: apps/treasury/models.py:260
+msgid "denominations"
+msgstr "الفئات النقدية"
+
+#: apps/treasury/models.py:262
+msgid "counted amount"
+msgstr "المبلغ المعدود"
+
+#: apps/treasury/models.py:265
+msgid "book balance snapshot"
+msgstr "لقطة الرصيد الدفتري"
+
+#: apps/treasury/models.py:268
+msgid "difference"
+msgstr "الفرق"
+
+#: apps/treasury/models.py:270 apps/treasury/models.py:320
+msgid "reason"
+msgstr "السبب"
+
+#: apps/treasury/models.py:318
+#, fuzzy
+#| msgid "IBAN"
+msgid "old IBAN"
+msgstr "رقم الآيبان (IBAN)"
+
+#: apps/treasury/models.py:319
+#, fuzzy
+#| msgid "IBAN"
+msgid "new IBAN"
+msgstr "رقم الآيبان (IBAN)"
+
+#: apps/treasury/reconciliation.py:69
+msgid ""
+"This entry has a reconciled bank line — the match will stay on the original "
+"line; the reversal itself is not matched to the statement."
+msgstr ""
+"لهذا القيد سطر بنكي مسوّى — تبقى المطابقة على السطر الأصلي؛ سطر العكس نفسه "
+"غير مطابَق للكشف."
+
+#: apps/treasury/reconciliation.py:116
+msgid "This statement line is not unmatched."
+msgstr "سطر الكشف هذا ليس غير مطابَق."
+
+#: apps/treasury/reconciliation.py:128
+msgid ""
+"One or more journal lines were not found, already matched, or not POSTED on "
+"this bank account."
+msgstr ""
+"سطر أو أكثر من سطور القيد غير موجود، أو مطابَق مسبقًا، أو غير مرحّل على هذا "
+"الحساب البنكي."
+
+#: apps/treasury/reconciliation.py:136
+#, python-format
+msgid ""
+"Selected lines sum to %(total)s, which does not equal the statement line's "
+"amount (%(amount)s)."
+msgstr "مجموع السطور المختارة %(total)s لا يساوي مبلغ سطر الكشف (%(amount)s)."
+
+#: apps/treasury/reconciliation.py:274
+#, fuzzy
+#| msgid "Only issued invoices can be voided."
+msgid "Only an unmatched line can be ignored."
+msgstr "يمكن إلغاء (Void) الفواتير المعتمدة فقط."
+
+#: apps/treasury/reconciliation.py:276
+msgid "A reason is required to ignore a statement line."
+msgstr "سبب التجاهل إلزامي."
+
+#: apps/treasury/services.py:86 apps/treasury/services.py:105
+#, python-format
+msgid "لا يوجد سعر صرف مسجَّل من %(from)s إلى %(to)s بتاريخ %(date)s أو قبله."
+msgstr "لا يوجد سعر صرف مسجَّل من %(from)s إلى %(to)s بتاريخ %(date)s أو قبله."
+
+#: apps/treasury/services.py:114
+#, python-format
+msgid ""
+"سعر الصرف المستخدَم أقدم من %(days)s أيام (بتاريخ %(rate_date)s) — تحقّق منه."
+msgstr ""
+"سعر الصرف المستخدَم أقدم من %(days)s أيام (بتاريخ %(rate_date)s) — تحقّق منه."
+
+#: apps/treasury/services.py:169
+msgid "Unknown IBAN change target type."
+msgstr "نوع هدف تغيير IBAN غير معروف."
+
+#: apps/treasury/services.py:189
+#, fuzzy
+#| msgid "This field is required."
+msgid "A reason is required."
+msgstr "هذا الحقل مطلوب."
+
+#: apps/treasury/services.py:191
+msgid "New IBAN is identical to the current one."
+msgstr "IBAN الجديد مطابق للحالي."
+
+#: apps/treasury/services.py:200
+msgid "There is already a pending IBAN change request for this target."
+msgstr "يوجد طلب تغيير IBAN معلّق بالفعل لهذا الهدف."
+
+#: apps/treasury/services.py:235
+#, fuzzy
+#| msgid "Only draft invoices can be issued."
+msgid "Only a draft request can be submitted."
+msgstr "يمكن اعتماد الفواتير في حالة المسودة فقط."
+
+#: apps/treasury/services.py:238
+msgid "An IBAN letter attachment is required before submitting for approval."
+msgstr "خطاب IBAN مرفق إلزامي قبل الإرسال للاعتماد."
+
+#: apps/treasury/services.py:308
+msgid "Statement currency must match the bank account's own currency."
+msgstr "يجب أن تطابق عملة الكشف عملة الحساب البنكي."
+
+#: apps/treasury/services.py:311
+msgid "Period end cannot be before period start."
+msgstr "لا يجوز أن تسبق نهاية الفترة بدايتها."
+
+#: apps/treasury/services.py:316
+msgid "This exact statement file has already been imported for this bank."
+msgstr "هذا الملف بعينه استُورد مسبقًا لهذا البنك."
+
+#: apps/treasury/services.py:320
+msgid "This statement's period overlaps an already-imported statement."
+msgstr "فترة هذا الكشف تتداخل مع كشف مستورَد مسبقًا."
+
+#: apps/treasury/services.py:334
+#, python-format
+msgid ""
+"Opening balance (%(opening)s) does not match the previous statement's "
+"closing balance (%(prev)s)."
+msgstr ""
+"الرصيد الافتتاحي (%(opening)s) لا يطابق الرصيد الختامي للكشف السابق "
+"(%(prev)s)."
+
+#: apps/treasury/services.py:343
+#, python-format
+msgid "MT940 file's own opening balance (%s) differs from the value entered."
+msgstr "الرصيد الافتتاحي في ملف MT940 (%s) يختلف عن القيمة المُدخَلة."
+
+#: apps/treasury/services.py:347
+#, python-format
+msgid "MT940 file's own closing balance (%s) differs from the value entered."
+msgstr "الرصيد الختامي في ملف MT940 (%s) يختلف عن القيمة المُدخَلة."
+
+#: apps/treasury/services.py:413
+msgid ""
+"There is a pending IBAN change request for this party — resolve it before "
+"paying."
+msgstr "يوجد طلب تغيير IBAN معلّق لهذا الطرف — يجب حسمه قبل الصرف."
+
+#: apps/treasury/services.py:428
+#, python-format
+msgid ""
+"This party's IBAN was changed on %(date)s (approved by an IBAN change "
+"request) — verify before paying."
+msgstr ""
+"تغيّر IBAN هذا الطرف بتاريخ %(date)s (باعتماد طلب تغيير IBAN) — تحقّق قبل "
+"الصرف."
+
+#: apps/treasury/services.py:447
+msgid "Invalid denominations breakdown."
+msgstr "تفصيل الفئات النقدية غير صحيح."
+
+#: apps/treasury/services.py:450
+msgid "Counted amount does not match the sum of the denominations breakdown."
+msgstr "المبلغ المعدود لا يطابق مجموع تفصيل الفئات النقدية."
+
+#: apps/treasury/services.py:454
+msgid "Either counted_amount or denominations is required."
+msgstr "المبلغ المعدود أو تفصيل الفئات إلزامي."
+
+#: apps/treasury/services.py:474
+#, fuzzy
+#| msgid "Only draft invoices can be issued."
+msgid "Only a draft cash count can be confirmed."
+msgstr "يمكن اعتماد الفواتير في حالة المسودة فقط."
+
+#: apps/treasury/services.py:476
+msgid "A reason is required when the count does not match the book balance."
+msgstr "السبب إلزامي عندما لا يطابق العدّ الرصيد الدفتري."
+
+#: apps/treasury/services.py:517
+msgid ""
+"No CASH_COUNT_VARIANCE account found in this tenant's chart of accounts."
+msgstr ""
+"لا يوجد حساب فروق جرد الصندوق (CASH_COUNT_VARIANCE) في دليل حسابات هذا "
+"المستأجر."
+
+#: apps/treasury/services.py:530
+msgid "Cash count variance"
+msgstr "فرق جرد الصندوق"
+
+#: apps/treasury/services.py:531
+#, python-format
+msgid "Variance from cash count %(number)s"
+msgstr "فرق من جرد الصندوق %(number)s"
+
+#: apps/treasury/statement_parsers.py:98
+msgid "Map at least a date column and an amount (or debit/credit) column."
+msgstr "حدِّد عمود التاريخ وعمود المبلغ (أو المدين/الدائن) على الأقل."
+
+#: apps/treasury/statement_parsers.py:103
+msgid "The file has no data rows."
+msgstr "الملف بلا صفوف بيانات."
+
+#: apps/treasury/statement_parsers.py:109
+#, python-format
+msgid "Column not found in the file header: %s"
+msgstr "العمود غير موجود في ترويسة الملف: %s"
+
+#: apps/treasury/statement_parsers.py:124
+#, fuzzy
+#| msgid "Invalid or expired code."
+msgid "Invalid or unrecognized date."
+msgstr "الرمز غير صحيح أو منتهي الصلاحية."
+
+#: apps/treasury/statement_parsers.py:129
+msgid "Invalid amount."
+msgstr "مبلغ غير صحيح."
+
+#: apps/treasury/statement_parsers.py:153
+#, python-format
+msgid "Could not parse MT940 file: %s"
+msgstr "تعذَّر تحليل ملف MT940: %s"
+
+#: apps/treasury/statement_parsers.py:161
+msgid "Invalid date in MT940 entry."
+msgstr "تاريخ غير صحيح في حركة MT940."
+
+#: apps/treasury/statement_parsers.py:183
+msgid "Unsupported import format."
+msgstr "صيغة الاستيراد غير مدعومة."
+
+#: apps/vouchers/models.py:33
+msgid "Internal transfer"
+msgstr "تحويل داخلي"
+
+#: apps/vouchers/models.py:37
+#, fuzzy
+#| msgid "Cash"
+msgid "Cash box"
+msgstr "النقدية"
+
+#: apps/vouchers/models.py:38
+#, fuzzy
+#| msgid "Customer"
+msgid "Custody"
+msgstr "عميل"
+
+#: apps/vouchers/models.py:44
+#, fuzzy
+#| msgid "Affiliate company"
+msgid "Affiliate"
+msgstr "شركة شقيقة"
+
+#: apps/vouchers/models.py:47
+msgid "Cash"
+msgstr "النقدية"
+
+#: apps/vouchers/models.py:48
+msgid "Bank transfer"
+msgstr "حوالة بنكية"
+
+#: apps/vouchers/models.py:49
+msgid "Cheque"
+msgstr "شيك"
+
+#: apps/vouchers/models.py:50
+msgid "Card"
+msgstr "بطاقة"
+
+#: apps/vouchers/models.py:56
+#, fuzzy
+#| msgid "source type"
+msgid "voucher type"
+msgstr "نوع المصدر"
+
+#: apps/vouchers/models.py:58
+msgid "settlement kind"
+msgstr "نوع التسوية"
+
+#: apps/vouchers/models.py:70
+msgid "exchange rate overridden"
+msgstr "سعر الصرف مُتجاوَز"
+
+#: apps/vouchers/models.py:75
+#, fuzzy
+#| msgid "treasury"
+msgid "treasury kind"
+msgstr "الخزينة"
+
+#: apps/vouchers/models.py:89
+msgid "counter treasury kind"
+msgstr "نوع الخزينة المقابلة"
+
+#: apps/vouchers/models.py:104
+#, fuzzy
+#| msgid "country code"
+msgid "counter amount"
+msgstr "رمز الدولة"
+
+#: apps/vouchers/models.py:116
+#, fuzzy
+#| msgid "party type"
+msgid "party role"
+msgstr "نوع الطرف"
+
+#: apps/vouchers/models.py:120
+#, fuzzy
+#| msgid "company name"
+msgid "payee name"
+msgstr "اسم الشركة"
+
+#: apps/vouchers/models.py:123
+#, fuzzy
+#| msgid "depreciation method"
+msgid "payment method"
+msgstr "طريقة الإهلاك"
+
+#: apps/vouchers/models.py:132
+msgid "total (base)"
+msgstr "الإجمالي (بالعملة الأساسية)"
+
+#: apps/vouchers/models.py:149
+msgid "posted at"
+msgstr "تاريخ الترحيل"
+
+#: apps/vouchers/models.py:180
+msgid "Invoice settlement"
+msgstr "تسوية فاتورة"
+
+#: apps/vouchers/models.py:181
+#, fuzzy
+#| msgid "system account"
+msgid "On account"
+msgstr "حساب نظامي"
+
+#: apps/vouchers/models.py:182
+#, fuzzy
+#| msgid "system account"
+msgid "Direct account"
+msgstr "حساب نظامي"
+
+#: apps/vouchers/models.py:187
+#, fuzzy
+#| msgid "type"
+msgid "line type"
+msgstr "النوع"
+
+#: apps/vouchers/models.py:194 apps/vouchers/models.py:254
+msgid "allocated (invoice currency)"
+msgstr "المخصَّص (بعملة الفاتورة)"
+
+#: apps/vouchers/models.py:205
+msgid "amount includes tax"
+msgstr "المبلغ شامل الضريبة"
+
+#: apps/vouchers/models.py:207
+#, fuzzy
+#| msgid "tax total"
+msgid "tax amount"
+msgstr "إجمالي الضريبة"
+
+#: apps/vouchers/models.py:211
+#, fuzzy
+#| msgid "Supplier"
+msgid "supplier name"
+msgstr "مورّد"
+
+#: apps/vouchers/models.py:212
+#, fuzzy
+#| msgid "tax number"
+msgid "supplier tax number"
+msgstr "الرقم الضريبي"
+
+#: apps/vouchers/models.py:213
+#, fuzzy
+#| msgid "Issue/approve invoices"
+msgid "supplier invoice ref"
+msgstr "اعتماد الفواتير"
+
+#: apps/vouchers/models.py:227
+msgid "amount (base)"
+msgstr "المبلغ (بالعملة الأساسية)"
+
+#: apps/vouchers/models.py:230
+#, fuzzy
+#| msgid "tax rate (%)"
+msgid "tax amount (base)"
+msgstr "نسبة الضريبة (%)"
+
+#: apps/vouchers/models.py:257
+#, fuzzy
+#| msgid "Create invoices"
+msgid "base at invoice rate"
+msgstr "إنشاء فواتير"
+
+#: apps/vouchers/models.py:260
+msgid "base settled"
+msgstr "المسدَّد (بالعملة الأساسية)"
+
+#: apps/vouchers/models.py:267
+msgid "FX difference (base)"
+msgstr "فرق العملة (بالعملة الأساسية)"
+
+#: apps/vouchers/models.py:269
+msgid "reversed"
+msgstr "معكوس"
+
+#: apps/vouchers/services.py:43
+msgid "Unknown treasury kind."
+msgstr "نوع الخزينة غير معروف."
+
+#: apps/vouchers/services.py:47
+#, fuzzy
+#| msgid "Product not found."
+msgid "Treasury account not found."
+msgstr "المنتج غير موجود."
+
+#: apps/vouchers/services.py:54
+msgid ""
+"No system account found for this treasury kind — check the chart of accounts."
+msgstr "لا يوجد حساب نظامي لهذا النوع من الخزينة — راجع دليل الحسابات."
+
+#: apps/vouchers/services.py:75
+msgid "The treasury account belongs to a different legal entity."
+msgstr "حساب الخزينة يخص كيانًا قانونيًا مختلفًا."
+
+#: apps/vouchers/services.py:101
+msgid "Invoice belongs to a different legal entity."
+msgstr "الفاتورة تخص كيانًا قانونيًا مختلفًا."
+
+#: apps/vouchers/services.py:103
+msgid "Invoice does not belong to this voucher's party."
+msgstr "الفاتورة لا تخص طرف هذا السند."
+
+#: apps/vouchers/services.py:107
+msgid "Allocated amount exceeds the invoice's remaining balance."
+msgstr "المبلغ المخصَّص يتجاوز الرصيد المتبقي للفاتورة."
+
+#: apps/vouchers/services.py:184
+msgid "The source and destination treasury accounts cannot be the same."
+msgstr "لا يجوز أن يتطابق حسابا الخزينة المصدر والوجهة."
+
+#: apps/vouchers/services.py:190
+msgid "Both treasury accounts must belong to this legal entity."
+msgstr "يجب أن ينتمي حسابا الخزينة كلاهما لهذا الكيان القانوني."
+
+#: apps/vouchers/services.py:210
+msgid "Required — the two treasury accounts use different currencies."
+msgstr "إلزامي — حسابا الخزينة بعملتين مختلفتين."
+
+#: apps/vouchers/services.py:341 apps/vouchers/services.py:372
+msgid "Could not resolve the party's sub-ledger account."
+msgstr "تعذَّر تحديد الحساب الفرعي للطرف."
+
+#: apps/vouchers/services.py:486
+msgid "Insufficient balance in the source treasury account for this transfer."
+msgstr "رصيد حساب الخزينة المصدر لا يكفي لهذا التحويل."
+
+#: apps/vouchers/services.py:489
+msgid "This will make the source bank account balance negative."
+msgstr "هذا سيجعل رصيد الحساب البنكي المصدر سالبًا."
+
+#: apps/vouchers/services.py:497
+msgid "This will exceed the destination cash box's configured maximum balance."
+msgstr "هذا سيتجاوز الحد الأقصى المضبوط لصندوق الوجهة."
+
+#: apps/vouchers/services.py:501
+msgid "This would exceed the destination custody's configured limit."
+msgstr "هذا سيتجاوز حد عهدة الوجهة المضبوط."
+
+#: apps/vouchers/services.py:521
+msgid "Insufficient balance in this treasury account for this voucher."
+msgstr "رصيد حساب الخزينة هذا لا يكفي لهذا السند."
+
+#: apps/vouchers/services.py:524
+msgid "This will make the bank account balance negative."
+msgstr "هذا سيجعل رصيد الحساب البنكي سالبًا."
+
+#: apps/vouchers/services.py:529
+msgid "This will exceed the cash box's configured maximum balance."
+msgstr "هذا سيتجاوز الحد الأقصى المضبوط للصندوق."
+
+#: apps/vouchers/services.py:533
+msgid "This would exceed the custody's configured limit."
+msgstr "هذا سيتجاوز حد العهدة المضبوط."
+
+#: apps/vouchers/services.py:552
+#, fuzzy, python-format
+#| msgid ""
+#| "The implicit rate on this allocation is more than 10% off the recorded "
+#| "exchange rate — please verify the amount."
+msgid ""
+"The implicit rate on this allocation is more than 10% off the recorded "
+"exchange rate — please verify the amount."
+msgstr ""
+"السعر الضمني في هذا التخصيص يختلف بأكثر من 10% عن سعر الصرف المسجَّل — تحقَّق من "
+"المبلغ."
+
+#: apps/vouchers/services.py:590
+#, fuzzy
+#| msgid "Only draft invoices can be issued."
+msgid "Only a draft voucher can be submitted."
+msgstr "يمكن اعتماد الفواتير في حالة المسودة فقط."
+
+#: apps/vouchers/services.py:681
+#, python-format
+msgid ""
+"Could not auto-match this voucher to its source statement line: %(detail)s"
+msgstr "تعذَّرت المطابقة التلقائية لهذا السند مع سطر الكشف المصدر: %(detail)s"
+
+#: apps/vouchers/services.py:736
+msgid "Only a pending-approval voucher can be withdrawn."
+msgstr "لا يُسحَب إلا سند بانتظار الاعتماد."
+
+#: apps/vouchers/services.py:738
+msgid "Only the creator can withdraw this voucher."
+msgstr "لا يجوز السحب إلا لمُنشئ السند."
+
+#: apps/vouchers/services.py:755
+#, fuzzy
+#| msgid "Only issued invoices can be voided."
+msgid "Only a posted voucher can be reversed."
+msgstr "يمكن إلغاء (Void) الفواتير المعتمدة فقط."
+
+#: apps/vouchers/services.py:757
+msgid "A reason is required to reverse a voucher."
+msgstr "سبب العكس إلزامي."

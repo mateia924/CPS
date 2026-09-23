@@ -51,6 +51,14 @@ export default function InvoiceDetailPage() {
         <p>{t("issueDate")}: {invoice.issue_date}</p>
         {invoice.due_date && <p>{t("dueDate")}: {invoice.due_date}</p>}
         <p>{t("total")}: {invoice.total} {invoice.currency}</p>
+        {invoice.journal_entry_id && (
+          <p>
+            {t("relatedJournalEntry")}:{" "}
+            <Link href={`/dashboard/accounting/journal-entries/${invoice.journal_entry_id}`}>
+              {invoice.journal_entry_number || invoice.journal_entry_id}
+            </Link>
+          </p>
+        )}
         {invoice.status === "issued" && (
           <Link href={`/print/invoices/${invoice.id}`} className="secondary" target="_blank">
             {t("printButton")}

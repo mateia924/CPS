@@ -31,6 +31,9 @@ class VoucherSerializer(serializers.ModelSerializer):
     treasury_name = serializers.SerializerMethodField()
     counter_treasury_name = serializers.SerializerMethodField()
     journal_entry_id = serializers.PrimaryKeyRelatedField(source="journal_entry", read_only=True)
+    # Sprint 6 (block 6.0, item 2): the link text — mirrors
+    # apps.sales.serializers.InvoiceSerializer.journal_entry_number.
+    journal_entry_number = serializers.CharField(source="journal_entry.number", read_only=True, default=None)
 
     class Meta:
         model = Voucher
@@ -42,8 +45,8 @@ class VoucherSerializer(serializers.ModelSerializer):
             "counter_treasury_name",
             "legal_entity", "legal_entity_name", "party", "party_name", "party_role", "payee_name",
             "payment_method", "reference", "description", "status",
-            "total_fc", "total_base", "journal_entry_id", "created_by", "posted_at", "reversal_of",
-            "lines", "created_at",
+            "total_fc", "total_base", "journal_entry_id", "journal_entry_number", "created_by", "posted_at",
+            "reversal_of", "lines", "created_at",
         )
         read_only_fields = fields
 

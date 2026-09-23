@@ -113,7 +113,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         invoice = serializer.save()
         payload = InvoiceSerializer(invoice).data
-        payload["warnings"] = future_date_warning(invoice.issue_date)
+        payload["warnings"] = future_date_warning(invoice.issue_date) + getattr(serializer, "rate_warnings", [])
         return Response(payload, status=201)
 
     def partial_update(self, request, *args, **kwargs):
@@ -130,7 +130,9 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(invoice, data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         invoice = serializer.save()
-        return Response(InvoiceSerializer(invoice).data)
+        payload = InvoiceSerializer(invoice).data
+        payload["warnings"] = getattr(serializer, "rate_warnings", [])
+        return Response(payload)
 
     @action(detail=True, methods=["post"])
     def issue(self, request, pk=None):

@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
+import { Money } from "@/components/Money";
 import { useLocale } from "@/lib/i18n";
 import { flattenLeafAccounts, type FlatAccountOption } from "@/lib/accounts";
 import type { AccountTreeNode, LedgerStatement } from "@/lib/types";
@@ -68,7 +69,7 @@ function LedgerReport() {
 
       {result && (
         <div className="card">
-          <p>{t("openingBalance")}: {result.opening_balance}</p>
+          <p>{t("openingBalance")}: <Money amount={result.opening_balance} /></p>
           {result.lines.length === 0 ? (
             <p style={{ color: "var(--muted)" }}>{t("noData")}</p>
           ) : (
@@ -89,15 +90,15 @@ function LedgerReport() {
                     <td>{line.date}</td>
                     <td>{line.entry_number}</td>
                     <td>{line.description}</td>
-                    <td>{line.debit !== "0.00" ? line.debit : ""}</td>
-                    <td>{line.credit !== "0.00" ? line.credit : ""}</td>
-                    <td>{line.running_balance}</td>
+                    <td>{line.debit !== "0.00" ? <Money amount={line.debit} /> : ""}</td>
+                    <td>{line.credit !== "0.00" ? <Money amount={line.credit} /> : ""}</td>
+                    <td><Money amount={line.running_balance} /></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
-          <p style={{ marginTop: "0.5rem" }}><strong>{t("closingBalance")}: {result.closing_balance}</strong></p>
+          <p style={{ marginTop: "0.5rem" }}><strong>{t("closingBalance")}: <Money amount={result.closing_balance} /></strong></p>
         </div>
       )}
     </div>

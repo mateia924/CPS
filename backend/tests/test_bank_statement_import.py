@@ -180,7 +180,10 @@ def test_opening_balance_mismatch_with_previous_statement_warns(tenant_a, client
         column_mapping={"date": "Date", "amount": "Amount"},
     )
     assert second.status_code == 201, second.data
-    assert any("Opening balance" in w or "opening" in w.lower() for w in second.data["warnings"])
+    # Sprint 6.0 (block 6.0, item 5): this warning's msgid is now
+    # translated in the Arabic catalog — LANGUAGE_CODE="ar" is this
+    # project's default, so the response carries the Arabic text.
+    assert any("الرصيد الافتتاحي" in w for w in second.data["warnings"])
 
 
 # ---------------------------------------------------------------------
@@ -252,7 +255,9 @@ def test_mt940_balance_mismatch_with_entered_values_warns(tenant_a, client_a):
         opening_balance="1000.00", closing_balance="1550.00",
     )
     assert response.status_code == 201, response.data
-    assert any("closing balance" in w.lower() for w in response.data["warnings"])
+    # Sprint 6.0 (block 6.0, item 5): Arabic-translated msgid, see the
+    # opening-balance test above for the same reasoning.
+    assert any("الرصيد الختامي" in w for w in response.data["warnings"])
 
 
 # ---------------------------------------------------------------------

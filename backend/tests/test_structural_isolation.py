@@ -49,6 +49,7 @@ TENANT_FILTER_EXEMPTIONS = {
 NOT_TENANT_DATA = {
     "apps.accounts.views.RegisterView",
     "apps.accounts.views.LoginView",
+    "apps.accounts.views.LogoutView",
     "apps.accounts.views.MeView",
     "rest_framework_simplejwt.views.TokenRefreshView",
     "apps.platform.views.PlatformLoginView",

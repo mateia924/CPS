@@ -298,7 +298,9 @@ def test_voucher_from_statement_line_amount_mismatch_warns_but_posts(tenant_a, c
     assert voucher.status_code == 201, voucher.data
     posted = _post(client_a, voucher.data["id"])
     assert posted.status_code == 200, posted.data
-    assert any("statement" in w.lower() or "match" in w.lower() for w in posted.data["warnings"])
+    # Sprint 6.0 (block 6.0, item 5): "match"/"statement" msgids are now
+    # Arabic-translated (مطابقة/كشف) — LANGUAGE_CODE="ar" is the default.
+    assert any("مطابقة" in w or "كشف" in w for w in posted.data["warnings"])
 
     line = client_a.get(f"/api/statement-lines/{line_id}/")
     assert line.data["status"] == "unmatched"
@@ -319,7 +321,9 @@ def test_reversing_matched_voucher_warns_but_keeps_match(tenant_a, client_a):
 
     reverse = client_a.post(f"/api/vouchers/{receipt['id']}/reverse/", {"reason": "خطأ"}, format="json")
     assert reverse.status_code == 200, reverse.data
-    assert any("reconciled" in w.lower() or "match" in w.lower() for w in reverse.data["warnings"])
+    # Sprint 6.0 (block 6.0, item 5): "reconciled"/"match" msgid is now
+    # Arabic-translated (مسوّى/المطابقة).
+    assert any("مطابقة" in w or "مسوّى" in w for w in reverse.data["warnings"])
 
     line = client_a.get(f"/api/statement-lines/{line_id}/")
     assert line.data["status"] == "matched"

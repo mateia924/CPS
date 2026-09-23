@@ -12,7 +12,7 @@ from apps.common.validators import future_date_warning
 from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 from apps.organization.models import CostCenter
 from apps.organization.services import get_accessible_entity_ids
-from apps.treasury.services import ExchangeRateNotFound, get_rate
+from apps.treasury.services import ExchangeRateNotFound, get_rate_with_warnings
 
 from .models import Account, JournalEntry, TaxCode, TaxPeriod
 from .serializers import (
@@ -174,12 +174,17 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
         )
 
     def _resolve_currency_and_rate(self, tenant, legal_entity, currency, exchange_rate, date):
+        # Sprint 6 (block 6.0, item 6): the third element is a
+        # warnings[] list — non-empty only when the resolved rate
+        # (never an explicit override, never same-currency) is stale
+        # (CFO_REVIEW_1 C14, same check vouchers already use).
         currency = currency or legal_entity.base_currency
         if currency == legal_entity.base_currency:
-            return currency, Decimal("1")
+            return currency, Decimal("1"), []
         if exchange_rate is not None:
-            return currency, exchange_rate
-        return currency, get_rate(tenant, currency, legal_entity.base_currency, date)
+            return currency, exchange_rate, []
+        rate, warnings = get_rate_with_warnings(tenant, currency, legal_entity.base_currency, date)
+        return currency, rate, warnings
 
     def create(self, request, *args, **kwargs):
         serializer = ManualJournalEntryCreateSerializer(data=request.data, context={"request": request})
@@ -187,7 +192,7 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
         data = serializer.validated_data
         tenant = request.user.tenant
         try:
-            currency, exchange_rate = self._resolve_currency_and_rate(
+            currency, exchange_rate, rate_warnings = self._resolve_currency_and_rate(
                 tenant, data["legal_entity"], data.get("currency"), data.get("exchange_rate"), data["date"]
             )
             resolved_lines = _resolve_manual_lines(tenant, data["lines"])
@@ -211,7 +216,7 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
         except PermissionDenied as exc:
             return Response({"detail": str(exc)}, status=403)
         payload = JournalEntrySerializer(entry).data
-        payload["warnings"] = future_date_warning(data["date"])
+        payload["warnings"] = future_date_warning(data["date"]) + rate_warnings
         return Response(payload, status=201)
 
     @action(detail=True, methods=["post"])

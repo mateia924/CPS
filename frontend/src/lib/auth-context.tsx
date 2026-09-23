@@ -9,6 +9,8 @@ export interface Tenant {
   id: string;
   name: string;
   subdomain: string;
+  status?: "trial" | "active" | "past_due" | "suspended" | "archived";
+  past_due_since?: string | null;
 }
 
 export interface User {
@@ -70,6 +72,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isReady, setIsReady] = useState(false);
 
   const logout = () => {
+    // Sprint 6 (block 6.0, item 6): blacklist the refresh token
+    // server-side so it can't be replayed after "logout" — best-effort
+    // (fire-and-forget): local state is cleared either way, since the
+    // user's own session must end locally even if the network call
+    // fails or the token was already expired.
+    const refresh = window.localStorage.getItem("cps_refresh");
+    if (refresh) {
+      api.post("/auth/logout/", { refresh }).catch(() => {});
+    }
     window.localStorage.removeItem("cps_access");
     window.localStorage.removeItem("cps_refresh");
     window.localStorage.removeItem("cps_user");

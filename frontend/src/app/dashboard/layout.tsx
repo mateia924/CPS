@@ -195,7 +195,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </button>
         </div>
       </aside>
-      <main className="main-content">{children}</main>
+      <main className="main-content">
+        {tenant?.status === "past_due" && (
+          <div className="banner-warning" role="alert">
+            {t("pastDueWarning")}
+          </div>
+        )}
+        {children}
+      </main>
     </div>
   );
 }

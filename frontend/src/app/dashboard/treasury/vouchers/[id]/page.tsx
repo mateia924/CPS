@@ -89,7 +89,16 @@ export default function VoucherDetailPage() {
         <p>{t("description")}: {voucher.description || "—"}</p>
         <p>{t("grandTotal")}: {voucher.total_fc} {voucher.currency} ({voucher.total_base} {t("currency")})</p>
         {voucher.exchange_rate_overridden && <p style={{ color: "var(--muted)" }}>{t("exchangeRateLabel")}: {voucher.exchange_rate}</p>}
-        <p>{t("relatedJournalEntry")}: {voucher.journal_entry_id || "—"}</p>
+        {voucher.journal_entry_id ? (
+          <p>
+            {t("relatedJournalEntry")}:{" "}
+            <Link href={`/dashboard/accounting/journal-entries/${voucher.journal_entry_id}`}>
+              {voucher.journal_entry_number || voucher.journal_entry_id}
+            </Link>
+          </p>
+        ) : (
+          <p>{t("relatedJournalEntry")}: —</p>
+        )}
       </div>
 
       {voucher.lines.length > 0 && (

@@ -463,7 +463,7 @@ def post_invoice_journal_entry(invoice):
         tenant=tenant,
         legal_entity=invoice.legal_entity,
         date=invoice.issue_date,
-        memo=f"Invoice {invoice.number}",
+        memo=f"فاتورة {invoice.number}",
         number=next_document_number(tenant, "journal_entry", invoice.legal_entity, invoice.issue_date),
         status=JournalEntry.Status.POSTED,
         source_type="invoice",
@@ -504,7 +504,7 @@ def void_invoice_journal_entry(invoice):
         tenant=invoice.tenant,
         legal_entity=invoice.legal_entity,
         date=timezone.localdate(),
-        memo=f"Void of invoice {invoice.number}",
+        memo=f"إلغاء فاتورة {invoice.number}",
         number=next_document_number(
             invoice.tenant, "journal_entry", invoice.legal_entity, timezone.localdate()
         ),
@@ -718,7 +718,7 @@ def reverse_journal_entry(entry, user, reason, date=None):
         tenant=tenant,
         legal_entity=entry.legal_entity,
         date=reversal_date,
-        memo=f"Reversal of {entry.number or entry.id}: {reason}",
+        memo=f"عكس قيد {entry.number or entry.id}: {reason}",
         number=next_document_number(tenant, "journal_entry", entry.legal_entity, reversal_date),
         status=JournalEntry.Status.POSTED,
         reverses=entry,

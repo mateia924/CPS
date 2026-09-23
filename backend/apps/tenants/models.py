@@ -42,6 +42,11 @@ class Tenant(models.Model):
     # would free quota). Checked against plan.storage_mb before each
     # upload (apps.attachments.services.check_storage_limit).
     storage_used_bytes = models.BigIntegerField(_("storage used (bytes)"), default=0)
+    # Sprint 6 (block 6.0, item 6 — CFO_REVIEW_1 §7 Q10 gap): set when a
+    # Super Admin marks a tenant PAST_DUE (apps.platform.views.
+    # TenantAdminViewSet.mark_past_due); a daily beat auto-transitions
+    # to SUSPENDED once settings.PAST_DUE_GRACE_DAYS has elapsed.
+    past_due_since = models.DateTimeField(_("past due since"), null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

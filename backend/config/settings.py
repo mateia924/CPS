@@ -39,6 +39,9 @@ DJANGO_APPS = [
 THIRD_PARTY_APPS = [
     "rest_framework",
     "rest_framework_simplejwt",
+    # Sprint 6 (block 6.0, item 6 — CFO_REVIEW_1 §7 Q18, sprint 5.7 gap):
+    # backs BLACKLIST_AFTER_ROTATION below and POST /api/auth/logout/.
+    "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
     "django_filters",
 ]
@@ -189,7 +192,11 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=env.int("JWT_ACCESS_MINUTES", default=30)),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=env.int("JWT_REFRESH_DAYS", default=7)),
     "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": False,
+    # Sprint 6 (block 6.0, item 6): was False (CFO_REVIEW_1 §7 Q18 gap
+    # — a leaked/rotated refresh token stayed valid for its full 7-day
+    # lifetime regardless). A rotated-away token is now blacklisted
+    # immediately, and POST /api/auth/logout/ blacklists the current one.
+    "BLACKLIST_AFTER_ROTATION": True,
     "AUTH_HEADER_TYPES": ("Bearer",),
     "USER_ID_FIELD": "id",
     "USER_ID_CLAIM": "user_id",
@@ -202,6 +209,11 @@ SIMPLE_JWT = {
 PLATFORM_JWT_SIGNING_KEY = env("PLATFORM_JWT_SIGNING_KEY")
 PLATFORM_JWT_ACCESS_MINUTES = env.int("PLATFORM_JWT_ACCESS_MINUTES", default=30)
 PLATFORM_JWT_REFRESH_DAYS = env.int("PLATFORM_JWT_REFRESH_DAYS", default=7)
+
+# Sprint 6 (block 6.0, item 6): days a tenant may stay PAST_DUE before
+# apps.tenants.tasks.auto_suspend_past_due_tenants (daily beat)
+# transitions it to SUSPENDED automatically.
+PAST_DUE_GRACE_DAYS = env.int("PAST_DUE_GRACE_DAYS", default=14)
 
 # ---------------------------------------------------------------------------
 # CORS
@@ -228,6 +240,11 @@ CELERY_BEAT_SCHEDULE = {
     "attachment-integrity-check": {
         "task": "apps.attachments.tasks.check_attachment_integrity",
         "schedule": timedelta(days=7),
+    },
+    # Sprint 6 (block 6.0, item 6).
+    "auto-suspend-past-due-tenants": {
+        "task": "apps.tenants.tasks.auto_suspend_past_due_tenants",
+        "schedule": timedelta(days=1),
     },
 }
 

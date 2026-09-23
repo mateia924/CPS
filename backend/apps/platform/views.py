@@ -178,6 +178,33 @@ class TenantAdminViewSet(PlatformViewSet):
         return Response(TenantAdminSerializer(tenant).data)
 
     @action(detail=True, methods=["post"])
+    def mark_past_due(self, request, pk=None):
+        """Sprint 6 (block 6.0, item 6): starts the PAST_DUE grace
+        period clock — apps.tenants.tasks.auto_suspend_past_due_tenants
+        (daily beat) auto-suspends after settings.PAST_DUE_GRACE_DAYS."""
+        from django.utils import timezone
+
+        tenant = self.get_object()
+        serializer = SuspendTenantSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        before_status = tenant.status
+        tenant.status = Tenant.Status.PAST_DUE
+        tenant.past_due_since = timezone.now()
+        tenant.save(update_fields=["status", "past_due_since"])
+        log_action(
+            actor_type=AuditLog.ActorType.PLATFORM,
+            actor_id=request.user.id,
+            action="tenant.mark_past_due",
+            target_type="tenant",
+            target_id=tenant.id,
+            tenant_id=tenant.id,
+            before={"status": before_status, "reason": serializer.validated_data["reason"]},
+            after={"status": tenant.status, "past_due_since": tenant.past_due_since.isoformat()},
+            request=request,
+        )
+        return Response(TenantAdminSerializer(tenant).data)
+
+    @action(detail=True, methods=["post"])
     def suspend(self, request, pk=None):
         tenant = self.get_object()
         serializer = SuspendTenantSerializer(data=request.data)
@@ -205,7 +232,8 @@ class TenantAdminViewSet(PlatformViewSet):
         serializer.is_valid(raise_exception=True)
         before_status = tenant.status
         tenant.status = Tenant.Status.ACTIVE
-        tenant.save(update_fields=["status"])
+        tenant.past_due_since = None
+        tenant.save(update_fields=["status", "past_due_since"])
         log_action(
             actor_type=AuditLog.ActorType.PLATFORM,
             actor_id=request.user.id,

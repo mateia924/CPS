@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { Money } from "@/components/Money";
 import { useLocale } from "@/lib/i18n";
 import type { LegalEntity, Paginated } from "@/lib/types";
 
@@ -95,9 +96,9 @@ export default function TrialBalancePage() {
               <tr key={row.account_id}>
                 <td>{row.account_code}</td>
                 <td>{row.account_name}</td>
-                <td>{row.debit}</td>
-                <td>{row.credit}</td>
-                <td>{row.balance}</td>
+                <td><Money amount={row.debit} /></td>
+                <td><Money amount={row.credit} /></td>
+                <td><Money amount={row.balance} /></td>
               </tr>
             ))}
           </tbody>
@@ -107,10 +108,10 @@ export default function TrialBalancePage() {
                 <strong>{t("total")}</strong>
               </td>
               <td>
-                <strong>{result.total_debit}</strong>
+                <strong><Money amount={result.total_debit} /></strong>
               </td>
               <td>
-                <strong>{result.total_credit}</strong>
+                <strong><Money amount={result.total_credit} /></strong>
               </td>
               <td></td>
             </tr>

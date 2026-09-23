@@ -20,9 +20,14 @@ class Voucher(TenantScopedModel, DocumentStateMixin):
     """
 
     class VoucherType(models.TextChoices):
-        RECEIPT = "receipt", _("Receipt")
-        PAYMENT = "payment", _("Payment")
-        SETTLEMENT = "settlement", _("Settlement")
+        # Sprint 6 (block 6.0): labels match apps.approvals.models.
+        # ApprovalRule.DocType's own wording exactly ("Receipt Voucher"
+        # etc.) on purpose — same translated msgid, no collision with
+        # apps.attachments.models.Attachment.Category.RECEIPT ("Receipt"
+        # alone, a different concept translated differently).
+        RECEIPT = "receipt", _("Receipt Voucher")
+        PAYMENT = "payment", _("Payment Voucher")
+        SETTLEMENT = "settlement", _("Settlement Voucher")
 
     class SettlementKind(models.TextChoices):
         INTERNAL_TRANSFER = "internal_transfer", _("Internal transfer")

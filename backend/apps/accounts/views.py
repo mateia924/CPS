@@ -1,7 +1,9 @@
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.access.models import Role
@@ -61,6 +63,30 @@ class LoginView(APIView):
                 **_tokens_for_user(user),
             }
         )
+
+
+class LogoutView(APIView):
+    """Sprint 6 (block 6.0, item 6 — CFO_REVIEW_1 §7 Q18): blacklists
+    the refresh token so it can never be used again, closing the gap a
+    leaked/still-valid-after-"logout" refresh token left open (5.7's
+    verification answer documented this as a real, then-unfixed gap).
+    The access token itself is short-lived (30 min default) and is
+    simply discarded client-side, same as before."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        refresh = request.data.get("refresh")
+        if not refresh:
+            return Response({"detail": [str(_("A refresh token is required."))]}, status=400)
+        try:
+            token = RefreshToken(refresh)
+            token.blacklist()
+        except TokenError:
+            # Already expired/blacklisted/malformed — logging out is
+            # still a success from the caller's point of view.
+            pass
+        return Response(status=204)
 
 
 class MeView(APIView):

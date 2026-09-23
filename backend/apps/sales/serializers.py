@@ -11,7 +11,7 @@ from apps.organization.services import default_branch_for_tenant, get_accessible
 from apps.parties.models import Party, PartyRole
 from apps.platform.models import AuditLog
 from apps.platform.services import log_action
-from apps.treasury.services import ExchangeRateNotFound, get_rate
+from apps.treasury.services import ExchangeRateNotFound, get_rate_with_warnings
 
 from .models import Customer, Invoice, InvoiceLine, Product
 from .services import create_invoice, update_invoice
@@ -65,21 +65,55 @@ class InvoiceSerializer(serializers.ModelSerializer):
     # ضريبية مبسّطة" لعميل فرد — القرار يعتمد على نوع الطرف لا الحالة.
     customer_party_type = serializers.CharField(source="party.party_type", read_only=True)
     legal_entity_name = serializers.CharField(source="legal_entity.name", read_only=True)
+    # Sprint 6 (block 6.0, item 1): server-side label alongside the raw
+    # `status` value — reads Django's own translation catalog
+    # (locale/ar), so it renders correctly wherever Accept-Language is
+    # honored (server-rendered contexts like the approval digest email,
+    # not just the frontend's own i18n dictionary).
+    status_label = serializers.CharField(source="get_status_display", read_only=True)
+    # Sprint 6 (block 6.0, item 2): the journal entry this invoice
+    # generated, as a link target on the detail screen — resolved via
+    # the same GenericFK every system-generated JournalEntry already
+    # carries (source_type='invoice'), not a new FK column.
+    journal_entry_id = serializers.SerializerMethodField()
+    journal_entry_number = serializers.SerializerMethodField()
 
     class Meta:
         model = Invoice
         fields = (
-            "id", "number", "status", "created_by", "issue_date", "due_date", "customer", "customer_name",
-            "customer_party_type",
+            "id", "number", "status", "status_label", "created_by", "issue_date", "due_date", "customer",
+            "customer_name", "customer_party_type",
             "legal_entity", "legal_entity_name", "currency", "exchange_rate",
             "subtotal", "tax_total", "total", "base_total", "paid_fc", "balance_fc", "payment_status",
-            "delivered_at", "lines", "created_at", "updated_at",
+            "delivered_at", "journal_entry_id", "journal_entry_number", "lines", "created_at", "updated_at",
         )
         read_only_fields = (
-            "id", "number", "status", "created_by", "due_date", "customer_name", "customer_party_type",
+            "id", "number", "status", "status_label", "created_by", "due_date", "customer_name",
+            "customer_party_type",
             "legal_entity_name", "currency", "exchange_rate", "subtotal", "tax_total", "total", "base_total",
-            "paid_fc", "balance_fc", "payment_status", "delivered_at", "lines", "created_at", "updated_at",
+            "paid_fc", "balance_fc", "payment_status", "delivered_at", "journal_entry_id", "journal_entry_number",
+            "lines", "created_at", "updated_at",
         )
+
+    def _journal_entry(self, obj):
+        from django.contrib.contenttypes.models import ContentType
+
+        from apps.accounting.models import JournalEntry
+
+        if not hasattr(obj, "_cached_journal_entry"):
+            obj._cached_journal_entry = JournalEntry.objects.filter(
+                tenant_id=obj.tenant_id, content_type=ContentType.objects.get_for_model(Invoice),
+                object_id=obj.id, source_type="invoice",
+            ).first()
+        return obj._cached_journal_entry
+
+    def get_journal_entry_id(self, obj):
+        entry = self._journal_entry(obj)
+        return str(entry.id) if entry else None
+
+    def get_journal_entry_number(self, obj):
+        entry = self._journal_entry(obj)
+        return entry.number if entry else None
 
 
 class InvoiceLineInputSerializer(serializers.Serializer):
@@ -161,6 +195,10 @@ class InvoiceCreateSerializer(serializers.Serializer):
         attrs["currency"] = currency
         issue_date = attrs.get("issue_date") or timezone.localdate()
 
+        # Sprint 6 (block 6.0, item 6): surfaced to the view via
+        # self.rate_warnings — a stale rate (>7 days old, CFO_REVIEW_1
+        # C14) is a warning, never a block, same as vouchers (5.7).
+        self.rate_warnings = []
         if currency == legal_entity.base_currency:
             # Same currency is always rate 1 — an explicit override
             # here would be meaningless, so it's ignored rather than
@@ -172,7 +210,9 @@ class InvoiceCreateSerializer(serializers.Serializer):
         else:
             tenant = self.context["request"].user.tenant
             try:
-                attrs["exchange_rate"] = get_rate(tenant, currency, legal_entity.base_currency, issue_date)
+                attrs["exchange_rate"], self.rate_warnings = get_rate_with_warnings(
+                    tenant, currency, legal_entity.base_currency, issue_date
+                )
             except ExchangeRateNotFound as exc:
                 raise serializers.ValidationError({"exchange_rate": [str(exc.message)]})
             attrs["_rate_overridden"] = False

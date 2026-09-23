@@ -56,6 +56,7 @@ export interface Invoice {
   id: string;
   number: string;
   status: DocumentStatus;
+  status_label: string;
   created_by: string | null;
   issue_date: string;
   due_date: string | null;
@@ -74,6 +75,8 @@ export interface Invoice {
   balance_fc: string;
   payment_status: PaymentStatus;
   delivered_at: string | null;
+  journal_entry_id: string | null;
+  journal_entry_number: string | null;
   lines: InvoiceLine[];
 }
 
@@ -173,7 +176,11 @@ export interface MeFeatures {
 }
 
 export interface MeResponse {
-  tenant: { id: string; name: string; subdomain: string };
+  tenant: {
+    id: string; name: string; subdomain: string;
+    status: "trial" | "active" | "past_due" | "suspended" | "archived";
+    past_due_since: string | null;
+  };
   user: { id: string; email: string; first_name: string; last_name: string };
   roles: string[];
   permissions: string[];
@@ -808,6 +815,7 @@ export interface Voucher {
   total_fc: string;
   total_base: string;
   journal_entry_id: string | null;
+  journal_entry_number: string | null;
   created_by: string | null;
   posted_at: string | null;
   reversal_of: string | null;

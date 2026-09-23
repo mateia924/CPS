@@ -28,7 +28,10 @@ TRIAL_LENGTH_DAYS = 14
 class TenantSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tenant
-        fields = ("id", "name", "subdomain", "created_at")
+        # Sprint 6 (block 6.0, item 6): `status`/`past_due_since` added
+        # so the frontend can show the PAST_DUE warning banner from
+        # /api/auth/me/ without a second request.
+        fields = ("id", "name", "subdomain", "status", "past_due_since", "created_at")
         read_only_fields = fields
 
 

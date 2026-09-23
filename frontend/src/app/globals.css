@@ -198,6 +198,27 @@ th, td {
   padding-top: 0.5rem;
 }
 
+/* Sprint 6 (block 6.0, item 6): PAST_DUE warning banner. */
+.banner-warning {
+  background: #fff1d6;
+  color: #7a4e00;
+  border: 1px solid #f0c987;
+  border-radius: 8px;
+  padding: 0.6rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+/* Sprint 6 (block 6.0, item 4): tabular (monospaced) Latin digits for
+   every money figure, via formatMoney() (lib/money.ts) — columns of
+   numbers in the ledger/trial balance/statements line up. */
+.money {
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+  unicode-bidi: isolate;
+  display: inline-block;
+}
+
 @media print {
   .print-actions {
     display: none;
