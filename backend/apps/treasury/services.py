@@ -281,6 +281,115 @@ def withdraw_iban_change_request(iban_request, user, request=None):
     return iban_request
 
 
+# ---------------------------------------------------------------------
+# Bank statement import (sprint 5.5, block 5.5.1)
+# ---------------------------------------------------------------------
+
+
+@transaction.atomic
+def import_bank_statement(
+    tenant, user, bank, file_obj, import_format, period_start, period_end,
+    opening_balance, closing_balance, currency, column_mapping=None, request=None,
+):
+    from apps.attachments.services import StorageQuotaExceeded as _StorageQuotaExceeded
+    from apps.attachments.services import (
+        check_file_size,
+        check_storage_limit,
+        compute_sha256,
+        create_attachment,
+        detect_mime_type,
+    )
+
+    from .models import Bank, BankStatement, BankStatementLine
+    from .statement_parsers import parse_statement_file
+
+    if currency != bank.currency:
+        raise ValidationError(
+            {"currency": [_("Statement currency must match the bank account's own currency.")]}
+        )
+    if period_end < period_start:
+        raise ValidationError({"period_end": [_("Period end cannot be before period start.")]})
+
+    file_obj.seek(0)
+    sha256 = compute_sha256(file_obj)
+    if BankStatement.objects.filter(tenant=tenant, bank=bank, file_sha256=sha256).exists():
+        raise TreasuryConflictError(_("This exact statement file has already been imported for this bank."))
+    if BankStatement.objects.filter(
+        tenant=tenant, bank=bank, period_start__lte=period_end, period_end__gte=period_start
+    ).exists():
+        raise TreasuryConflictError(_("This statement's period overlaps an already-imported statement."))
+
+    file_obj.seek(0)
+    lines, mt940_meta = parse_statement_file(file_obj, import_format, column_mapping)
+
+    warnings = []
+    previous = (
+        BankStatement.objects.filter(tenant=tenant, bank=bank, period_end__lt=period_start)
+        .order_by("-period_end")
+        .first()
+    )
+    if previous is not None and previous.closing_balance != opening_balance:
+        warnings.append(
+            str(
+                _("Opening balance (%(opening)s) does not match the previous statement's closing balance (%(prev)s).")
+                % {"opening": opening_balance, "prev": previous.closing_balance}
+            )
+        )
+    if mt940_meta:
+        file_opening = mt940_meta.get("final_opening_balance")
+        file_closing = mt940_meta.get("final_closing_balance")
+        if file_opening is not None and file_opening.amount.amount != opening_balance:
+            warnings.append(
+                str(_("MT940 file's own opening balance (%s) differs from the value entered.") % file_opening.amount.amount)
+            )
+        if file_closing is not None and file_closing.amount.amount != closing_balance:
+            warnings.append(
+                str(_("MT940 file's own closing balance (%s) differs from the value entered.") % file_closing.amount.amount)
+            )
+
+    file_obj.seek(0)
+    check_file_size(tenant, file_obj.size)
+    try:
+        check_storage_limit(tenant, file_obj.size)
+    except _StorageQuotaExceeded as exc:
+        raise ValidationError({"file": [str(exc.message)]})
+    mime_type = detect_mime_type(file_obj, file_obj.name)
+
+    statement = BankStatement.objects.create(
+        tenant=tenant, bank=bank, period_start=period_start, period_end=period_end,
+        currency=currency, opening_balance=opening_balance, closing_balance=closing_balance,
+        import_format=import_format, file_sha256=sha256, line_count=len(lines), imported_by=user,
+    )
+    BankStatementLine.objects.bulk_create(
+        BankStatementLine(
+            tenant=tenant, statement=statement, line_no=index, date=line.date, amount=line.amount,
+            description=line.description, reference=line.reference,
+        )
+        for index, line in enumerate(lines, start=1)
+    )
+
+    if import_format in ("csv", "xlsx") and column_mapping:
+        Bank.objects.filter(tenant=tenant, id=bank.id).update(import_column_mapping=column_mapping)
+
+    from django.contrib.contenttypes.models import ContentType
+
+    from apps.attachments.models import Attachment
+
+    file_obj.seek(0)
+    create_attachment(
+        tenant, ContentType.objects.get_for_model(BankStatement), statement, file_obj, mime_type, sha256,
+        Attachment.Category.BANK_STATEMENT, user,
+        description=f"{import_format} statement import", request=request,
+    )
+
+    # Auto-matching wiring lands in block 5.5.2
+    # (apps.treasury.reconciliation.auto_match_statement) — every line
+    # starts UNMATCHED until then.
+    auto_matched = statement.lines.filter(status=BankStatementLine.Status.MATCHED).count()
+    unmatched = statement.lines.exclude(status=BankStatementLine.Status.MATCHED).count()
+    return statement, auto_matched, unmatched, warnings
+
+
 def check_iban_change_guard(party):
     """CFO_REVIEW_1 C10's payment guard (decision 6): called from
     apps.vouchers.services for a PAYMENT voucher with a party. Raises

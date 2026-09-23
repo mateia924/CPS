@@ -35,6 +35,9 @@ ALLOWED_TARGETS = {
     # (3.17) that submit_iban_change_request checks for before allowing
     # submission for approval.
     "iban_change_request": ("treasury", "ibanchangerequest"),
+    # Sprint 5.5 (block 5.5.1): the original imported statement file
+    # itself, kept as an audit trail (v2 decision 5).
+    "bank_statement": ("treasury", "bankstatement"),
 }
 
 # extension -> allowed MIME types (from magic bytes, never trusted from
@@ -49,6 +52,12 @@ ALLOWED_EXTENSIONS = {
     "xlsx": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/zip"},
     "docx": {"application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/zip"},
     "csv": {"text/csv", "text/plain"},
+    # Sprint 5.5 (block 5.5.1): MT940 bank statement exports are plain
+    # SWIFT-tag text, commonly shipped with any of these extensions.
+    "sta": {"text/plain"},
+    "940": {"text/plain"},
+    "mt940": {"text/plain"},
+    "txt": {"text/plain"},
 }
 
 CHUNK_SIZE = 1024 * 1024  # 1 MB
@@ -120,6 +129,64 @@ def detect_mime_type(file_obj, original_name):
             {"file": [_("The file's actual content does not match its extension (%(ext)s).") % {"ext": ext}]}
         )
     return sniffed
+
+
+def create_attachment(
+    tenant, content_type, target, file_obj, mime_type, sha256, category, user,
+    description="", versioned=False, request=None,
+):
+    """Sprint 5.5 (block 5.5.1): extracted from
+    AttachmentViewSet.create (unchanged behavior — same transaction,
+    quota increment, scan dispatch, audit log) so a purely internal
+    caller (apps.treasury.services.import_bank_statement, attaching the
+    original statement file) can create a real Attachment row without
+    going through an HTTP request. Callers still run
+    check_file_size/check_storage_limit/detect_mime_type/
+    compute_sha256 themselves first, same division of labor as before."""
+    from django.db import models, transaction
+
+    from apps.platform.models import AuditLog
+    from apps.platform.services import log_action
+
+    from .models import Attachment
+    from .tasks import scan_attachment
+
+    version, supersedes = 1, None
+    if versioned:
+        previous = (
+            Attachment.objects.filter(
+                tenant=tenant, content_type=content_type, object_id=target.id,
+                category=category, status=Attachment.Status.ACTIVE,
+            )
+            .order_by("-version")
+            .first()
+        )
+        if previous is not None:
+            version, supersedes = previous.version + 1, previous
+
+    with transaction.atomic():
+        attachment = Attachment.objects.create(
+            tenant=tenant, content_type=content_type, object_id=target.id,
+            file=file_obj, original_name=file_obj.name, mime_type=mime_type,
+            size=file_obj.size, sha256=sha256, category=category, description=description,
+            uploaded_by=user, upload_ip=request.META.get("REMOTE_ADDR") if request else None,
+            version=version, supersedes=supersedes,
+        )
+        tenant.__class__.objects.filter(id=tenant.id).update(
+            storage_used_bytes=models.F("storage_used_bytes") + file_obj.size
+        )
+
+    scan_attachment.delay(str(attachment.id))
+    attachment.refresh_from_db()
+
+    log_action(
+        actor_type=AuditLog.ActorType.TENANT_USER, actor_id=user.id if user else None,
+        action="attachment.upload", target_type="attachment", target_id=attachment.id,
+        tenant_id=tenant.id,
+        after={"original_name": attachment.original_name, "sha256": attachment.sha256, "category": category},
+        request=request,
+    )
+    return attachment
 
 
 def check_storage_limit(tenant, additional_bytes):

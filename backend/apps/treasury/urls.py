@@ -1,6 +1,7 @@
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    BankStatementViewSet,
     BankViewSet,
     CashBoxViewSet,
     CustodyViewSet,
@@ -14,5 +15,6 @@ router.register("cash-boxes", CashBoxViewSet, basename="cashbox")
 router.register("custodies", CustodyViewSet, basename="custody")
 router.register("exchange-rates", ExchangeRateViewSet, basename="exchange-rate")
 router.register("iban-requests", IbanChangeRequestViewSet, basename="iban-change-request")
+router.register("bank-statements", BankStatementViewSet, basename="bank-statement")
 
 urlpatterns = router.urls

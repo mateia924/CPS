@@ -6,7 +6,15 @@ from apps.common.validators import validate_iban
 from apps.organization.models import LegalEntity
 from apps.parties.models import Party, PartyRole
 
-from .models import Bank, CashBox, Custody, ExchangeRate, IbanChangeRequest
+from .models import (
+    Bank,
+    BankStatement,
+    BankStatementLine,
+    CashBox,
+    Custody,
+    ExchangeRate,
+    IbanChangeRequest,
+)
 
 
 def _employee_party_queryset(tenant):
@@ -130,3 +138,68 @@ class IbanChangeRequestSerializer(serializers.ModelSerializer):
     def get_target_label(self, obj):
         target = obj.target
         return str(target) if target is not None else None
+
+
+class StatementImportSerializer(serializers.Serializer):
+    """Sprint 5.5 (block 5.5.1). Plain input serializer — the row and
+    its lines are built by apps.treasury.services.import_bank_statement,
+    same split as every other create-flow in this project."""
+
+    file = serializers.FileField()
+    format = serializers.ChoiceField(choices=["csv", "xlsx", "mt940"], source="import_format")
+    period_start = serializers.DateField()
+    period_end = serializers.DateField()
+    opening_balance = serializers.DecimalField(max_digits=18, decimal_places=2)
+    closing_balance = serializers.DecimalField(max_digits=18, decimal_places=2)
+    currency = serializers.CharField(max_length=3, required=False, allow_blank=True)
+    column_mapping = serializers.JSONField(required=False)
+
+
+class BankStatementLineSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BankStatementLine
+        fields = (
+            "id", "line_no", "date", "amount", "description", "reference", "status",
+            "matched_by", "matched_by_user", "matched_at", "ignored_reason",
+        )
+        read_only_fields = fields
+
+
+class _ReconciledRatioMixin:
+    def get_reconciled_ratio(self, obj):
+        total = obj.line_count
+        if not total:
+            return 0.0
+        settled = obj.lines.exclude(status=BankStatementLine.Status.UNMATCHED).count()
+        return round(settled / total, 4)
+
+
+class BankStatementListSerializer(_ReconciledRatioMixin, serializers.ModelSerializer):
+    """`GET /api/banks/{id}/statements/` — period, line count, and
+    reconciliation ratio only (no lines — avoids an N+1 per row)."""
+
+    reconciled_ratio = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BankStatement
+        fields = (
+            "id", "bank", "period_start", "period_end", "currency", "opening_balance", "closing_balance",
+            "import_format", "line_count", "imported_by", "reconciled_ratio", "created_at",
+        )
+        read_only_fields = fields
+
+
+class BankStatementSerializer(_ReconciledRatioMixin, serializers.ModelSerializer):
+    """`GET /api/banks/{id}/statements/{id}/` and the import response —
+    full lines included."""
+
+    reconciled_ratio = serializers.SerializerMethodField()
+    lines = BankStatementLineSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = BankStatement
+        fields = (
+            "id", "bank", "period_start", "period_end", "currency", "opening_balance", "closing_balance",
+            "import_format", "line_count", "imported_by", "reconciled_ratio", "lines", "created_at",
+        )
+        read_only_fields = fields

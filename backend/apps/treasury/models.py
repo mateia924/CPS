@@ -30,6 +30,11 @@ class Bank(TenantScopedModel):
         "accounting.Account", null=True, blank=True, on_delete=models.SET_NULL, related_name="banks"
     )
     is_active = models.BooleanField(_("active"), default=True)
+    # Sprint 5.5 (block 5.5.1, v2 decision 5): the last successful
+    # CSV/Excel column mapping for this bank's statement imports
+    # ({"date": "...", "amount": "...", ...} or a debit/credit pair),
+    # suggested back on the next import.
+    import_column_mapping = models.JSONField(_("import column mapping"), default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -112,36 +117,69 @@ class ExchangeRate(TenantScopedModel):
 
 
 class BankStatement(TenantScopedModel):
-    """Sprint 4.4 (docs/SYSTEM_ANALYSIS.md 3.15.2): schema only — import
-    (CSV/Excel/MT940/CAMT.053), matching and the reconciliation report
-    are sprint 5.5. `source_file` is a plain path/filename for now (no
-    upload endpoint yet, no storage backend configured in this
-    project) rather than a real FileField, to avoid introducing S3/
-    media-storage config before 5.5 actually needs it."""
+    """Sprint 4.4 (docs/SYSTEM_ANALYSIS.md 3.15.2): schema only. Sprint
+    5.5 (block 5.5.1, v2 decision 5) turns the single `statement_date`
+    into a real period (`period_start`/`period_end`) — a statement
+    covers a range of days, not one — and adds the fields the real
+    import endpoint needs: `currency` (must match the bank's own),
+    `import_format`, `file_sha256` (duplicate-file guard) and
+    `line_count`/`imported_by` for the statements list screen.
+    `source_file` (a bare path/filename, no real FileField) is
+    superseded by storing the original upload as a real Attachment
+    (`bank_statement` in ALLOWED_TARGETS) instead — kept, unused, since
+    nothing has ever written to it (dev-only, zero rows)."""
 
     bank = models.ForeignKey(Bank, on_delete=models.PROTECT, related_name="statements")
-    statement_date = models.DateField(_("statement date"))
+    period_start = models.DateField(_("period start"))
+    period_end = models.DateField(_("period end"))
+    currency = models.CharField(_("currency"), max_length=3)
     opening_balance = models.DecimalField(
         _("opening balance"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
     )
     closing_balance = models.DecimalField(
         _("closing balance"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
     )
+    import_format = models.CharField(_("import format"), max_length=10, blank=True)
+    file_sha256 = models.CharField(_("file SHA-256"), max_length=64, blank=True)
+    line_count = models.PositiveIntegerField(_("line count"), default=0)
+    imported_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     source_file = models.CharField(_("source file"), max_length=255, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["-statement_date"]
+        ordering = ["-period_end"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "bank", "file_sha256"],
+                condition=~models.Q(file_sha256=""),
+                name="unique_statement_file_sha256_per_bank",
+            )
+        ]
 
     def __str__(self):
-        return f"{self.bank} — {self.statement_date}"
+        return f"{self.bank} — {self.period_start}..{self.period_end}"
 
 
 class BankStatementLine(TenantScopedModel):
-    """Sprint 4.4: one row of an imported statement — matching
-    (`matched`) is set by the sprint 5.5 engine, not here."""
+    """Sprint 4.4: one row of an imported statement. Sprint 5.5 (block
+    5.5.1/5.5.2, v2 decisions 2-3) replaces the plain `matched` boolean
+    with a real three-way `status` the matching engine actually needs
+    (a line can be legitimately outside the books, not just
+    matched/unmatched)."""
+
+    class Status(models.TextChoices):
+        UNMATCHED = "unmatched", _("Unmatched")
+        MATCHED = "matched", _("Matched")
+        IGNORED = "ignored", _("Ignored")
+
+    class MatchedBy(models.TextChoices):
+        AUTO = "auto", _("Automatic")
+        MANUAL = "manual", _("Manual")
 
     statement = models.ForeignKey(BankStatement, on_delete=models.CASCADE, related_name="lines")
+    line_no = models.PositiveIntegerField(_("line number"), default=0)
     date = models.DateField(_("date"))
     # Signed: positive = deposit/credit on the statement, negative =
     # withdrawal/debit.
@@ -150,11 +188,17 @@ class BankStatementLine(TenantScopedModel):
     )
     description = models.CharField(_("description"), max_length=255, blank=True)
     reference = models.CharField(_("reference"), max_length=100, blank=True)
-    matched = models.BooleanField(_("matched"), default=False)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.UNMATCHED)
+    matched_by = models.CharField(max_length=10, choices=MatchedBy.choices, blank=True)
+    matched_by_user = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    matched_at = models.DateTimeField(null=True, blank=True)
+    ignored_reason = models.CharField(_("ignored reason"), max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["date"]
+        ordering = ["date", "line_no"]
 
     def __str__(self):
         return f"{self.date} {self.amount}"

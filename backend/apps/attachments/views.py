@@ -1,5 +1,4 @@
 from django.conf import settings
-from django.db import models, transaction
 from django.http import FileResponse
 from django.utils import timezone
 from rest_framework import mixins, viewsets
@@ -22,12 +21,12 @@ from .services import (
     check_file_size,
     check_storage_limit,
     compute_sha256,
+    create_attachment,
     detect_mime_type,
     resolve_target,
     sign_link,
     verify_link,
 )
-from .tasks import scan_attachment
 
 # Master-data/settings targets get versioned (a same-category re-upload
 # supersedes the previous one); financial documents never do — a second
@@ -100,61 +99,16 @@ class AttachmentViewSet(
 
         sha256 = compute_sha256(file_obj)
 
-        version, supersedes = 1, None
-        if data["target_type"] in VERSIONED_TARGETS:
-            previous = (
-                Attachment.objects.filter(
-                    tenant=tenant, content_type=content_type, object_id=target.id,
-                    category=data["category"], status=Attachment.Status.ACTIVE,
-                )
-                .order_by("-version")
-                .first()
-            )
-            if previous is not None:
-                version, supersedes = previous.version + 1, previous
-
-        with transaction.atomic():
-            attachment = Attachment.objects.create(
-                tenant=tenant,
-                content_type=content_type,
-                object_id=target.id,
-                file=file_obj,
-                original_name=file_obj.name,
-                mime_type=mime_type,
-                size=file_obj.size,
-                sha256=sha256,
-                category=data["category"],
-                description=data.get("description", ""),
-                uploaded_by=request.user,
-                upload_ip=request.META.get("REMOTE_ADDR"),
-                version=version,
-                supersedes=supersedes,
-            )
-            tenant.__class__.objects.filter(id=tenant.id).update(
-                storage_used_bytes=models.F("storage_used_bytes") + file_obj.size
-            )
-
-        scan_attachment.delay(str(attachment.id))
-        # In real (non-eager) use this is a no-op — the async task hasn't
-        # run yet, so scan_status is still legitimately "pending" in the
-        # response. Under CELERY_TASK_ALWAYS_EAGER (tests), the task above
-        # already ran synchronously and updated the DB through its OWN
-        # fresh `Attachment.objects.get(...)` instance — without this
-        # refresh, the response would serialize this view's original,
-        # now-stale in-memory `attachment` object instead.
-        attachment.refresh_from_db()
-
-        log_action(
-            actor_type=AuditLog.ActorType.TENANT_USER,
-            actor_id=request.user.id,
-            action="attachment.upload",
-            target_type="attachment",
-            target_id=attachment.id,
-            tenant_id=tenant.id,
-            after={
-                "original_name": attachment.original_name, "sha256": attachment.sha256,
-                "category": attachment.category, "target_type": data["target_type"],
-            },
+        # In real (non-eager) use, the scan dispatched inside
+        # create_attachment is a no-op until a worker picks it up — the
+        # response's scan_status is legitimately still "pending". Under
+        # CELERY_TASK_ALWAYS_EAGER (tests), it already ran synchronously
+        # against its own fresh DB row, which create_attachment already
+        # refreshes from before returning.
+        attachment = create_attachment(
+            tenant, content_type, target, file_obj, mime_type, sha256, data["category"], request.user,
+            description=data.get("description", ""),
+            versioned=data["target_type"] in VERSIONED_TARGETS,
             request=request,
         )
         return Response(AttachmentSerializer(attachment).data, status=201)

@@ -10,18 +10,23 @@ from apps.access.permissions import HasModulePermission
 from apps.accounting.services import get_or_create_treasury_account, ledger_lines
 from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 
-from .models import Bank, CashBox, Custody, ExchangeRate, IbanChangeRequest
+from .models import Bank, BankStatement, CashBox, Custody, ExchangeRate, IbanChangeRequest
 from .serializers import (
     BankSerializer,
+    BankStatementListSerializer,
+    BankStatementSerializer,
     CashBoxSerializer,
     CustodySerializer,
     ExchangeRateSerializer,
     IbanChangeRequestCreateSerializer,
     IbanChangeRequestSerializer,
+    StatementImportSerializer,
 )
 from .services import (
+    TreasuryConflictError,
     approve_iban_change_request,
     create_iban_change_request,
+    import_bank_statement,
     reject_iban_change_request,
     submit_iban_change_request,
     withdraw_iban_change_request,
@@ -221,3 +226,61 @@ class IbanChangeRequestViewSet(
         except PermissionDenied as exc:
             return Response({"detail": str(exc)}, status=403)
         return Response(IbanChangeRequestSerializer(iban_request).data)
+
+
+class BankStatementViewSet(
+    mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
+):
+    """`GET /api/bank-statements/?bank=<id>` (list, filtered per bank —
+    same `?party=`/`?employee=` filter pattern as VoucherViewSet/
+    CustodyViewSet), `GET /api/bank-statements/{id}/` (detail with
+    lines), `POST /api/bank-statements/import/` (block 5.5.1). Never
+    created via the generic DRF `create` — always through `import_`."""
+
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    queryset = BankStatement.objects.all()
+    permission_map = {
+        "list": "treasury.view",
+        "retrieve": "treasury.view",
+        "import_": "treasury.reconcile",
+    }
+
+    def get_serializer_class(self):
+        return BankStatementListSerializer if self.action == "list" else BankStatementSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset().filter(tenant=self.request.user.tenant)
+        bank_id = self.request.query_params.get("bank")
+        if bank_id:
+            queryset = queryset.filter(bank_id=bank_id)
+        return queryset.select_related("bank", "imported_by")
+
+    @action(detail=False, methods=["post"], url_path="import")
+    def import_(self, request):
+        serializer = StatementImportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            bank = Bank.objects.get(tenant=request.user.tenant, id=request.data.get("bank"))
+        except (Bank.DoesNotExist, ValueError, TypeError):
+            return Response({"bank": ["Bank not found."]}, status=404)
+
+        try:
+            statement, auto_matched, unmatched, warnings = import_bank_statement(
+                tenant=request.user.tenant, user=request.user, bank=bank, file_obj=data["file"],
+                import_format=data["import_format"], period_start=data["period_start"],
+                period_end=data["period_end"], opening_balance=data["opening_balance"],
+                closing_balance=data["closing_balance"], currency=data.get("currency") or bank.currency,
+                column_mapping=data.get("column_mapping"), request=request,
+            )
+        except TreasuryConflictError as exc:
+            return Response({"detail": str(exc.message)}, status=409)
+        except ValidationError as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
+            return Response(detail, status=400)
+
+        payload = BankStatementSerializer(statement).data
+        payload["auto_matched"] = auto_matched
+        payload["unmatched"] = unmatched
+        payload["warnings"] = warnings
+        return Response(payload, status=201)

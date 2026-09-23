@@ -70,6 +70,11 @@ DEFAULT_PERMISSIONS = [
     # (required_role=Owner) instead of a separate permission, since
     # 3.15.9 names the approver role explicitly, not a configurable one.
     ("treasury.request_iban_change", _("Request an IBAN change for a bank or supplier")),
+    # Sprint 5.5 (block 5.5.1/5.5.2): import statements, match/unmatch/
+    # ignore statement lines. Deliberately one permission for the whole
+    # reconciliation workflow (not split add/approve like vouchers) —
+    # nothing here posts a journal entry on its own.
+    ("treasury.reconcile", _("Import bank statements and match statement lines")),
 ]
 
 # Reasonable, editable defaults per system role — not specified in full
@@ -102,6 +107,7 @@ SYSTEM_ROLES = {
         "vouchers.approve",
         "vouchers.reverse",
         "treasury.request_iban_change",
+        "treasury.reconcile",
     ],
     "Sales": [
         "customers.view",

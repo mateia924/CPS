@@ -37,6 +37,9 @@ class Attachment(TenantScopedModel):
         BANK_LETTER = "bank_letter", _("Bank letter")
         ID_DOCUMENT = "id_document", _("ID document")
         APPROVAL_MINUTES = "approval_minutes", _("Approval minutes")
+        # Sprint 5.5 (block 5.5.1): the original imported statement
+        # file, kept on the BankStatement as an audit trail.
+        BANK_STATEMENT = "bank_statement", _("Bank statement")
         OTHER = "other", _("Other")
 
     class Status(models.TextChoices):

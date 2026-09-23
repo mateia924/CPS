@@ -257,6 +257,20 @@ class JournalLine(models.Model):
         max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
     )
 
+    class Meta:
+        constraints = [
+            # Sprint 5.5 (block 5.5.1, v2 decision 4): one bank-statement
+            # line may match several journal lines (a grouped deposit,
+            # or a receipt plus a bank-fee payment), but never the
+            # reverse — a journal line is bound to at most one statement
+            # line at a time.
+            models.UniqueConstraint(
+                fields=["bank_statement_line"],
+                condition=~models.Q(bank_statement_line=None),
+                name="unique_journal_line_per_bank_statement_line",
+            )
+        ]
+
     def __str__(self):
         return f"{self.account.code} D{self.debit} C{self.credit}"
 
