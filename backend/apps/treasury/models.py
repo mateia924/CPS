@@ -52,6 +52,15 @@ class CashBox(TenantScopedModel):
     gl_account = models.ForeignKey(
         "accounting.Account", null=True, blank=True, on_delete=models.SET_NULL, related_name="cash_boxes"
     )
+    # docs/SYSTEM_ANALYSIS.md 3.3 ("الحد الأقصى للنقدية", an advanced
+    # field documented since sprint 3 but never implemented until the
+    # voucher engine — sprint 5.3 — actually needed it) — a WARNING
+    # only (treasury_balance exceeding it doesn't block a voucher),
+    # unlike Custody.limit_amount below (a hard 400 in sprint 5.4).
+    max_balance = models.DecimalField(
+        _("max cash balance"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES,
+        null=True, blank=True,
+    )
     is_active = models.BooleanField(_("active"), default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -163,6 +172,12 @@ class Custody(TenantScopedModel):
     currency = models.CharField(_("currency"), max_length=3, default="SAR")
     gl_account = models.ForeignKey(
         "accounting.Account", null=True, blank=True, on_delete=models.SET_NULL, related_name="custodies"
+    )
+    # docs/SYSTEM_ANALYSIS.md 3.3 ("حد العهدة") — a hard 400 in sprint
+    # 5.4 (custody transfers), unlike CashBox.max_balance above.
+    limit_amount = models.DecimalField(
+        _("custody limit"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES,
+        null=True, blank=True,
     )
     is_active = models.BooleanField(_("active"), default=True)
     created_at = models.DateTimeField(auto_now_add=True)

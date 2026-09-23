@@ -46,7 +46,7 @@ class CashBoxSerializer(_TenantScopedRelationsMixin, serializers.ModelSerializer
     class Meta:
         model = CashBox
         fields = (
-            "id", "legal_entity", "name", "currency", "custodian", "is_active", "created_at",
+            "id", "legal_entity", "name", "currency", "custodian", "max_balance", "is_active", "created_at",
         )
         read_only_fields = ("id", "created_at")
 

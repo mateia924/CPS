@@ -50,6 +50,15 @@ DEFAULT_PERMISSIONS = [
     # since no delete path exists at all (rule 6).
     ("attachments.view", _("View attachments")),
     ("attachments.manage", _("Upload and void attachments")),
+    # Sprint 5.3 (3.8): سندات القبض/الصرف/التسوية. Separate "post" from
+    # "add" the same way accounting.manage vs approvals.manage split
+    # authoring from authority elsewhere — a day-to-day accountant can
+    # draft a voucher without necessarily being who posts big ones.
+    ("vouchers.view", _("View vouchers")),
+    ("vouchers.add", _("Create and edit draft vouchers")),
+    ("vouchers.post", _("Submit/post vouchers")),
+    ("vouchers.approve", _("Approve or reject vouchers pending approval")),
+    ("vouchers.reverse", _("Reverse a posted voucher")),
 ]
 
 # Reasonable, editable defaults per system role — not specified in full
@@ -76,6 +85,11 @@ SYSTEM_ROLES = {
         "approvals.view",
         "attachments.view",
         "attachments.manage",
+        "vouchers.view",
+        "vouchers.add",
+        "vouchers.post",
+        "vouchers.approve",
+        "vouchers.reverse",
     ],
     "Sales": [
         "customers.view",
@@ -99,6 +113,7 @@ SYSTEM_ROLES = {
         "treasury.view",
         "assets.view",
         "attachments.view",
+        "vouchers.view",
     ],
 }
 

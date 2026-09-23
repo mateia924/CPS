@@ -34,6 +34,7 @@ TENANT_FILTER_EXEMPTIONS = {
     "apps.accounting.views.TaxPeriodViewSet": "get_queryset() filters by tenant + get_accessible_entity_ids() by hand, same pattern as JournalEntryViewSet above",
     "apps.attachments.views.AttachmentViewSet": "get_queryset() filters Attachment.objects.filter(tenant=request.user.tenant) by hand; create() resolves its GenericFK target only within request.user.tenant (services.resolve_target) — a cross-tenant target_id 404s, never 403",
     "apps.attachments.views.AttachmentDownloadView": "deliberately AllowAny (no bearer token at all — a plain <a href> or mobile camera flow can't carry Authorization) — isolation is enforced by the HMAC-signed link itself (services.verify_link), not a request.user.tenant filter: forging a valid token for another tenant's attachment id is cryptographically infeasible without ATTACHMENT_LINK_SIGNING_KEY",
+    "apps.vouchers.views.VoucherViewSet": "get_queryset() filters by tenant + get_accessible_entity_ids() by hand, same pattern as JournalEntryViewSet",
 }
 
 # Views that are correctly not tenant-scoped at all: public auth entry
