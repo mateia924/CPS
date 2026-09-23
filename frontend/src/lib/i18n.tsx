@@ -137,6 +137,10 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     partyTypeOrganization: "مؤسسة",
     nameEnglish: "الاسم بالإنجليزية",
     nationalIdOrCr: "الهوية الوطنية / السجل التجاري",
+    // سبرنت 4.8 (القاعدة 19): "السجل التجاري" لا معنى له لموظف (فرد
+    // دائمًا) — نفس الحقل (`national_id_or_cr`) في الخلفية، تسمية
+    // مختلفة في شاشة الموظفين فقط عن الحقل المشترك أعلاه.
+    employeeNationalId: "رقم الهوية / الإقامة",
     defaultCurrency: "العملة الافتراضية",
     notes: "ملاحظات",
     affiliateLegalEntity: "الكيان القانوني المقابل",
@@ -430,6 +434,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     partyTypeOrganization: "Organization",
     nameEnglish: "Name (English)",
     nationalIdOrCr: "National ID / commercial registration",
+    employeeNationalId: "National ID / Iqama number",
     defaultCurrency: "Default currency",
     notes: "Notes",
     affiliateLegalEntity: "Matching legal entity",

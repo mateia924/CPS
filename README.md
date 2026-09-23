@@ -458,6 +458,22 @@ customers_to_parties.py`): تحققت يدويًا ضد بيانات Acme Tradin
 
 ## ديون تقنية يجب معالجتها قبل الإنتاج
 
+- **حاوية `backend` (وضع dev) لا تُعيد تحميل الكود تلقائيًا** —
+  `docker-compose.dev.yml` يضيف فقط `target: dev` + bind mount لخدمة
+  `backend`، لكنه **لا** يبدّل أمر التشغيل من `gunicorn` (بلا
+  `--reload`) إلى `manage.py runserver` (مع autoreload). أي تعديل على
+  كود الـ backend في جلسة تطوير طويلة يبقى **غير مرئي فعليًا** لأي
+  طلب HTTP حقيقي حتى `docker compose restart backend celery_worker`
+  يدويًا — بينما `pytest`/`ruff check .`/`manage.py check` (عمليات
+  Python منفصلة تُشغَّل عبر `exec`) تستمر في النجاح طوال الوقت بلا أي
+  تحذير، لأنها لا تمر عبر عملية gunicorn الحيّة أصلًا. اكتُشفت فعليًا
+  في سبرنت 4.8: حاوية `backend` كانت قد بدأت قبل أول commit لسبرنت 4،
+  فظل `/api/auth/me/` (وأي مسار آخر يستورد كودًا أُضيف لاحقًا) يرجع
+  500 طوال تنفيذ الكتل 4.1-4.7 دون أن يكتشفه أي اختبار آلي. الحل
+  الفوري المؤقت: إعادة تشغيل يدوية بعد كل جلسة تطوير طويلة قبل أي
+  اختبار قبول (UAT) أو استخدام حقيقي. الحل الدائم (غير مُنفَّذ بعد):
+  تبديل أمر التشغيل في `docker-compose.dev.yml` إلى `manage.py
+  runserver` أو `gunicorn --reload`.
 - ~~ترقيم الفواتير COUNT-based~~ ✅ **حُلّت في سبرنت 4.1**:
   `apps.numbering.services.next_document_number` يستخدم
   `select_for_update()` داخل `transaction.atomic` (اختُبر فعليًا بـ 50

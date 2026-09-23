@@ -327,3 +327,24 @@ def test_business_plan_shows_treasury_and_assets(client_a, tenant_a):
     response = client_a.get("/api/auth/me/")
     assert response.data["features"]["treasury"] is True
     assert response.data["features"]["assets"] is True
+
+
+@pytest.mark.django_db
+def test_free_plan_owner_still_has_accounting_reports_settings_permissions(client_a, tenant_a):
+    """Sprint 4.8 regression guard (3.18): "المحاسبة"/"التقارير" always
+    show and "الإعدادات" shows per-permission — none of the three are
+    plan/feature-gated, unlike purchasing/treasury/assets. The
+    frontend sidebar (dashboard/layout.tsx) gates them purely on
+    `me.permissions`, so this asserts the actual contract at its
+    source: an Owner on the Free plan (every `features.*` flag False)
+    must still carry accounting.view/approvals.view/numbering.view/
+    roles.manage — the permission codes those sidebar sections check.
+    """
+    apply_plan_to_tenant(tenant_a, Plan.objects.get(code="free"))
+    response = client_a.get("/api/auth/me/")
+    assert all(value is False for value in response.data["features"].values())
+    permissions = response.data["permissions"]
+    assert "accounting.view" in permissions
+    assert "approvals.view" in permissions
+    assert "numbering.view" in permissions
+    assert "roles.manage" in permissions

@@ -136,7 +136,7 @@ export default function EmployeesPage() {
               <input value={name} onChange={(e) => setName(e.target.value)} required />
             </div>
             <div className="form-field">
-              <label>{t("nationalIdOrCr")}</label>
+              <label>{t("employeeNationalId")}</label>
               <input value={nationalIdOrCr} onChange={(e) => setNationalIdOrCr(e.target.value)} />
             </div>
             <div className="form-field">
