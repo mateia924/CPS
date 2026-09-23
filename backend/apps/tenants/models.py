@@ -35,6 +35,13 @@ class Tenant(models.Model):
     plan = models.ForeignKey("platform.Plan", on_delete=models.PROTECT, related_name="tenants")
     status = models.CharField(_("status"), max_length=20, choices=Status.choices, default=Status.TRIAL)
     trial_ends_at = models.DateTimeField(_("trial ends at"), null=True, blank=True)
+    # Sprint 5.1 (3.17): running total of active Attachment.size —
+    # incremented on upload, decremented on... never (voided attachments
+    # are never deleted — rule 6 legal retention — so their bytes stay
+    # counted; only a genuine hard-delete, which this project never does,
+    # would free quota). Checked against plan.storage_mb before each
+    # upload (apps.attachments.services.check_storage_limit).
+    storage_used_bytes = models.BigIntegerField(_("storage used (bytes)"), default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

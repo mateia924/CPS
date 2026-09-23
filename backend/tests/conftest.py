@@ -17,6 +17,28 @@ def _disable_ratelimit_by_default(settings):
     settings.RATELIMIT_ENABLE = False
 
 
+@pytest.fixture(autouse=True)
+def _celery_eager(settings):
+    # Sprint 5.1: apps.attachments.tasks.scan_attachment is the first
+    # real Celery task in this project — no live worker consumes the
+    # queue during a pytest run, so EAGER makes `.delay()` execute
+    # synchronously in-process instead of silently doing nothing
+    # observable. Talks to the *real* clamd service (CLAMD_HOST=clamav
+    # on the compose network) — never mocked, same philosophy as every
+    # other test in this project.
+    #
+    # config.celery.app already read django.conf:settings once at import
+    # time (module-level `app.config_from_object(...)`), so flipping the
+    # Django `settings` fixture alone does not retroactively change
+    # `app.conf` — set it directly on the Celery app too.
+    settings.CELERY_TASK_ALWAYS_EAGER = True
+    settings.CELERY_TASK_EAGER_PROPAGATES = True
+    from config.celery import app as celery_app
+
+    celery_app.conf.task_always_eager = True
+    celery_app.conf.task_eager_propagates = True
+
+
 @pytest.fixture
 def tenant_a(db):
     tenant = TenantFactory(subdomain="tenant-a")

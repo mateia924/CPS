@@ -34,6 +34,47 @@ services:
       timeout: 5s
       retries: 10
 
+  # Sprint 5.1 (3.17): S3-compatible object storage for Attachment files.
+  # MinIO Inc. stopped publishing to Docker Hub in 2025 — quay.io/minio/minio
+  # is the current official distribution; tag pinned per rule 11 (no
+  # blind "latest"). Never exposed to the internet (prompt decision 7) —
+  # no ports published here in either overlay; the backend/celery_worker
+  # reach it over the internal compose network only, and all uploads/
+  # downloads go through Django, never directly to MinIO.
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    env_file: ../.env
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    volumes:
+      - minio_data:/data:Z
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Sprint 5.1 (3.17 rule 2 "مسح فيروسات عند الرفع"): clamd only, no
+  # published ports — celery_worker talks to it over the internal
+  # network (INSTREAM protocol) to scan a freshly uploaded file
+  # asynchronously. Tag pinned (not `latest`/`stable`, per rule 11).
+  # First boot downloads the virus database (~katalog several hundred MB)
+  # so the healthcheck's start_period is generous.
+  clamav:
+    image: clamav/clamav:1.5.4-debian
+    restart: unless-stopped
+    volumes:
+      - clamav_data:/var/lib/clamav:Z
+    healthcheck:
+      test: ["CMD-SHELL", "clamdcheck.sh || exit 0"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 180s
+
   backend:
     build:
       context: ../backend
@@ -42,10 +83,13 @@ services:
     # wraps this whole chain — migrate/collectstatic/gunicorn all run as
     # appuser. celery_worker below intentionally does NOT run migrate:
     # only one service should ever run it, to avoid concurrent migration
-    # races on container (re)start.
+    # races on container (re)start. ensure_attachments_bucket (5.1) is
+    # idempotent — safe to run on every start, creates the bucket only
+    # the first time.
     command: >
       sh -c "python manage.py migrate --noinput &&
              python manage.py collectstatic --noinput &&
+             python manage.py ensure_attachments_bucket &&
              exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3"
     env_file: ../.env
     environment:
@@ -58,6 +102,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_healthy
 
   celery_worker:
     build:
@@ -65,7 +111,10 @@ services:
     restart: unless-stopped
     # Same entrypoint.sh as backend (root -> chown -> gosu appuser), just
     # a different command — no migrate here, see comment on backend above.
-    command: celery -A config worker --loglevel=info
+    # --beat (sprint 5.1): runs the scheduler in this same process for
+    # CELERY_BEAT_SCHEDULE (weekly attachment integrity check) — fine at
+    # this project's current scale.
+    command: celery -A config worker --beat --loglevel=info
     env_file: ../.env
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
@@ -74,6 +123,10 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      clamav:
         condition: service_healthy
 
   frontend:
@@ -99,3 +152,5 @@ volumes:
   postgres_data:
   redis_data:
   static_data:
+  minio_data:
+  clamav_data:

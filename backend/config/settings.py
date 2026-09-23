@@ -9,6 +9,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import environ
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -55,6 +56,7 @@ LOCAL_APPS = [
     "apps.treasury",
     "apps.assets",
     "apps.sales",
+    "apps.attachments",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -217,6 +219,17 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
 
+# Sprint 5.1 (3.17 rule 2): weekly SHA-256 re-check of every active
+# attachment. `celery -A config worker --beat` (docker-compose.yml) runs
+# the scheduler in the same process — fine at this project's scale; a
+# separate beat service is a straightforward split later if needed.
+CELERY_BEAT_SCHEDULE = {
+    "attachment-integrity-check": {
+        "task": "apps.attachments.tasks.check_attachment_integrity",
+        "schedule": timedelta(days=7),
+    },
+}
+
 # ---------------------------------------------------------------------------
 # Cache / rate limiting (sprint 4.0, ARCH_REVIEW_1.md debt #9)
 # ---------------------------------------------------------------------------
@@ -236,3 +249,33 @@ CACHES = {
 # calls don't trip it; the rate-limiting tests themselves turn it back on
 # via the `settings` fixture for just that test.
 RATELIMIT_ENABLE = env.bool("DJANGO_RATELIMIT_ENABLE", default=True)
+
+# ---------------------------------------------------------------------------
+# Attachments: MinIO (S3-compatible) + ClamAV — sprint 5.1 (3.17)
+# ---------------------------------------------------------------------------
+
+MINIO_ACCESS_KEY = env("MINIO_ACCESS_KEY", default="")
+MINIO_SECRET_KEY = env("MINIO_SECRET_KEY", default="")
+MINIO_BUCKET = env("MINIO_BUCKET", default="cps-attachments")
+MINIO_ENDPOINT_URL = env("MINIO_ENDPOINT_URL", default="http://minio:9000")
+
+# Signs this app's own short-lived download links (apps.attachments.
+# services.sign_link/verify_link) — deliberately a separate secret from
+# DJANGO_SECRET_KEY, same reasoning as PLATFORM_JWT_SIGNING_KEY: a leak
+# of one must never let an attacker forge the other.
+ATTACHMENT_LINK_SIGNING_KEY = env("ATTACHMENT_LINK_SIGNING_KEY", default=SECRET_KEY)
+ATTACHMENT_LINK_TTL_SECONDS = 5 * 60
+
+CLAMD_HOST = env("CLAMD_HOST", default="clamav")
+CLAMD_PORT = env.int("CLAMD_PORT", default=3310)
+ATTACHMENT_SCAN_ENABLED = env.bool("ATTACHMENT_SCAN_ENABLED", default=True)
+ATTACHMENT_DEFAULT_MAX_FILE_MB = env.int("ATTACHMENT_DEFAULT_MAX_FILE_MB", default=20)
+
+# docker-compose.prod.yml is the only place CPS_ENVIRONMENT=production is
+# ever set (dev's overlay never sets it) — see the comment there. Prompt
+# decision 8: "الإنتاج يرفض الإقلاع" with scanning disabled.
+if env("CPS_ENVIRONMENT", default="") == "production" and not ATTACHMENT_SCAN_ENABLED:
+    raise ImproperlyConfigured(
+        "ATTACHMENT_SCAN_ENABLED=false is not allowed in production — "
+        "every uploaded file must be virus-scanned before it's served."
+    )

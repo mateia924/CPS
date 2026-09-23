@@ -45,6 +45,11 @@ DEFAULT_PERMISSIONS = [
     # approvals.view also gates seeing the approval inbox counter (3.18).
     ("approvals.view", _("View approval rules and the approval inbox")),
     ("approvals.manage", _("Create, edit and deactivate approval rules")),
+    # Sprint 5.1 (3.17): every AttachmentPanel goes through these two —
+    # "manage" covers upload/void, there is no separate delete permission
+    # since no delete path exists at all (rule 6).
+    ("attachments.view", _("View attachments")),
+    ("attachments.manage", _("Upload and void attachments")),
 ]
 
 # Reasonable, editable defaults per system role — not specified in full
@@ -69,6 +74,8 @@ SYSTEM_ROLES = {
         "assets.view",
         "numbering.view",
         "approvals.view",
+        "attachments.view",
+        "attachments.manage",
     ],
     "Sales": [
         "customers.view",
@@ -78,6 +85,8 @@ SYSTEM_ROLES = {
         "invoices.create",
         "parties.view",
         "parties.manage",
+        "attachments.view",
+        "attachments.manage",
     ],
     "Viewer": [
         "customers.view",
@@ -89,6 +98,7 @@ SYSTEM_ROLES = {
         "parties.view",
         "treasury.view",
         "assets.view",
+        "attachments.view",
     ],
 }
 

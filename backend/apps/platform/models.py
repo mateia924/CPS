@@ -90,6 +90,10 @@ class Plan(models.Model):
         _("max invoices per month"), null=True, blank=True
     )
     storage_mb = models.PositiveIntegerField(_("storage (MB)"), null=True, blank=True)
+    # Sprint 5.1 (3.17): per-file ceiling for attachment uploads — the
+    # per-file check is separate from the tenant-wide storage_mb quota
+    # above (a plan could allow many small files but cap any single one).
+    max_file_mb = models.PositiveIntegerField(_("max file size (MB)"), default=20)
 
     feature_organization = models.BooleanField(_("organization structure"), default=False)
     feature_cost_centers = models.BooleanField(_("cost centers"), default=False)

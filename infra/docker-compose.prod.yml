@@ -14,6 +14,19 @@
 # in nginx/nginx.prod.conf.template and README "نشر الإنتاج لاحقًا".
 
 services:
+  # Sprint 5.1 (3.17 rule 2): the only signal Django has to refuse
+  # booting with ATTACHMENT_SCAN_ENABLED=false — dev's own docker-
+  # compose.dev.yml never sets this, so it's unset (falsy) there,
+  # matching every other "prod-only" behavior in this project (no env
+  # var means dev).
+  backend:
+    environment:
+      CPS_ENVIRONMENT: production
+
+  celery_worker:
+    environment:
+      CPS_ENVIRONMENT: production
+
   nginx:
     ports:
       - "80:80"
