@@ -65,6 +65,11 @@ DEFAULT_PERMISSIONS = [
     # separate from accounting.manage (chart-of-accounts editing) since
     # the two authorities are unrelated.
     ("accounting.post_control_accounts", _("Override the manual-posting block on a control account")),
+    # Sprint 5.5 (block 5.5.0, CFO_REVIEW_1 C10): requesting an IBAN
+    # change — approving it is gated by the fixed ApprovalRule
+    # (required_role=Owner) instead of a separate permission, since
+    # 3.15.9 names the approver role explicitly, not a configurable one.
+    ("treasury.request_iban_change", _("Request an IBAN change for a bank or supplier")),
 ]
 
 # Reasonable, editable defaults per system role — not specified in full
@@ -96,6 +101,7 @@ SYSTEM_ROLES = {
         "vouchers.post",
         "vouchers.approve",
         "vouchers.reverse",
+        "treasury.request_iban_change",
     ],
     "Sales": [
         "customers.view",

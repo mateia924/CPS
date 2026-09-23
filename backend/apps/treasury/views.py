@@ -1,6 +1,7 @@
 import datetime
 
-from rest_framework import filters
+from django.core.exceptions import PermissionDenied, ValidationError
+from rest_framework import filters, mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -9,12 +10,21 @@ from apps.access.permissions import HasModulePermission
 from apps.accounting.services import get_or_create_treasury_account, ledger_lines
 from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 
-from .models import Bank, CashBox, Custody, ExchangeRate
+from .models import Bank, CashBox, Custody, ExchangeRate, IbanChangeRequest
 from .serializers import (
     BankSerializer,
     CashBoxSerializer,
     CustodySerializer,
     ExchangeRateSerializer,
+    IbanChangeRequestCreateSerializer,
+    IbanChangeRequestSerializer,
+)
+from .services import (
+    approve_iban_change_request,
+    create_iban_change_request,
+    reject_iban_change_request,
+    submit_iban_change_request,
+    withdraw_iban_change_request,
 )
 
 _PERMISSION_MAP = {
@@ -121,3 +131,93 @@ class ExchangeRateViewSet(TenantScopedViewSet):
 
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.user.tenant, created_by=self.request.user)
+
+
+class IbanChangeRequestViewSet(
+    mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet
+):
+    """الإعدادات ← "طلبات تغيير IBAN" (3.15.9, sprint 5.5 block 5.5.0).
+    `create` only ever builds a DRAFT (no attachment required yet); the
+    IBAN letter attachment (3.17) is required by `submit`, not here —
+    same two-step shape as every other document that needs an
+    AttachmentPanel before it can move."""
+
+    serializer_class = IbanChangeRequestSerializer
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    queryset = IbanChangeRequest.objects.all()
+    permission_map = {
+        "list": "treasury.request_iban_change",
+        "retrieve": "treasury.request_iban_change",
+        "create": "treasury.request_iban_change",
+        "submit": "treasury.request_iban_change",
+        "withdraw": "treasury.request_iban_change",
+        "approve": "treasury.request_iban_change",
+        "reject": "treasury.request_iban_change",
+    }
+
+    def get_queryset(self):
+        queryset = super().get_queryset().filter(tenant=self.request.user.tenant)
+        status_param = self.request.query_params.get("status")
+        if status_param:
+            queryset = queryset.filter(status=status_param)
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        serializer = IbanChangeRequestCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            iban_request = create_iban_change_request(
+                tenant=request.user.tenant, user=request.user,
+                target_type=data["target_type"], target_id=data["target_id"],
+                new_iban=data["new_iban"], reason=data["reason"],
+            )
+        except ValidationError as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
+            return Response(detail, status=400)
+        return Response(IbanChangeRequestSerializer(iban_request).data, status=201)
+
+    @action(detail=True, methods=["post"])
+    def submit(self, request, pk=None):
+        iban_request = self.get_object()
+        try:
+            submit_iban_change_request(iban_request, request.user, request=request)
+        except ValidationError as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
+            return Response(detail, status=400)
+        return Response(IbanChangeRequestSerializer(iban_request).data)
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        iban_request = self.get_object()
+        try:
+            approve_iban_change_request(iban_request, request.user, request=request)
+        except ValidationError as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
+            return Response(detail, status=400)
+        except PermissionDenied as exc:
+            return Response({"detail": str(exc)}, status=403)
+        return Response(IbanChangeRequestSerializer(iban_request).data)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        iban_request = self.get_object()
+        reason = request.data.get("reason", "")
+        try:
+            reject_iban_change_request(iban_request, request.user, reason, request=request)
+        except ValidationError as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
+            return Response(detail, status=400)
+        return Response(IbanChangeRequestSerializer(iban_request).data)
+
+    @action(detail=True, methods=["post"])
+    def withdraw(self, request, pk=None):
+        iban_request = self.get_object()
+        try:
+            withdraw_iban_change_request(iban_request, request.user, request=request)
+        except ValidationError as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
+            return Response(detail, status=400)
+        except PermissionDenied as exc:
+            return Response({"detail": str(exc)}, status=403)
+        return Response(IbanChangeRequestSerializer(iban_request).data)

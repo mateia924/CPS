@@ -44,3 +44,44 @@ def validate_saudi_national_id(value):
         raise ValidationError(
             _("Saudi national ID / iqama number must be 10 digits, starting with 1 or 2.")
         )
+
+
+_IBAN_COUNTRY_LENGTHS = {"SA": 24, "EG": 29}
+
+
+def validate_iban(value, country_code=None):
+    """Sprint 5.5 (block 5.5.0, CPS_PARITY_PLAN v2 decision 7): general
+    IBAN shape (two-letter country + two check digits + 11-30
+    alphanumerics, no spaces) plus a mandatory ISO 7064 mod-97 checksum
+    — this is *only* applied to a value a user actually types going
+    forward; the one-time data migration that backfills
+    Party.iban from the old free-text PartyRole.details["iban"] bag
+    never calls this (see 0002_backfill_party_iban_from_role_details.py
+    — a pre-existing placeholder value there is expected to fail this
+    check, and correcting it is exactly what forces it through
+    IbanChangeRequest instead of a silent edit)."""
+    if not value:
+        return
+    value = value.strip().upper().replace(" ", "")
+    if len(value) < 15 or len(value) > 34 or not value[:2].isalpha() or not value[2:4].isdigit():
+        raise ValidationError(_("Invalid IBAN format."))
+    if not value[4:].isalnum():
+        raise ValidationError(_("Invalid IBAN format."))
+    expected_length = _IBAN_COUNTRY_LENGTHS.get(value[:2])
+    if expected_length is not None and len(value) != expected_length:
+        raise ValidationError(
+            _("IBAN for %(country)s must be %(length)s characters long.")
+            % {"country": value[:2], "length": expected_length}
+        )
+    if country_code and country_code in _IBAN_COUNTRY_LENGTHS and value[:2] != country_code:
+        raise ValidationError(
+            _("IBAN country prefix (%(iban_country)s) does not match the party's country (%(country)s).")
+            % {"iban_country": value[:2], "country": country_code}
+        )
+    # ISO 7064 mod-97: move the first four characters to the end, map
+    # every letter to two digits (A=10 ... Z=35), then the whole string
+    # mod 97 must equal 1.
+    rearranged = value[4:] + value[:4]
+    digits = "".join(str(int(ch, 36)) for ch in rearranged)
+    if int(digits) % 97 != 1:
+        raise ValidationError(_("IBAN checksum is invalid."))

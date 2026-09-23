@@ -16,7 +16,12 @@ from apps.common.validators import future_date_warning as _future_date_warning
 from apps.numbering.services import next_document_number
 from apps.platform.models import AuditLog
 from apps.platform.services import log_action
-from apps.treasury.services import ExchangeRateNotFound, get_rate, treasury_balance
+from apps.treasury.services import (
+    ExchangeRateNotFound,
+    check_iban_change_guard,
+    get_rate,
+    treasury_balance,
+)
 
 from .models import Voucher, VoucherAllocation, VoucherLine
 
@@ -69,6 +74,12 @@ def create_voucher(
         raise VoucherValidationError(
             {"legal_entity": [_("The treasury account belongs to a different legal entity.")]}
         )
+    # CFO_REVIEW_1 C10 (block 5.5.0): a PAYMENT to a party with a
+    # pending IBAN change request is blocked at creation too, not only
+    # at post — see _iban_guard_warnings for the post-time re-check
+    # plus the recent-change warning.
+    if voucher_type == Voucher.VoucherType.PAYMENT and party is not None:
+        check_iban_change_guard(party)
     currency = treasury_instance.currency
     base_currency = legal_entity.base_currency
     overridden = False
@@ -541,6 +552,15 @@ def _implicit_rate_warnings(voucher):
     return warnings
 
 
+def _iban_guard_warnings(voucher):
+    """CFO_REVIEW_1 C10: re-checked at post time (not just creation) —
+    a request could have entered PENDING_APPROVAL in between. Raises
+    TreasuryConflictError if one now blocks this voucher."""
+    if voucher.voucher_type != Voucher.VoucherType.PAYMENT or voucher.party_id is None:
+        return []
+    return check_iban_change_guard(voucher.party)
+
+
 def _stale_rate_warning(voucher):
     """CFO_REVIEW_1 C14: only meaningful when the voucher's own rate
     wasn't a manual override (that's its own, separate, already-logged
@@ -573,6 +593,7 @@ def post_voucher(voucher, user, request=None):
         + _implicit_rate_warnings(voucher)
         + _stale_rate_warning(voucher)
         + _future_date_warning(voucher.date)
+        + _iban_guard_warnings(voucher)
     )
 
     doc_type = f"voucher_{voucher.voucher_type}"

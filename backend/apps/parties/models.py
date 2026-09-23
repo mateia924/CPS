@@ -46,6 +46,17 @@ class Party(TenantScopedModel):
         "accounting.Account", null=True, blank=True, on_delete=models.SET_NULL, related_name="parties"
     )
 
+    # Sprint 5.5 (block 5.5.0, CFO_REVIEW_1 C10): a real column,
+    # superseding the free-text `PartyRole.details["iban"]` a supplier
+    # role could hold since sprint 3.5 (see SupplierPartySerializer —
+    # that key is now a dead, never-read-or-written historical
+    # leftover, backfilled into this column once by
+    # 0002_backfill_party_iban_from_role_details.py and never touched
+    # again). First entry (empty -> value) is free; any change to a
+    # non-empty value must go through treasury.IbanChangeRequest — see
+    # that model's docstring.
+    iban = models.CharField(_("IBAN"), max_length=34, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

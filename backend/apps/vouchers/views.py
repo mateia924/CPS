@@ -6,7 +6,7 @@ from rest_framework.response import Response
 
 from apps.access.permissions import HasModulePermission
 from apps.organization.services import get_accessible_entity_ids
-from apps.treasury.services import ExchangeRateNotFound
+from apps.treasury.services import ExchangeRateNotFound, TreasuryConflictError
 
 from .models import Voucher
 from .serializers import (
@@ -92,6 +92,8 @@ class VoucherViewSet(
             )
         except ExchangeRateNotFound as exc:
             return Response({"detail": str(exc.message)}, status=400)
+        except TreasuryConflictError as exc:
+            return Response({"detail": str(exc.message)}, status=409)
         except (VoucherValidationError, ValidationError, ValueError) as exc:
             detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
             return Response(detail, status=400)
@@ -122,6 +124,8 @@ class VoucherViewSet(
         voucher = self.get_object()
         try:
             voucher, warnings = post_voucher(voucher, request.user, request=request)
+        except TreasuryConflictError as exc:
+            return Response({"detail": str(exc.message)}, status=409)
         except (VoucherValidationError, ValidationError, ValueError) as exc:
             detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
             return Response(detail, status=400)

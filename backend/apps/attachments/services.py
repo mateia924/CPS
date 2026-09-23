@@ -31,6 +31,10 @@ ALLOWED_TARGETS = {
     # FINANCIAL mode (receipts/photos of expenses) — not versioned,
     # same treatment as invoice/journal_entry.
     "voucher": ("vouchers", "voucher"),
+    # Sprint 5.5 (block 5.5.0): the mandatory IBAN letter attachment
+    # (3.17) that submit_iban_change_request checks for before allowing
+    # submission for approval.
+    "iban_change_request": ("treasury", "ibanchangerequest"),
 }
 
 # extension -> allowed MIME types (from magic bytes, never trusted from

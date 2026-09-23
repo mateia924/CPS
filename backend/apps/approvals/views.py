@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.db.models import Sum
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -11,6 +12,13 @@ from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 from .models import ApprovalRule
 from .serializers import ApprovalRuleSerializer
 from .services import get_matching_rule
+
+# Sprint 5.5 (block 5.5.0, CFO_REVIEW_1 C10): the fixed IBAN_CHANGE rule
+# seeded by approvals/migrations/0005 — 3.15.9 requires approval on
+# every IBAN change with no amount threshold to configure away, so this
+# one row is read-only from the "قواعد الاعتماد" screen (unlike every
+# other doc_type's rules, which the tenant is free to edit/delete).
+_LOCKED_DOC_TYPES = {ApprovalRule.DocType.IBAN_CHANGE}
 
 
 class ApprovalRuleViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
@@ -30,6 +38,30 @@ class ApprovalRuleViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         "activate": "approvals.manage",
     }
 
+    def _reject_if_locked(self, instance):
+        if instance.doc_type in _LOCKED_DOC_TYPES:
+            return Response(
+                {"detail": "This approval rule is fixed by policy and cannot be changed."}, status=409
+            )
+        return None
+
+    def update(self, request, *args, **kwargs):
+        blocked = self._reject_if_locked(self.get_object())
+        return blocked or super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        blocked = self._reject_if_locked(self.get_object())
+        return blocked or super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        blocked = self._reject_if_locked(self.get_object())
+        return blocked or super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"])
+    def deactivate(self, request, pk=None):
+        blocked = self._reject_if_locked(self.get_object())
+        return blocked or super().deactivate(request, pk=pk)
+
 
 class PendingApprovalsView(APIView):
     """صندوق الاعتماد (3.15.1/3.18): المستندات بانتظار اعتماد المستخدم
@@ -42,6 +74,7 @@ class PendingApprovalsView(APIView):
     def get(self, request):
         from apps.accounting.models import JournalEntry
         from apps.sales.models import Invoice
+        from apps.treasury.models import IbanChangeRequest
         from apps.vouchers.models import Voucher
 
         user = request.user
@@ -96,6 +129,26 @@ class PendingApprovalsView(APIView):
                         "description": voucher.party.name if voucher.party_id else voucher.payee_name,
                         "amount_base": str(voucher.total_base),
                         "created_by": str(voucher.created_by_id) if voucher.created_by_id else None,
+                    }
+                )
+
+        # Sprint 5.5 (block 5.5.0): IBAN change requests join the same
+        # inbox — always min_amount=0, so any PENDING_APPROVAL row's
+        # matching rule is the fixed one (required_role=Owner).
+        for iban_request in IbanChangeRequest.objects.filter(
+            tenant=tenant, status="pending_approval"
+        ).select_related("content_type"):
+            rule = get_matching_rule(tenant, "iban_change", Decimal("0"))
+            if rule is not None and rule.required_role_id in user_role_ids:
+                results.append(
+                    {
+                        "doc_type": "iban_change",
+                        "id": str(iban_request.id),
+                        "number": None,
+                        "date": iban_request.created_at.date(),
+                        "description": f"{iban_request.old_iban or '—'} -> {iban_request.new_iban}",
+                        "amount_base": "0",
+                        "created_by": str(iban_request.created_by_id),
                     }
                 )
 

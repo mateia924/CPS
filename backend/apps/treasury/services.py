@@ -1,6 +1,10 @@
+import datetime
 import logging
 from decimal import ROUND_HALF_UP, Decimal
 
+from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from .models import ExchangeRate
@@ -9,11 +13,26 @@ logger = logging.getLogger(__name__)
 
 RATE_QUANT = Decimal("0.00000001")
 STALE_RATE_DAYS = 7
+# CFO_REVIEW_1 C10 (block 5.5.0): a party whose IBAN changed within
+# this many days of a payment voucher gets a warning, not a block.
+IBAN_CHANGE_RECENT_DAYS = 30
 
 
 class ExchangeRateNotFound(Exception):
     """Raised by get_rate below; callers turn this into a 400 with the
     Arabic message attached."""
+
+    def __init__(self, message):
+        self.message = message
+        super().__init__(message)
+
+
+class TreasuryConflictError(Exception):
+    """Raised for a genuine state conflict (not a malformed request) —
+    callers turn this into a 409, same distinction
+    apps.sales.views.partial_update already draws between 400 (bad
+    input) and 409 (the request is fine, the document's current state
+    isn't)."""
 
     def __init__(self, message):
         self.message = message
@@ -131,3 +150,174 @@ def treasury_balance(tenant, kind, treasury_id, as_of=None):
     base = (totals["debit"] or Decimal("0")) - (totals["credit"] or Decimal("0"))
     fc = (totals["debit_fc"] or Decimal("0")) - (totals["credit_fc"] or Decimal("0"))
     return {"base": base, "fc": fc}
+
+
+# ---------------------------------------------------------------------
+# IBAN change requests (sprint 5.5, block 5.5.0 — CFO_REVIEW_1 C10)
+# ---------------------------------------------------------------------
+
+IBAN_CHANGE_DOC_TYPE = "iban_change"
+
+
+def _iban_change_target_model(target_type):
+    from apps.parties.models import Party
+
+    from .models import Bank
+
+    model = {"bank": Bank, "party": Party}.get(target_type)
+    if model is None:
+        raise ValidationError({"target_type": [_("Unknown IBAN change target type.")]})
+    return model
+
+
+def _resolve_iban_change_target(tenant, target_type, target_id):
+    model = _iban_change_target_model(target_type)
+    try:
+        return model.objects.get(tenant=tenant, id=target_id)
+    except model.DoesNotExist:
+        raise ValidationError({"target_id": [_("Target record not found.")]})
+
+
+@transaction.atomic
+def create_iban_change_request(tenant, user, target_type, target_id, new_iban, reason):
+    from django.contrib.contenttypes.models import ContentType
+
+    from .models import IbanChangeRequest
+
+    target = _resolve_iban_change_target(tenant, target_type, target_id)
+    if not reason:
+        raise ValidationError({"reason": [_("A reason is required.")]})
+    if new_iban == target.iban:
+        raise ValidationError({"new_iban": [_("New IBAN is identical to the current one.")]})
+
+    content_type = ContentType.objects.get_for_model(type(target))
+    has_pending = IbanChangeRequest.objects.filter(
+        tenant=tenant, content_type=content_type, object_id=target.id,
+        status__in=[IbanChangeRequest.Status.DRAFT, IbanChangeRequest.Status.PENDING_APPROVAL],
+    ).exists()
+    if has_pending:
+        raise ValidationError(
+            {"detail": [_("There is already a pending IBAN change request for this target.")]}
+        )
+
+    return IbanChangeRequest.objects.create(
+        tenant=tenant, content_type=content_type, object_id=target.id,
+        old_iban=target.iban, new_iban=new_iban, reason=reason, created_by=user,
+    )
+
+
+def _apply_iban_change(iban_request, user, request=None):
+    from apps.platform.models import AuditLog
+    from apps.platform.services import log_action
+
+    target = iban_request.target
+    before = {"iban": target.iban}
+    target.iban = iban_request.new_iban
+    target.save(update_fields=["iban"])
+    iban_request.decided_by = user
+    iban_request.decided_at = timezone.now()
+    iban_request.save(update_fields=["decided_by", "decided_at"])
+    log_action(
+        actor_type=AuditLog.ActorType.TENANT_USER, actor_id=user.id if user else None,
+        action="iban_change_request.applied", target_type=iban_request.content_type.model,
+        target_id=iban_request.object_id, tenant_id=iban_request.tenant_id,
+        before=before, after={"iban": target.iban}, request=request,
+    )
+
+
+@transaction.atomic
+def submit_iban_change_request(iban_request, user, request=None):
+    from apps.approvals.services import submit_for_approval
+
+    from .models import IbanChangeRequest
+
+    if iban_request.status != IbanChangeRequest.Status.DRAFT:
+        raise ValidationError({"detail": [_("Only a draft request can be submitted.")]})
+    if not _has_active_attachment(iban_request):
+        raise ValidationError(
+            {"detail": [_("An IBAN letter attachment is required before submitting for approval.")]}
+        )
+
+    auto_approved = submit_for_approval(
+        iban_request, user, IBAN_CHANGE_DOC_TYPE, Decimal("0"), request=request
+    )
+    if auto_approved:
+        _apply_iban_change(iban_request, user, request=request)
+    return iban_request
+
+
+def _has_active_attachment(iban_request):
+    from django.contrib.contenttypes.models import ContentType
+
+    from apps.attachments.models import Attachment
+
+    content_type = ContentType.objects.get_for_model(type(iban_request))
+    return Attachment.objects.filter(
+        tenant=iban_request.tenant_id, content_type=content_type, object_id=iban_request.id,
+        status=Attachment.Status.ACTIVE,
+    ).exists()
+
+
+@transaction.atomic
+def approve_iban_change_request(iban_request, user, request=None):
+    from apps.approvals.services import approve as approvals_approve
+
+    approvals_approve(iban_request, user, IBAN_CHANGE_DOC_TYPE, Decimal("0"), request=request)
+    _apply_iban_change(iban_request, user, request=request)
+    return iban_request
+
+
+def reject_iban_change_request(iban_request, user, reason, request=None):
+    from apps.approvals.services import reject as approvals_reject
+
+    approvals_reject(iban_request, user, IBAN_CHANGE_DOC_TYPE, reason, request=request)
+    return iban_request
+
+
+def withdraw_iban_change_request(iban_request, user, request=None):
+    from apps.approvals.services import withdraw as approvals_withdraw
+
+    approvals_withdraw(iban_request, user, IBAN_CHANGE_DOC_TYPE, request=request)
+    return iban_request
+
+
+def check_iban_change_guard(party):
+    """CFO_REVIEW_1 C10's payment guard (decision 6): called from
+    apps.vouchers.services for a PAYMENT voucher with a party. Raises
+    TreasuryConflictError (-> 409) if a change request is currently
+    pending for this party; otherwise returns a warnings[] list (empty,
+    or one entry if the IBAN changed recently)."""
+    from django.contrib.contenttypes.models import ContentType
+
+    from apps.parties.models import Party
+
+    from .models import IbanChangeRequest
+
+    if party is None:
+        return []
+    content_type = ContentType.objects.get_for_model(Party)
+    pending = IbanChangeRequest.objects.filter(
+        content_type=content_type, object_id=party.id,
+        status=IbanChangeRequest.Status.PENDING_APPROVAL,
+    ).exists()
+    if pending:
+        raise TreasuryConflictError(
+            _("There is a pending IBAN change request for this party — resolve it before paying.")
+        )
+    cutoff = timezone.now() - datetime.timedelta(days=IBAN_CHANGE_RECENT_DAYS)
+    recent = (
+        IbanChangeRequest.objects.filter(
+            content_type=content_type, object_id=party.id,
+            status=IbanChangeRequest.Status.APPROVED, decided_at__gte=cutoff,
+        )
+        .order_by("-decided_at")
+        .first()
+    )
+    if recent is None:
+        return []
+    return [
+        str(
+            _("This party's IBAN was changed on %(date)s (approved by an IBAN change request) — verify before paying.")
+            % {"date": recent.decided_at.date()}
+        )
+    ]

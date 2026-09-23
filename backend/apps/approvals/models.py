@@ -25,6 +25,12 @@ class ApprovalRule(TenantScopedModel):
         VOUCHER_RECEIPT = "voucher_receipt", _("Receipt Voucher")
         VOUCHER_PAYMENT = "voucher_payment", _("Payment Voucher")
         VOUCHER_SETTLEMENT = "voucher_settlement", _("Settlement Voucher")
+        # Sprint 5.5 (block 5.5.0, CFO_REVIEW_1 C10): a fixed rule
+        # (min_amount=0, required_role=Owner) is seeded for every tenant
+        # and is NOT meant to be deletable/editable from the "قواعد
+        # الاعتماد" screen — 3.15.9 requires approval on every IBAN
+        # change, with no amount threshold to fall below.
+        IBAN_CHANGE = "iban_change", _("IBAN Change Request")
 
     doc_type = models.CharField(_("document type"), max_length=30, choices=DocType.choices)
     min_amount = models.DecimalField(

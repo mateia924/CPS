@@ -109,6 +109,14 @@ class RegisterSerializer(serializers.Serializer):
                 tenant=tenant, doc_type=ApprovalRule.DocType.JOURNAL_ENTRY,
                 min_amount=0, required_role=roles["Owner"],
             )
+            # Sprint 5.5 (block 5.5.0, CFO_REVIEW_1 C10 / 3.15.9): the
+            # fixed IBAN-change rule — same reasoning as the JV rule
+            # above, and same split as approvals/migrations/0005 (which
+            # only backfills tenants that existed *before* this sprint).
+            ApprovalRule.objects.create(
+                tenant=tenant, doc_type=ApprovalRule.DocType.IBAN_CHANGE,
+                min_amount=0, required_role=roles["Owner"],
+            )
 
         return {"tenant": tenant, "user": user}
 

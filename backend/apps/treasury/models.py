@@ -1,3 +1,5 @@
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
@@ -188,3 +190,52 @@ class Custody(TenantScopedModel):
 
     def __str__(self):
         return self.name
+
+
+class IbanChangeRequest(TenantScopedModel):
+    """Sprint 5.5 (block 5.5.0, CFO_REVIEW_1 C10, SYSTEM_ANALYSIS.md
+    3.15.9): the only path a *non-empty* Bank.iban or Party.iban may
+    change through (first entry on an empty field is a plain edit — see
+    apps.common.serializers.validate_iban_field). Uses the exact same
+    generic status vocabulary as apps.approvals.services
+    (STATUS_DRAFT/STATUS_PENDING_APPROVAL/STATUS_APPROVED) so it can run
+    through submit_for_approval/approve/reject/withdraw unmodified, with
+    a fixed doc_type=IBAN_CHANGE rule (min_amount=0, required_role=
+    Owner) seeded for every tenant — see
+    access/migrations and approvals/migrations for this sprint."""
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", _("Draft")
+        PENDING_APPROVAL = "pending_approval", _("Pending approval")
+        APPROVED = "approved", _("Approved")
+
+    # GenericFK target, restricted to Bank/Party only by the serializer
+    # (never a raw client-supplied app_label/model — same discipline as
+    # apps.attachments.services.ALLOWED_TARGETS).
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, related_name="+")
+    object_id = models.UUIDField()
+    target = GenericForeignKey("content_type", "object_id")
+
+    old_iban = models.CharField(_("old IBAN"), max_length=34, blank=True)
+    new_iban = models.CharField(_("new IBAN"), max_length=34)
+    reason = models.TextField(_("reason"))
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    # Named `created_by` (not `requested_by`) so this model satisfies
+    # the shared approvals engine's assumption
+    # (apps.approvals.services.approve/withdraw both read
+    # document.created_by_id directly) — same field name every other
+    # approvable document (JournalEntry, Invoice, Voucher) already uses.
+    created_by = models.ForeignKey(
+        "accounts.User", on_delete=models.PROTECT, related_name="iban_change_requests"
+    )
+    decided_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"IBAN change for {self.content_type.model} {self.object_id}: {self.old_iban} -> {self.new_iban}"

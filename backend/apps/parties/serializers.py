@@ -7,6 +7,7 @@ from rest_framework import serializers
 
 from apps.accounting.services import get_or_create_party_role_account
 from apps.common.constants import MONEY_DECIMAL_PLACES, MONEY_MAX_DIGITS
+from apps.common.serializers import validate_iban_field
 from apps.common.validators import (
     validate_saudi_commercial_registration,
     validate_saudi_national_id,
@@ -132,7 +133,7 @@ class PartySerializer(_SaudiFormatValidationMixin, serializers.ModelSerializer):
         fields = (
             "id", "code", "name", "name_en", "party_type", "tax_number",
             "national_id_or_cr", "phone", "email", "address", "country_code",
-            "default_currency", "notes", "is_active", "roles", "role",
+            "default_currency", "notes", "is_active", "iban", "roles", "role",
             "role_details", "role_legal_entity", "role_create_linked_cost_center", "created_at",
         )
         read_only_fields = ("id", "code", "roles", "created_at")
@@ -152,6 +153,12 @@ class PartySerializer(_SaudiFormatValidationMixin, serializers.ModelSerializer):
                 "role", "role_details", "role_legal_entity", "role_create_linked_cost_center"
             ):
                 self.fields.pop(field_name, None)
+
+    def validate_iban(self, value):
+        current = self.instance.iban if self.instance else ""
+        return validate_iban_field(
+            value, current, country_code=self.initial_data.get("country_code")
+        )
 
     def validate(self, attrs):
         if self.instance is None and attrs.get("role") == PartyRole.Role.AFFILIATE and not attrs.get(
@@ -273,20 +280,25 @@ class SupplierPartySerializer(_SaudiFormatValidationMixin, _RoleDetailsMixin, se
     """Backs `/api/parties/suppliers/`."""
 
     role_const = PartyRole.Role.SUPPLIER
-    detail_field_names = ("payment_terms_days", "iban")
+    detail_field_names = ("payment_terms_days",)
 
     roles = PartyRoleSerializer(many=True, read_only=True)
     payment_terms_days = serializers.IntegerField(required=False, allow_null=True, write_only=True)
-    # 3.15.9: changing a supplier's IBAN is meant to require approval —
-    # the approval engine doesn't exist yet (sprint 4), so this field is
-    # a plain editable value for now. Documented as deferred, not
-    # silently dropped.
-    iban = serializers.CharField(required=False, allow_blank=True, write_only=True, max_length=34)
 
     class Meta:
         model = Party
+        # Sprint 5.5 (block 5.5.0, CFO_REVIEW_1 C10): `iban` is now a
+        # real Party column (see migration 0002/0003) instead of a
+        # freely-editable PartyRole.details key — first entry is a
+        # plain edit, any change to an already-set value is rejected by
+        # validate_iban below and must go through
+        # treasury.IbanChangeRequest instead.
         fields = _PARTY_BASE_FIELDS + ("payment_terms_days", "iban")
         read_only_fields = _PARTY_BASE_READ_ONLY
+
+    def validate_iban(self, value):
+        current = self.instance.iban if self.instance else ""
+        return validate_iban_field(value, current, country_code=self._field_country_code())
 
 
 class EmployeePartySerializer(_SaudiFormatValidationMixin, serializers.ModelSerializer):
