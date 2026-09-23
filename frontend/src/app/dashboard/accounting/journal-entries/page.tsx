@@ -32,6 +32,7 @@ export default function JournalEntriesPage() {
   const [exchangeRate, setExchangeRate] = useState("");
   const [memo, setMemo] = useState("");
   const [reference, setReference] = useState("");
+  const [overrideReason, setOverrideReason] = useState("");
   const [lines, setLines] = useState<LineDraft[]>([{ ...EMPTY_LINE }, { ...EMPTY_LINE }]);
   const [error, setError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
@@ -39,6 +40,7 @@ export default function JournalEntriesPage() {
   const [reasonFor, setReasonFor] = useState<{ id: string; kind: "reject" | "reverse" } | null>(null);
   const [attachmentsFor, setAttachmentsFor] = useState<string | null>(null);
   const [reasonText, setReasonText] = useState("");
+  const [reverseDate, setReverseDate] = useState("");
 
   const showCostCenterUI = !!me && me.features.cost_centers;
 
@@ -70,6 +72,7 @@ export default function JournalEntriesPage() {
     setExchangeRate("");
     setMemo("");
     setReference("");
+    setOverrideReason("");
     setLines([{ ...EMPTY_LINE }, { ...EMPTY_LINE }]);
     setShowFx(false);
     setError(null);
@@ -85,6 +88,7 @@ export default function JournalEntriesPage() {
       ...(exchangeRate ? { exchange_rate: exchangeRate } : {}),
       memo,
       reference,
+      ...(overrideReason ? { override_reason: overrideReason } : {}),
       lines: lines
         .filter((l) => l.account && (l.debitFc || l.creditFc))
         .map((l) => ({
@@ -111,9 +115,13 @@ export default function JournalEntriesPage() {
 
   const submitReason = async (reload: () => void) => {
     if (!reasonFor) return;
-    await api.post(`/journal-entries/${reasonFor.id}/${reasonFor.kind}/`, { reason: reasonText });
+    await api.post(`/journal-entries/${reasonFor.id}/${reasonFor.kind}/`, {
+      reason: reasonText,
+      ...(reasonFor.kind === "reverse" && reverseDate ? { date: reverseDate } : {}),
+    });
     setReasonFor(null);
     setReasonText("");
+    setReverseDate("");
     reload();
   };
 
@@ -165,6 +173,14 @@ export default function JournalEntriesPage() {
               <div className="form-field">
                 <label>{t("reference")}</label>
                 <input value={reference} onChange={(e) => setReference(e.target.value)} />
+              </div>
+              <div className="form-field" style={{ flex: 1, minWidth: "220px" }}>
+                <label>{t("overrideReason")}</label>
+                <input
+                  value={overrideReason}
+                  onChange={(e) => setOverrideReason(e.target.value)}
+                  placeholder={t("overridePosting")}
+                />
               </div>
             </div>
           )}
@@ -233,6 +249,12 @@ export default function JournalEntriesPage() {
         <div className="card">
           <h3>{reasonFor.kind === "reject" ? t("rejectReason") : t("reverseReason")}</h3>
           <input value={reasonText} onChange={(e) => setReasonText(e.target.value)} style={{ minWidth: "300px" }} />
+          {reasonFor.kind === "reverse" && (
+            <div className="form-field" style={{ marginTop: "0.5rem", maxWidth: "200px" }}>
+              <label>{t("reverseDate")}</label>
+              <input type="date" value={reverseDate} onChange={(e) => setReverseDate(e.target.value)} />
+            </div>
+          )}
           <div style={{ marginTop: "0.75rem" }}>
             <button className="primary" onClick={() => submitReason(() => setRefreshToken((n) => n + 1))}>
               {t("save")}
@@ -244,6 +266,7 @@ export default function JournalEntriesPage() {
               onClick={() => {
                 setReasonFor(null);
                 setReasonText("");
+                setReverseDate("");
               }}
             >
               {t("cancel")}
@@ -285,6 +308,13 @@ export default function JournalEntriesPage() {
                   onClick={() => setReasonFor({ id: entry.id, kind: "reject" })}
                 >
                   {t("reject")}
+                </button>
+                <button
+                  className="secondary"
+                  style={{ marginInlineStart: "0.4rem" }}
+                  onClick={() => runTransition(entry, "withdraw", reload)}
+                >
+                  {t("withdraw")}
                 </button>
               </>
             )}

@@ -118,7 +118,6 @@ def create_invoice(tenant, party, legal_entity, issue_date, line_inputs, currenc
         tenant=tenant,
         party=party,
         legal_entity=legal_entity,
-        number=generate_invoice_number(tenant, legal_entity, issue_date),
         issue_date=issue_date,
         due_date=_compute_due_date(party, issue_date),
         status=Invoice.Status.DRAFT,
@@ -158,7 +157,13 @@ def _actually_issue(invoice):
     from apps.accounting.services import post_invoice_journal_entry
 
     invoice.status = Invoice.Status.ISSUED
-    invoice.save(update_fields=["status"])
+    update_fields = ["status"]
+    if not invoice.number:
+        # CFO_REVIEW_1 C6 / decision D2: assigned here, at the first
+        # exit from DRAFT — never at create time.
+        invoice.number = generate_invoice_number(invoice.tenant, invoice.legal_entity, invoice.issue_date)
+        update_fields.append("number")
+    invoice.save(update_fields=update_fields)
     post_invoice_journal_entry(invoice)
     return invoice
 
@@ -197,7 +202,10 @@ def issue_invoice(invoice, user, request=None):
     return invoice
 
 
+@transaction.atomic
 def approve_invoice(invoice, user, request=None):
+    # CFO_REVIEW_1 C4 — see apps.vouchers.services.approve_voucher's
+    # identical comment for why this must wrap _actually_issue too.
     from apps.approvals.services import approve as approvals_approve
 
     approvals_approve(invoice, user, "invoice", invoice.base_total, request=request)
@@ -208,4 +216,12 @@ def reject_invoice(invoice, user, reason, request=None):
     from apps.approvals.services import reject as approvals_reject
 
     approvals_reject(invoice, user, "invoice", reason, request=request)
+    return invoice
+
+
+def withdraw_invoice(invoice, user, request=None):
+    """CFO_REVIEW_1 C3."""
+    from apps.approvals.services import withdraw as approvals_withdraw
+
+    approvals_withdraw(invoice, user, "invoice", request=request)
     return invoice

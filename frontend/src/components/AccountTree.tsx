@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useLocale } from "@/lib/i18n";
 import type { AccountTreeNode } from "@/lib/types";
 
@@ -14,7 +15,26 @@ function TreeNode({ node, onAddChild }: { node: AccountTreeNode; onAddChild: (pa
         ({t(`${node.type}Type`)}
         {!node.is_active ? `, ${t("inactive")}` : ""})
       </span>{" "}
+      {!node.allow_manual_posting && (
+        <span
+          style={{
+            display: "inline-block", padding: "0.05rem 0.5rem", borderRadius: "999px",
+            fontSize: "0.7rem", color: "#fff", background: "#a3492f",
+          }}
+        >
+          {t("controlAccountBadge")}
+        </span>
+      )}{" "}
       <span style={{ color: "var(--muted)" }}>{node.balance}</span>{" "}
+      {!hasChildren && (
+        <Link
+          href={`/dashboard/reports/ledger?account=${node.id}`}
+          className="secondary"
+          style={{ fontSize: "0.75rem", padding: "0.1rem 0.5rem", display: "inline-block" }}
+        >
+          {t("movementsTab")}
+        </Link>
+      )}{" "}
       <button
         type="button"
         className="secondary"

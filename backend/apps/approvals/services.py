@@ -1,4 +1,5 @@
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 
 from apps.platform.models import AuditLog
@@ -46,12 +47,25 @@ def _log(document, doc_type, user, action, before=None, after=None, request=None
     )
 
 
+def _lock(document):
+    """CFO_REVIEW_1 C4: acquires the row lock and syncs `document`'s
+    in-memory `status` to what's actually in the DB right now — every
+    caller keeps its own reference to the SAME object (nothing here
+    returns a new instance), so this is safe to insert into any
+    already-mutating function without touching its callers at all. Must
+    be called inside an open `transaction.atomic()` block."""
+    document.status = type(document).objects.select_for_update().get(pk=document.pk).status
+    return document
+
+
+@transaction.atomic
 def submit_for_approval(document, user, doc_type, amount_base, request=None):
     """DRAFT -> PENDING_APPROVAL, then immediately auto-approved if no
     rule matches this doc_type/amount — "لا قاعدة مطابقة = اعتماد
     تلقائي عند الإرسال". Returns True if it ended up auto-approved,
     False if it's genuinely waiting (a human still needs to call
     approve())."""
+    _lock(document)
     if document.status != STATUS_DRAFT:
         raise ValidationError(_("Only a draft document can be submitted for approval."))
 
@@ -84,12 +98,14 @@ def can_approve(document, user, doc_type, amount_base):
     return document.tenant_id == user.tenant_id and user.roles.filter(id=rule.required_role_id).exists()
 
 
+@transaction.atomic
 def approve(document, user, doc_type, amount_base, request=None):
     """3.15.9 segregation of duties: the creator can never approve
     their own document — except in a single-active-user tenant
     ("الوضع المبسّط"), where there is nobody else who could; that
     exemption is itself logged (3.15.1: "يُعفى تلقائيًا مع تسجيل
     ذلك")."""
+    _lock(document)
     if document.status != STATUS_PENDING_APPROVAL:
         raise ValidationError(_("Only a pending-approval document can be approved."))
 
@@ -111,7 +127,9 @@ def approve(document, user, doc_type, amount_base, request=None):
     return document
 
 
+@transaction.atomic
 def reject(document, user, doc_type, reason, request=None):
+    _lock(document)
     if document.status != STATUS_PENDING_APPROVAL:
         raise ValidationError(_("Only a pending-approval document can be rejected."))
     if not reason:
@@ -120,4 +138,24 @@ def reject(document, user, doc_type, reason, request=None):
     document.status = STATUS_DRAFT
     document.save(update_fields=["status"])
     _log(document, doc_type, user, "rejected", after={"reason": reason}, request=request)
+    return document
+
+
+@transaction.atomic
+def withdraw(document, user, doc_type, request=None):
+    """CFO_REVIEW_1 C3: the creator's own way back to DRAFT — unlike
+    reject() (an approver sending it back), only the document's own
+    creator may withdraw it, and no reason is required. Same shared
+    engine used by submit_for_approval/approve/reject above; mirrors
+    apps.vouchers.services.withdraw_voucher's already-proven semantics
+    (5.3), generalized here for JournalEntry/Invoice."""
+    _lock(document)
+    if document.status != STATUS_PENDING_APPROVAL:
+        raise ValidationError(_("Only a pending-approval document can be withdrawn."))
+    if document.created_by_id != user.id:
+        raise PermissionDenied(_("Only the creator can withdraw this document."))
+
+    document.status = STATUS_DRAFT
+    document.save(update_fields=["status"])
+    _log(document, doc_type, user, "withdrawn", request=request)
     return document

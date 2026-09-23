@@ -1,6 +1,7 @@
 from django.db.models import Count, Max, Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -249,4 +250,28 @@ class AuditLogViewSet(PlatformViewSet):
         date_to = self.request.query_params.get("date_to")
         if date_to:
             queryset = queryset.filter(created_at__lte=date_to)
+        return queryset
+
+
+class TenantAuditLogViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
+    """Sprint 5.7 (CFO_REVIEW_1 F10): "سجل التغييرات" tab on any detail
+    screen — a tenant user's own read-only window into their own
+    tenant's AuditLog rows, filtered to one record (target_type +
+    target_id). Deliberately separate from AuditLogViewSet above (that
+    one is platform-staff-only, cross-tenant, no target filter
+    required) rather than reusing it with an extra permission branch."""
+
+    http_method_names = ["get", "head", "options"]
+    permission_classes = [IsAuthenticated]
+    serializer_class = AuditLogSerializer
+    queryset = AuditLog.objects.none()
+
+    def get_queryset(self):
+        queryset = AuditLog.objects.filter(tenant_id=self.request.user.tenant_id)
+        target_type = self.request.query_params.get("target_type")
+        target_id = self.request.query_params.get("target_id")
+        if target_type:
+            queryset = queryset.filter(target_type=target_type)
+        if target_id:
+            queryset = queryset.filter(target_id=target_id)
         return queryset

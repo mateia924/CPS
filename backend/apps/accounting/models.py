@@ -60,6 +60,15 @@ class Account(TenantScopedModel):
     # Meaningful (and enforced — see can_post) only on leaf accounts; a
     # non-leaf account never allows posting regardless of this flag.
     allow_posting = models.BooleanField(_("allow posting"), default=True)
+    # CFO_REVIEW_1 C2: a control account (sub-ledger for a party, a
+    # bank/cash-box/custody's own gl_account, or a system tax/FX/
+    # rounding/opening-balance/retained-earnings account) never takes a
+    # direct manual JV line — only its own source document (invoice,
+    # voucher, ...) may post to it — except through an explicit,
+    # logged override. See apps.accounting.services.create_manual_
+    # journal_entry and the migration backfilling this for every
+    # existing tenant's chart.
+    allow_manual_posting = models.BooleanField(_("allow manual posting"), default=True)
     is_intercompany = models.BooleanField(_("intercompany"), default=False)
     # The sub-ledger/running account for a Party (3.4: "حسابات جاري
     # تلقائية للأطراف") — a Party with two roles (customer + supplier)
@@ -97,8 +106,11 @@ class Account(TenantScopedModel):
     def can_post(self):
         """3.4 rule: "لا ترحيل على حساب له أبناء" — a non-leaf account
         never allows posting, regardless of allow_posting's stored
-        value (that flag only means something on a leaf)."""
-        return self.is_leaf and self.allow_posting
+        value (that flag only means something on a leaf). CFO_REVIEW_1
+        C13: a deactivated account never accepts a posting either,
+        regardless of who's posting (manual JV, invoice, voucher — this
+        is the one check every posting path already funnels through)."""
+        return self.is_leaf and self.allow_posting and self.is_active
 
     def clean(self):
         if not self.parent_id:
@@ -169,6 +181,14 @@ class JournalEntry(TenantScopedModel, DocumentStateMixin):
     exchange_rate = models.DecimalField(
         _("exchange rate"), max_digits=RATE_MAX_DIGITS, decimal_places=RATE_DECIMAL_PLACES, default=1
     )
+    # CFO_REVIEW_1 C1: the one other column (besides status) a POSTED
+    # row is allowed to change on its POSTED->REVERSED transition — the
+    # DB trigger's exception list names it explicitly.
+    reversed_at = models.DateTimeField(_("reversed at"), null=True, blank=True)
+    # CFO_REVIEW_1 C2: set when this entry's posting overrode at least
+    # one control-account line — override_reason itself lives only in
+    # AuditLog (log_action), not duplicated as a column here.
+    is_control_override = models.BooleanField(_("control override"), default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

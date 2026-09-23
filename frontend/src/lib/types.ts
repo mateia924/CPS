@@ -479,6 +479,7 @@ export interface Account {
   type: AccountType;
   normal_balance: NormalBalance;
   allow_posting: boolean;
+  allow_manual_posting: boolean;
   is_intercompany: boolean;
   system_key: string;
   is_system: boolean;
@@ -496,6 +497,7 @@ export interface AccountTreeNode {
   normal_balance: NormalBalance;
   is_system: boolean;
   system_key: string;
+  allow_manual_posting: boolean;
   is_active: boolean;
   balance: string;
   children: AccountTreeNode[];

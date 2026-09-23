@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api, generalError } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { ChangeHistoryTab } from "@/components/ChangeHistoryTab";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useLocale } from "@/lib/i18n";
 import type { Voucher } from "@/lib/types";
@@ -150,6 +151,7 @@ export default function VoucherDetailPage() {
       )}
 
       <AttachmentPanel targetType="voucher" targetId={voucher.id} />
+      <ChangeHistoryTab targetType="voucher" targetId={voucher.id} />
     </div>
   );
 }

@@ -567,3 +567,206 @@ check`/`makemigrations --check --dry-run` نظيفان. **الفرونت-إند:
 بشري فعلي على `docs/UAT/sprint-5.md` (السبرنت يبقى "مفتوحًا لـ UAT
 البشري" حتى يحدث ذلك ويُسجَّل في `docs/UAT_LOG.md`)؛ تصدير PDF بختم
 زمني للطباعة (مؤجَّل صراحةً لسبرنت 10)؛ QR/XML على الفاتورة (سبرنت 9).
+
+---
+
+## الكتلة 5.7 — ضوابط المراجعة المالية #1 (`docs/CFO_REVIEW_1.md` §3) ✅
+
+**Commit:** `Sprint 5.7: financial controls — DB-level posting protection, control accounts, pending lock, ledger, numbering at issue`
+
+- **C1 — حماية القيد المرحّل على مستوى Postgres:** migration خام
+  (`accounting/0019`) بدالتين ومحفّزين: `protect_posted_journal_entry`
+  (BEFORE UPDATE/DELETE على `accounting_journalentry` و
+  `accounting_journalline`) يرفض أي تعديل/حذف على قيد/سطر POSTED أو
+  REVERSED **باستثناء صراحة**: تحويل الرأس POSTED→REVERSED (مع
+  `reversed_at` فقط)، وحقول التسوية البنكية الثلاثة على السطر
+  (`reconciled_at`/`reconciled_by_id`/`bank_statement_line_id`)؛
+  و`check_journal_entry_balanced` (**constraint trigger مؤجَّل**،
+  `DEFERRABLE INITIALLY DEFERRED`) يفرض Σdebit=Σcredit (العملة
+  الأساسية) لكل قيد **عند الـ commit** لا لكل سطر — تحقّقت الآلية فعليًا
+  (`tests/test_db_triggers.py`، 7 اختبارات): `JournalLine.objects.
+  filter(...).update(debit=...)`/`.delete()` على قيد POSTED يرفع
+  `DatabaseError` من القاعدة نفسها مباشرة؛ إدخال سطرين غير متوازنين
+  داخل نفس المعاملة ينجحان فرديًا وتفشل المعاملة كلها عند `COMMIT`
+  فقط؛ العكس عبر `reverse_journal_entry()` والتسوية البنكية (الحقول
+  الثلاثة) يستمران يعملان بلا أي أثر. **ثغرتان حقيقيتان في اختبارات
+  قديمة اكتُشفتا من فشل حقيقي عند إضافة المحفّز:** `test_chart_of_
+  accounts.py` كان به اختباران ينشئان `JournalLine` واحدًا غير متوازن
+  عمدًا (فحص فقط أن الحساب "له سطر") — لم يُكتشف من قبل لعدم وجود قيد
+  في القاعدة أصلًا؛ أُصلِحا بإضافة سطر مقابل متوازن، لا تغيير في جوهر
+  الاختبارين.
+- **C2 — حسابات الرقابة:** `Account.allow_manual_posting` (افتراضي
+  True، للقراءة فقط عبر الـ API) — يُضبط False تلقائيًا الآن عند
+  الإنشاء لكل حساب جاري طرف (`get_or_create_party_role_account`)،
+  `gl_account` خزينة (`get_or_create_treasury_account`)، وأي حساب
+  بـ`system_key` ∈ `CONTROL_SYSTEM_KEYS` (VAT_OUTPUT/VAT_INPUT/
+  VAT_NON_DEDUCTIBLE/FX_REALIZED/FX_UNREALIZED/ROUNDING/
+  OPENING_BALANCE/RETAINED_EARNINGS) عند بناء شجرة الدليل من القالب —
+  + migration تعبئة بيانات بحتة (`accounting/0018`) للحسابات الموجودة
+  فعليًا (تحقّق حي على Fatma: 5 من 12 حسابًا أُعلِّمت رقابة). القيد
+  اليدوي على حساب رقابة → 400 عربي واضح بلا `override_reason`؛ بالتجاوز
+  (سبب إلزامي + صلاحية `accounting.post_control_accounts` الجديدة،
+  Owner فقط افتراضيًا — لا "مدير حسابات" منفصل في هذا المشروع) →
+  201 ويُعلَّم القيد `is_control_override=True` ويُسجَّل AuditLog. شارة
+  "رقابة" على عقدة الشجرة في دليل الحسابات.
+- **C3 — بانتظار الاعتماد للقراءة فقط:** `Invoice.partial_update` على
+  حالة غير DRAFT → **409** (لا 400 كما كان — القرار: الطلب سليم الصياغة،
+  حالة المستند هي المتعارضة). `JournalEntry`/`Voucher` كانا محميّين
+  بنيويًا أصلًا (لا مسار PATCH/UPDATE مُعرَّض إطلاقًا). **دالة `withdraw`
+  عامة جديدة** في `apps/approvals/services.py` (المنشئ فقط، بلا سبب،
+  بنفس منطق `apps.vouchers.services.withdraw_voucher` من 5.3) — أُضيفت
+  لأول مرة لـ JournalEntry وInvoice (لم تكن موجودة قط لهذين النوعين،
+  فجوة حقيقية من 4.4/4.5).
+- **C4 — قفل الترحيل:** كل دالة انتقال حالة (submit/approve/reject/
+  withdraw المشتركة في `apps.approvals.services`، وpost/reverse
+  الخاصتان بـ JournalEntry، وapprove/reverse/withdraw الخاصة بالسندات)
+  تُقفل صفها بـ `select_for_update()` وتُزامن `status` داخل نفس الكائن
+  Python (لا استبدال كائن جديد — كل استدعاء موجود في المشروع يستمر
+  يعمل دون تعديل) قبل أي فحص شرط. **تحقّق فعلي حقيقي بـ threads حقيقية
+  لا محاكاة** (`test_concurrent_post_requests_only_one_succeeds`):
+  طلبا ترحيل متزامنان لنفس القيد → واحد ينجح (`posted`) والثاني يفشل
+  بخطأ واضح ("Only an approved entry can be posted") بعد أن يُحرَّر
+  القفل — لا قيد مزدوج أبدًا.
+- **C5 — دفتر الأستاذ:** `GET /api/accounts/{id}/ledger/?legal_entity&
+  from&to` — نفس خدمة `ledger_lines()` (5.4) لا نسخة ثالثة. شاشة "دفتر
+  الأستاذ" جديدة في التقارير (اختيار حساب ببحث + فترة) + زر "الحركات"
+  على كل عقدة ورقة في شجرة دليل الحسابات.
+- **C6 — رقم الفاتورة عند الإصدار:** `Invoice.number` أصبح `blank=True`
+  (قيد التفرّد يستثني الفارغ، بنفس نمط `Voucher.number` من 5.0)؛
+  `create_invoice` لم يعد يمنح رقمًا؛ `_actually_issue` يمنحه الآن فقط
+  إن كان لا يزال فارغًا. **اختباران قديمان أُصلِحا فعليًا** (كانا
+  يتحققان من التفرّد عند الإنشاء المباشر لا عند الإصدار — الآن يُصدران
+  الفاتورتين أولًا). لا فجوة أرقام ممكنة أصلًا: لا مسار حذف لمسودة
+  فاتورة على الإطلاق.
+- **C8 — تاريخ القيد العكسي:** `reverse_journal_entry(entry, user,
+  reason, date=None)` — الافتراضي اليوم، يُرفض إن سبق تاريخ الأصل
+  (400 عربي). حقل تاريخ جديد في شاشة القيود اليدوية عند اختيار "عكس".
+- **C9 — "رصيد الافتتاح":** **محقَّق أصلًا بلا أي كود جديد** — لا يوجد
+  حقل "رصيد افتتاحي" مخزَّن على `Bank`/`CashBox`/`Custody` في هذا
+  المشروع أصلًا (تحقّقت من الموديلات والفورمات الحالية مباشرة)؛ الرصيد
+  المعروض في شاشات 5.4/5.6 (تبويب "الحركات") محسوب دائمًا من
+  `treasury_balance()`/`ledger_lines()`. القرار كان مشروطًا ("إن كان
+  حقلًا مخزَّنًا") ولم يتحقق شرطه.
+- **C13 — الحساب المعطَّل:** `Account.can_post` (الفحص المشترك خلف كل
+  مسار ترحيل — يدوي وفاتورة وسند) أصبح يشترط `is_active` أيضًا، لا
+  `is_leaf`/`allow_posting` فقط — إصلاح مركزي واحد يحمي كل المسارات
+  الثلاثة دفعة واحدة. `AccountViewSet.deactivate` يُعاد تعريفه (409 لو
+  رصيد ≠ صفر أو أبناء نشطون، وإلا السلوك العام). **خطأ حقيقي اكتُشف
+  أثناء الكتابة:** نسيان `@action(detail=True, methods=["post"])` على
+  الدالة المُعاد تعريفها أسقط تسجيل الرابط من DRF بصمت (404 لا خطأ
+  تصميم) — اكتُشف من فشل اختبار فوري.
+- **C14 — سعر الصرف:** `get_rate` يستنتج الآن السعر المعكوس (1/rate)
+  عند غياب الزوج المباشر ووجود المعاكس (مع تسجيل `logging.info`)؛
+  `get_rate_with_warnings` جديدة (نفس المنطق + تحذير "أقدم من 7 أيام")
+  تُستخدَم في `post_voucher`'s warnings (لا قناة warnings[] عامة بعد
+  لكل من الفاتورة/القيد اليدوي — الاثنان يحصلان مبدئيًا فقط على تحذير
+  F1، ليس تحذير قِدَم السعر، فجوة موثَّقة).
+- **C16 — تحقق الأرقام السعودية:** موسَّع من 5.6 (LegalEntity فقط) إلى
+  الأطراف كلها (`apps/common/validators.py`: + `validate_saudi_
+  national_id`، 10 أرقام تبدأ 1 أو 2) عبر ميكسن مشترك واحد
+  (`_SaudiFormatValidationMixin`) في `apps/parties/serializers.py`
+  تعيد استخدامه الشاشات الخمس (الأطراف، العملاء، الموردون، الموظفون،
+  الشقيقة) — لا تكرار للمنطق خمس مرات. الرقم الضريبي دائمًا بصيغة
+  الشركة السعودية؛ `national_id_or_cr` يتحقق حسب `party_type` (فرد →
+  هوية/إقامة، منشأة → سجل تجاري).
+- **F1 — التاريخ المستقبلي:** `future_date_warning()` جديدة
+  (`apps/common/validators.py`) — مُضافة إلى استجابة إنشاء الفاتورة
+  والقيد اليدوي والسند (`warnings[]` في الثلاثة، مفتاح جديد في
+  استجابتي الفاتورة/القيد لم يكن موجودًا من قبل).
+- **F10 — سجل التغييرات:** نقطة API جديدة تمامًا `GET /api/audit-log/
+  ?target_type=&target_id=` (`TenantAuditLogViewSet`، عزل مستأجر يدوي
+  موثَّق — `AuditLog` ليس `TenantScopedModel`) + مكوّن فرونت-إند واحد
+  `ChangeHistoryTab` (مطويّ افتراضيًا) رُكِّب على شاشتي تفاصيل الفاتورة
+  والسند تحديدًا — **قرار نطاق:** لا `log_action` مسجَّل فعليًا لتغييرات
+  الأطراف/البنوك/الصناديق/العُهد/الحسابات في أي سبرنت سابق (`target_
+  type` المستخدَمة فعليًا في المشروع كله: `sales.Invoice`، `voucher`،
+  `journal_entry`، `attachment`، `accounts.User`، `tenant` فقط) —
+  تركيب التبويب على شاشات بلا أي سجل فعلي كان سيعرض "لا سجل" دائمًا؛
+  التوسّع لبقية الشاشات ديْن موثَّق يحتاج أولًا إضافة `log_action` لكل
+  مسار تعديل هناك، لا مجرد شاشة عرض.
+- **أسئلة التحقق الـ18 (`docs/CFO_REVIEW_1.md` §7):**
+
+  1. **لا.** `JournalEntry` لا مسار PATCH/UPDATE له إطلاقًا
+     (`JournalEntryViewSet(ListModelMixin, RetrieveModelMixin,
+     GenericViewSet)`). `Invoice.partial_update` على حالة ≠ DRAFT
+     (يشمل PENDING_APPROVAL) → 409 (`apps/sales/views.py`، الآن أيضًا
+     `tests/test_invoice_edit_void.py::test_patch_issued_invoice_
+     rejected`).
+  2. **نعم، الآن.** `select_for_update()` داخل `transaction.atomic`
+     على كل انتقال (`apps/approvals/services.py::_lock`،
+     `apps/accounting/services.py::post_journal_entry`/
+     `reverse_journal_entry`). طلبا ترحيل متزامنان: الأول يترحّل
+     بنجاح، الثاني يُحجَب حتى يُحرَّر القفل ثم يفشل بخطأ حالة واضح (لا
+     قيد مزدوج) — `tests/test_journal_engine.py::test_concurrent_
+     post_requests_only_one_succeeds` (threads حقيقية).
+  3. **عند الإصدار** الآن (كان عند الإنشاء قبل هذه الكتلة) —
+     `apps/sales/services.py::_actually_issue`.
+  4. **لا استدعاء مباشر لـ `reverse_journal_entry()`** — `void_
+     invoice_journal_entry` دالة منفصلة بنفس المبدأ (قيد عكسي معكوس
+     السطور + الأصل → REVERSED) لكن كودها مستقل، لم تُعدَّل في هذه
+     الكتلة. الشرط المانع: `invoice.status != ISSUED` → 400
+     ("Only issued invoices can be voided").
+  5. **لا، الآن.** مرفوض بـ400 بلا `override_reason` + صلاحية
+     `accounting.post_control_accounts` (C2 أعلاه).
+  6. **نعم للاثنين، الآن** (C13 أعلاه) — `Account.can_post`/
+     `AccountViewSet.deactivate`.
+  7. **اليوم افتراضيًا، قابل للتحديد، لا يسبق تاريخ الأصل** (C8 أعلاه).
+  8. **نعم للاثنين، الآن** (C14 أعلاه) — الاستنتاج مفعَّل دائمًا في
+     `get_rate`؛ تحذير القِدَم فقط عبر `get_rate_with_warnings`
+     (السندات حاليًا، لا الفاتورة/القيد اليدوي بعد).
+  9. **لا يوجد الحقل أصلًا** (C9 أعلاه) — لا "مخزَّن" ولا "يولّد قيدًا"،
+     السؤال نفسه غير منطبق على حالة الكود الحالية.
+  10. **PAST_DUE: لا شيء يُفرَض إطلاقًا** (يتصرف كأنه ACTIVE بالكامل) —
+      فجوة حقيقية غير مغطاة في هذه الكتلة ولا قبلها، مؤجَّلة، توثَّق
+      هنا لأول مرة. **SUSPENDED: نعم، قراءة فقط** (403 على أي طلب غير
+      GET/HEAD/OPTIONS) — `apps/tenants/authentication.py::
+      TenantAwareJWTAuthentication` (سبرنت 2، غير مُعدَّل هنا).
+      **ARCHIVED: 401 كامل** (نفس الملف).
+  11. **نعم، لكن جزئيًا** — `ChangeHistoryTab` مُركَّب على تفاصيل
+      الفاتورة والسند فقط (F10 أعلاه)، لا كل شاشة تفاصيل.
+  12. **نعم للاثنين** — شاشة "الشركة" (`/dashboard/settings/company`)
+      وطباعة الفاتورة (`/print/invoices/[id]`)، كلتاهما من 5.6.
+  13. **سطر بسطر أولًا (ROUND_HALF_UP لمنزلتين)، ثم جمع** — لم يتغيّر
+      قط منذ 4.6، مُختبَر صراحة الآن لأول مرة بفاتورة 7 بنود كسرية
+      (`tests/test_invoicing_e2e.py::test_tax_rounds_per_line_then_
+      sums_seven_fractional_lines`، C15).
+  14. **لا، لم تنتقل.** لا واحد من الأربعة (Invoice/Account/
+      JournalEntry/User) يرث `TenantScopedViewSet` — الأربعة (+
+      Voucher/TenantAuditLogViewSet الجديدان) مُستثناة صراحة بأسباب
+      موثَّقة في `tests/test_structural_isolation.py::
+      TENANT_FILTER_EXEMPTIONS` (كل واحد يُصفّي `get_queryset()` يدويًا
+      بنفس الأثر الأمني، ليس ثغرة — الاختبار البنيوي يتحقق من ذلك آليًا
+      كل مرة).
+  15. **نعم** — `scripts/backup.sh` على cron يومي `0 3 * * *` (مُثبَّت
+      فعليًا على crontab root منذ الكتلة 5.0، تحقّقت نسخة استعادة حقيقية
+      حينها).
+  16. **نعم** — `invoice.base_total` (الإجمالي شامل الضريبة × سعر
+      الصرف، عملة أساسية) هو ما يُمرَّر لـ `submit_for_approval`/
+      `can_approve`/`approve` دائمًا (`apps/sales/services.py`، غير
+      مُعدَّل هنا، تحقّق قراءة فقط).
+  17. **نعم، مرفوض** — `customer` queryset في
+      `InvoiceCreateSerializer` مقيَّد لأطراف بدور CUSTOMER نشط فقط؛
+      طرف آخر → 400 (`tests/test_master_data.py::
+      test_invoice_with_party_lacking_customer_role_returns_400`، غير
+      مُعدَّل هنا).
+  18. **لا يُبطَّل** — **لا نقطة `logout` من الأساس** (لا `/api/auth/
+      logout/`، تسجيل الخروج في الفرونت-إند مجرد حذف محلي للتوكنين)،
+      و`rest_framework_simplejwt.token_blacklist` غير مُثبَّت. مدة
+      التوكن: access = 30 دقيقة (`JWT_ACCESS_MINUTES`، افتراضي)، refresh
+      = 7 أيام (`JWT_REFRESH_DAYS`)؛ `ROTATE_REFRESH_TOKENS=True` لكن
+      `BLACKLIST_AFTER_ROTATION=False` — أي توكن refresh مسرَّب يبقى
+      صالحًا حتى انتهاء مدته الطبيعية حتى بعد تدويره. فجوة حقيقية غير
+      مغطاة في هذه الكتلة، موثَّقة هنا لأول مرة.
+
+**الاختبارات:** 299/299 (277 + 22 جديدة عبر `test_financial_controls.py`
++ `test_db_triggers.py` + إصلاحين لاختبارين قديمين). `ruff check .`
+نظيف. `manage.py check`/`makemigrations --check --dry-run` نظيفان.
+`next build` نظيف (38 مسارًا). `docker compose restart backend
+celery_worker` ثم `make smoke` بعد الـ commit.
+
+**لم يكتمل:** F10 على كل شاشة تفاصيل (فقط فاتورة/سند الآن، أعلاه)؛
+تحذير قِدَم سعر الصرف على الفاتورة/القيد اليدوي (السندات فقط الآن)؛
+PAST_DUE middleware enforcement (فجوة اكتُشفت أثناء إجابة سؤال التحقق
+10، لم تكن في نطاق الكتلة أصلًا)؛ إبطال JWT عند تسجيل الخروج (فجوة
+اكتُشفت أثناء إجابة سؤال التحقق 18، لم تكن في نطاق الكتلة أصلًا) —
+كلتاهما ديْن تقني حقيقي جديد، سيُضاف لـ README.

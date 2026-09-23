@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { ChangeHistoryTab } from "@/components/ChangeHistoryTab";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useLocale } from "@/lib/i18n";
 import type { Invoice } from "@/lib/types";
@@ -30,6 +31,11 @@ export default function InvoiceDetailPage() {
     `/dashboard/treasury/vouchers/receipt?party=${invoice.customer}&party_role=customer` +
     `&invoice=${invoice.id}&amount_fc=${invoice.balance_fc}`;
 
+  const withdraw = async () => {
+    await api.post(`/invoices/${invoice.id}/withdraw/`);
+    api.get<Invoice>(`/invoices/${id}/`).then(setInvoice);
+  };
+
   return (
     <div>
       <button className="secondary" onClick={() => router.push("/dashboard/invoices")}>
@@ -50,6 +56,9 @@ export default function InvoiceDetailPage() {
             {t("printButton")}
           </Link>
         )}
+        {invoice.status === "pending_approval" && (
+          <button className="secondary" onClick={withdraw}>{t("withdraw")}</button>
+        )}
       </div>
 
       <div className="card">
@@ -65,6 +74,7 @@ export default function InvoiceDetailPage() {
       </div>
 
       <AttachmentPanel targetType="invoice" targetId={invoice.id} />
+      <ChangeHistoryTab targetType="sales.Invoice" targetId={invoice.id} />
     </div>
   );
 }

@@ -107,7 +107,11 @@ class Invoice(TenantScopedModel):
     legal_entity = models.ForeignKey(
         "organization.LegalEntity", on_delete=models.PROTECT, related_name="invoices"
     )
-    number = models.CharField(_("number"), max_length=32)
+    # Sprint 5.7 (CFO_REVIEW_1 C6 / decision D2): blank until the first
+    # exit from DRAFT (issue_invoice), not at create time — a deleted
+    # draft must never leave a gap in the sequence. Same pattern as
+    # Voucher.number (5.0/5.3).
+    number = models.CharField(_("number"), max_length=32, blank=True, default="")
     status = models.CharField(_("status"), max_length=20, choices=Status.choices, default=Status.DRAFT)
     issue_date = models.DateField(_("issue date"))
     # Sprint 5.0 (prompt block 5.0 item 5): derived once at create/update
@@ -185,6 +189,7 @@ class Invoice(TenantScopedModel):
             models.UniqueConstraint(
                 fields=["tenant", "number"],
                 name="unique_invoice_number_per_tenant",
+                condition=~models.Q(number=""),
             )
         ]
 

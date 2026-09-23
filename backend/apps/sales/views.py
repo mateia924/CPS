@@ -7,6 +7,7 @@ from rest_framework.response import Response
 
 from apps.access.permissions import HasModulePermission
 from apps.accounting.services import void_invoice_journal_entry
+from apps.common.validators import future_date_warning
 from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 from apps.organization.services import get_accessible_entity_ids
 from apps.platform.models import AuditLog
@@ -21,7 +22,7 @@ from .serializers import (
     ProductSerializer,
     RejectInvoiceSerializer,
 )
-from .services import approve_invoice, issue_invoice, reject_invoice
+from .services import approve_invoice, issue_invoice, reject_invoice, withdraw_invoice
 
 
 class CustomerViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
@@ -81,6 +82,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         "reject": "invoices.approve",
         "void": "invoices.approve",
         "deliver": "invoices.view",
+        "withdraw": "invoices.create",
     }
 
     def get_queryset(self):
@@ -110,15 +112,20 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         invoice = serializer.save()
-        return Response(InvoiceSerializer(invoice).data, status=201)
+        payload = InvoiceSerializer(invoice).data
+        payload["warnings"] = future_date_warning(invoice.issue_date)
+        return Response(payload, status=201)
 
     def partial_update(self, request, *args, **kwargs):
         # 3.13/rule 3: only a DRAFT invoice may be edited — once issued,
-        # the only way to change it is void() below.
+        # the only way to change it is void() below. CFO_REVIEW_1 C3:
+        # 409 (not 400) — the request itself is well-formed, it's the
+        # invoice's current state that conflicts with it; a
+        # PENDING_APPROVAL invoice must use withdraw() first.
         invoice = self.get_object()
         if invoice.status != Invoice.Status.DRAFT:
             return Response(
-                {"detail": _("Only draft invoices can be edited. Void it instead.")}, status=400
+                {"detail": _("Only draft invoices can be edited. Void it instead.")}, status=409
             )
         serializer = self.get_serializer(invoice, data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
@@ -154,6 +161,17 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             invoice = reject_invoice(invoice, request.user, serializer.validated_data["reason"], request=request)
         except (ValidationError, ValueError) as exc:
             return Response({"detail": str(exc)}, status=400)
+        return Response(InvoiceSerializer(invoice).data)
+
+    @action(detail=True, methods=["post"])
+    def withdraw(self, request, pk=None):
+        invoice = self.get_object()
+        try:
+            invoice = withdraw_invoice(invoice, request.user, request=request)
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        except PermissionDenied as exc:
+            return Response({"detail": str(exc)}, status=403)
         return Response(InvoiceSerializer(invoice).data)
 
     @action(detail=True, methods=["post"])

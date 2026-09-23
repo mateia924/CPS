@@ -59,6 +59,12 @@ DEFAULT_PERMISSIONS = [
     ("vouchers.post", _("Submit/post vouchers")),
     ("vouchers.approve", _("Approve or reject vouchers pending approval")),
     ("vouchers.reverse", _("Reverse a posted voucher")),
+    # Sprint 5.7 (CFO_REVIEW_1 C2): a control account (party sub-ledger,
+    # treasury gl_account, tax/FX/rounding/opening/retained-earnings)
+    # rejects a manual JV line unless the poster holds this — kept
+    # separate from accounting.manage (chart-of-accounts editing) since
+    # the two authorities are unrelated.
+    ("accounting.post_control_accounts", _("Override the manual-posting block on a control account")),
 ]
 
 # Reasonable, editable defaults per system role — not specified in full

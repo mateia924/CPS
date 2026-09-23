@@ -27,10 +27,13 @@ class AccountSerializer(serializers.ModelSerializer):
         model = Account
         fields = (
             "id", "parent", "level", "code", "name", "type", "normal_balance",
-            "allow_posting", "is_intercompany", "system_key", "is_system", "party",
+            "allow_posting", "allow_manual_posting", "is_intercompany", "system_key", "is_system", "party",
             "is_leaf", "is_active", "created_at",
         )
-        read_only_fields = ("id", "level", "system_key", "is_system", "party", "is_leaf", "created_at")
+        read_only_fields = (
+            "id", "level", "system_key", "is_system", "party", "is_leaf", "created_at",
+            "allow_manual_posting",
+        )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -75,7 +78,7 @@ class AccountTreeSerializer(serializers.ModelSerializer):
         model = Account
         fields = (
             "id", "code", "name", "type", "normal_balance", "is_system", "system_key",
-            "is_active", "balance", "children",
+            "allow_manual_posting", "is_active", "balance", "children",
         )
 
     def get_children(self, obj):
@@ -161,6 +164,11 @@ class ManualJournalEntryCreateSerializer(serializers.Serializer):
     )
     memo = serializers.CharField(required=False, allow_blank=True, default="")
     reference = serializers.CharField(required=False, allow_blank=True, default="")
+    # CFO_REVIEW_1 C2 — required only when a line targets a control
+    # account (`Account.allow_manual_posting=False`); validated against
+    # that condition in the view, not here (needs resolved Account
+    # objects first).
+    override_reason = serializers.CharField(required=False, allow_blank=True, default="")
     lines = ManualJournalLineInputSerializer(many=True)
 
     def __init__(self, *args, **kwargs):
@@ -180,6 +188,10 @@ class ManualJournalEntryCreateSerializer(serializers.Serializer):
 
 class JournalEntryReverseSerializer(serializers.Serializer):
     reason = serializers.CharField(min_length=3)
+    # CFO_REVIEW_1 C8: defaults to today in the service layer when
+    # omitted; validated there too (must not precede the original
+    # entry's own date) since that check needs the entry itself.
+    date = serializers.DateField(required=False)
 
 
 class TaxCodeSerializer(serializers.ModelSerializer):

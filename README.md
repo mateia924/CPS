@@ -521,6 +521,22 @@ customers_to_parties.py`): تحققت يدويًا ضد بيانات Acme Tradin
 
 ## ديون تقنية يجب معالجتها قبل الإنتاج
 
+- **حالة المستأجر `PAST_DUE` لا تُفرَض في أي middleware** (اكتُشفت
+  سبرنت 5.7 أثناء إجابة سؤال تحقق `CFO_REVIEW_1.md` §7): `apps/
+  tenants/authentication.py::TenantAwareJWTAuthentication` يفرض
+  `ARCHIVED` (401 كامل) و`SUSPENDED` (403 على أي كتابة) فقط —
+  `PAST_DUE` يتصرف حاليًا مطابقًا تمامًا لـ`ACTIVE` (وصول كامل بلا أي
+  قيد أو تنبيه). يحتاج قرارًا تصميميًا (تنبيه فقط؟ قراءة فقط كـ
+  SUSPENDED؟ مهلة سماح بالأيام؟) قبل التنفيذ — لم يُطلب صراحة بعد.
+- **لا إبطال (blacklist) لتوكن الـ refresh عند تسجيل الخروج** (اكتُشفت
+  سبرنت 5.7، نفس السياق): لا نقطة `/api/auth/logout/` من الأساس —
+  "تسجيل الخروج" في الفرونت-إند هو حذف محلي للتوكنين فقط،
+  و`rest_framework_simplejwt.token_blacklist` غير مثبَّت في
+  `INSTALLED_APPS`. `ROTATE_REFRESH_TOKENS=True` لكن
+  `BLACKLIST_AFTER_ROTATION=False`، فتوكن refresh مسرَّب (أو الجهاز
+  نفسه بعد تسجيل خروج المستخدم) يبقى صالحًا حتى انتهاء مدته الطبيعية
+  (7 أيام افتراضيًا). يحتاج تثبيت `token_blacklist` + نقطة `logout/`
+  حقيقية.
 - ~~حاوية `backend` (وضع dev) لا تُعيد تحميل الكود تلقائيًا~~ ✅
   **جزئيًا في سبرنت 5.0**: `docker-compose.dev.yml` يشغّل الآن
   `gunicorn --reload`. **يبقى تحذير تشغيلي فعلي**: `--reload` يراقب

@@ -1,12 +1,14 @@
 from decimal import Decimal
 
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.utils.translation import gettext_lazy as _
 from rest_framework import filters, mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.access.permissions import HasModulePermission
+from apps.common.validators import future_date_warning
 from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 from apps.organization.models import CostCenter
 from apps.organization.services import get_accessible_entity_ids
@@ -23,13 +25,16 @@ from .serializers import (
     TaxPeriodSerializer,
 )
 from .services import (
+    REPORTABLE_STATUSES,
     approve_journal_entry,
     compute_trial_balance,
     create_manual_journal_entry,
+    ledger_lines,
     post_journal_entry,
     reject_journal_entry,
     reverse_journal_entry,
     submit_journal_entry_for_approval,
+    withdraw_journal_entry,
 )
 
 
@@ -47,6 +52,7 @@ class AccountViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         "list": "accounting.view",
         "retrieve": "accounting.view",
         "tree": "accounting.view",
+        "ledger": "accounting.view",
         "create": "accounting.manage",
         "update": "accounting.manage",
         "partial_update": "accounting.manage",
@@ -59,6 +65,54 @@ class AccountViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
     def tree(self, request):
         roots = Account.objects.filter(tenant=request.user.tenant, parent__isnull=True).order_by("code")
         return Response(AccountTreeSerializer(roots, many=True).data)
+
+    @action(detail=True, methods=["get"])
+    def ledger(self, request, pk=None):
+        """CFO_REVIEW_1 C5 — GET /api/accounts/{id}/ledger/?legal_entity&from&to.
+        Same ledger_lines() service already backing treasury movements
+        and party statements (5.4/5.6) — no third copy of this query."""
+        import datetime
+
+        account = self.get_object()
+        legal_entity = None
+        legal_entity_id = request.query_params.get("legal_entity")
+        if legal_entity_id:
+            from apps.organization.models import LegalEntity
+
+            legal_entity = LegalEntity.objects.filter(tenant=request.user.tenant, id=legal_entity_id).first()
+        date_from = request.query_params.get("from")
+        date_to = request.query_params.get("to")
+        result = ledger_lines(
+            request.user.tenant, account, legal_entity=legal_entity,
+            date_from=datetime.date.fromisoformat(date_from) if date_from else None,
+            date_to=datetime.date.fromisoformat(date_to) if date_to else None,
+        )
+        return Response(result)
+
+    @action(detail=True, methods=["post"])
+    def deactivate(self, request, pk=None):
+        """CFO_REVIEW_1 C13: a 409 (not the mixin's unconditional
+        success) when the account still has a nonzero balance or an
+        active child — deactivating it would silently orphan real
+        money/structure. `activate` stays the generic, unconditional
+        mixin behavior (re-activating is always safe)."""
+        from django.db.models import Sum
+
+        account = self.get_object()
+        if account.children.filter(is_active=True).exists():
+            return Response(
+                {"detail": _("This account has active child accounts and cannot be deactivated.")},
+                status=409,
+            )
+        totals = account.journal_lines.filter(
+            entry__tenant=request.user.tenant, entry__status__in=REPORTABLE_STATUSES
+        ).aggregate(debit=Sum("debit"), credit=Sum("credit"))
+        balance = (totals["debit"] or Decimal("0")) - (totals["credit"] or Decimal("0"))
+        if balance != 0:
+            return Response(
+                {"detail": _("This account has a nonzero balance and cannot be deactivated.")}, status=409
+            )
+        return super().deactivate(request, pk=pk)
 
 
 def _resolve_manual_lines(tenant, raw_lines):
@@ -103,6 +157,7 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
         "reject": "accounting.manage",
         "post": "accounting.manage",
         "reverse": "accounting.manage",
+        "withdraw": "accounting.manage",
         "trial_balance": "accounting.view",
     }
 
@@ -143,12 +198,18 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
                 exchange_rate=exchange_rate,
                 memo=data.get("memo", ""),
                 reference=data.get("reference", ""),
+                override_reason=data.get("override_reason", ""),
+                request=request,
             )
         except ExchangeRateNotFound as exc:
             return Response({"detail": str(exc.message)}, status=400)
         except (ValidationError, ValueError) as exc:
             return Response({"detail": str(exc)}, status=400)
-        return Response(JournalEntrySerializer(entry).data, status=201)
+        except PermissionDenied as exc:
+            return Response({"detail": str(exc)}, status=403)
+        payload = JournalEntrySerializer(entry).data
+        payload["warnings"] = future_date_warning(data["date"])
+        return Response(payload, status=201)
 
     @action(detail=True, methods=["post"])
     def submit(self, request, pk=None):
@@ -173,10 +234,14 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
     def post(self, request, pk=None):
         return self._run_transition(post_journal_entry, request)
 
+    @action(detail=True, methods=["post"])
+    def withdraw(self, request, pk=None):
+        return self._run_transition(withdraw_journal_entry, request)
+
     def _run_transition(self, fn, request):
         entry = self.get_object()
         try:
-            fn(entry, request.user, request=request)
+            entry = fn(entry, request.user, request=request) or entry
         except (ValidationError, ValueError) as exc:
             return Response({"detail": str(exc)}, status=400)
         except PermissionDenied as exc:
@@ -199,7 +264,10 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
         serializer = JournalEntryReverseSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            reversal = reverse_journal_entry(entry, request.user, serializer.validated_data["reason"])
+            reversal = reverse_journal_entry(
+                entry, request.user, serializer.validated_data["reason"],
+                date=serializer.validated_data.get("date"),
+            )
         except (ValidationError, ValueError) as exc:
             return Response({"detail": str(exc)}, status=400)
         return Response(JournalEntrySerializer(reversal).data, status=201)

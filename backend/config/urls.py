@@ -1,14 +1,25 @@
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path
+from rest_framework.routers import DefaultRouter
+
+from apps.platform.views import TenantAuditLogViewSet
 
 
 def health(request):
     return JsonResponse({"status": "ok"})
 
+
+# Sprint 5.7 (CFO_REVIEW_1 F10): "سجل التغييرات" — a tenant user's own
+# read-only AuditLog window, separate from apps.platform's own
+# (cross-tenant, staff-only) audit-log endpoint under /api/platform/.
+_tenant_router = DefaultRouter()
+_tenant_router.register("audit-log", TenantAuditLogViewSet, basename="tenant-audit-log")
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/health/", health, name="health"),
+    path("api/", include(_tenant_router.urls)),
     path("api/auth/", include("apps.accounts.urls")),
     path("api/", include("apps.sales.urls")),
     path("api/", include("apps.accounting.urls")),

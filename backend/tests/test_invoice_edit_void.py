@@ -67,7 +67,9 @@ def test_patch_issued_invoice_rejected(tenant_a, client_a):
         },
         format="json",
     )
-    assert response.status_code == 400
+    # Sprint 5.7 (CFO_REVIEW_1 C3): 409, not 400 — the request itself is
+    # well-formed, it's the invoice's current state that conflicts with it.
+    assert response.status_code == 409
 
 
 @pytest.mark.django_db

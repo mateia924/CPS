@@ -433,6 +433,18 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     signatureReceiver: "المستلم",
     signatureAccountant: "المحاسب",
     signatureManager: "المدير",
+
+    // --- Sprint 5.7 (CFO_REVIEW_1): ضوابط المراجعة المالية #1 ---
+    changeHistoryTab: "سجل التغييرات",
+    controlAccountBadge: "رقابة",
+    overrideReason: "سبب التجاوز",
+    overridePosting: "تجاوز حظر الترحيل",
+    reverseDate: "تاريخ العكس",
+    ledgerNav: "دفتر الأستاذ",
+    selectAccount: "اختر حسابًا",
+    from: "من",
+    to: "إلى",
+    noChangeHistory: "لا سجل تغييرات بعد.",
   },
   en: {
     appName: "CPS",
@@ -857,6 +869,18 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     signatureReceiver: "Received by",
     signatureAccountant: "Accountant",
     signatureManager: "Manager",
+
+    // --- Sprint 5.7 (CFO_REVIEW_1): financial controls #1 ---
+    changeHistoryTab: "Change history",
+    controlAccountBadge: "Control",
+    overrideReason: "Override reason",
+    overridePosting: "Override the posting block",
+    reverseDate: "Reversal date",
+    ledgerNav: "General ledger",
+    selectAccount: "Select an account",
+    from: "From",
+    to: "To",
+    noChangeHistory: "No change history yet.",
   },
 };
 

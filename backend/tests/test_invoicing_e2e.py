@@ -150,3 +150,48 @@ def test_invoice_deliver_sets_delivered_at_once(tenant_a, client_a):
     second = client_a.post(f"/api/invoices/{invoice['id']}/deliver/")
     assert second.status_code == 200, second.data
     assert Invoice.objects.get(id=invoice["id"]).delivered_at == first_timestamp
+
+
+@pytest.mark.django_db
+def test_tax_rounds_per_line_then_sums_seven_fractional_lines(tenant_a, client_a):
+    """CFO_REVIEW_1 C15: every line's tax is ROUND_HALF_UP to the cent
+    independently, and the invoice's tax_total is the SUM of those
+    already-rounded line amounts — never a single rounding of the
+    aggregate. Seven lines with genuinely fractional (quantity ×
+    unit_price) products, tax code S (15%)."""
+    from decimal import ROUND_HALF_UP, Decimal
+
+    from apps.organization.models import LegalEntity
+    from apps.sales.models import Product
+
+    branch = LegalEntity.objects.get(tenant=tenant_a, entity_type=LegalEntity.Type.BRANCH)
+    tax_code = TaxCode.objects.get(tenant=tenant_a, code="S")
+    customer = client_a.post("/api/parties/customers/", {"name": "Rounding Co"}, format="json").data
+
+    line_inputs = [
+        ("3.00", "10.03"), ("2.00", "7.07"), ("1.00", "19.99"), ("4.00", "3.33"),
+        ("5.00", "6.66"), ("1.00", "100.01"), ("7.00", "1.11"),
+    ]
+    cents = Decimal("0.01")
+    expected_subtotal = Decimal("0")
+    expected_tax = Decimal("0")
+    lines_payload = []
+    for quantity, unit_price in line_inputs:
+        product = Product.objects.create(
+            tenant=tenant_a, sku=f"P-{unit_price}-{quantity}", name="Item", unit_price=unit_price
+        )
+        line_subtotal = (Decimal(quantity) * Decimal(unit_price)).quantize(cents, rounding=ROUND_HALF_UP)
+        line_tax = (line_subtotal * Decimal("15.00") / Decimal("100")).quantize(cents, rounding=ROUND_HALF_UP)
+        expected_subtotal += line_subtotal
+        expected_tax += line_tax
+        lines_payload.append({"product": str(product.id), "quantity": quantity, "tax_code": str(tax_code.id)})
+
+    response = client_a.post(
+        "/api/invoices/",
+        {"customer": customer["id"], "legal_entity": str(branch.id), "lines": lines_payload},
+        format="json",
+    )
+    assert response.status_code == 201, response.data
+    assert Decimal(response.data["subtotal"]) == expected_subtotal
+    assert Decimal(response.data["tax_total"]) == expected_tax
+    assert Decimal(response.data["total"]) == expected_subtotal + expected_tax

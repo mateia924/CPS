@@ -4,7 +4,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
@@ -36,6 +36,18 @@ _LEGACY_FALLBACK_CODES = {
 
 CENTS = Decimal("0.01")
 FX_ROUNDING_TOLERANCE = Decimal("0.05")
+
+# CFO_REVIEW_1 C2: system_keys that make an account a "control account"
+# by nature (party sub-ledgers and treasury gl_accounts are the other
+# two categories, flagged where they're created instead — see
+# get_or_create_party_role_account/get_or_create_treasury_account
+# below). Kept in sync by hand with apps/accounting/migrations/
+# 0018_backfill_control_account_flags.py's own copy (migrations never
+# import live app code — see that file's note).
+CONTROL_SYSTEM_KEYS = {
+    "VAT_OUTPUT", "VAT_INPUT", "VAT_NON_DEDUCTIBLE", "FX_REALIZED", "FX_UNREALIZED",
+    "ROUNDING", "OPENING_BALANCE", "RETAINED_EARNINGS",
+}
 
 # Sprint 3.3/3.4: which system_key parent a given PartyRole.Role's
 # sub-ledger account is created under. Deliberately excludes BANK (a
@@ -69,6 +81,7 @@ def _create_account_tree(tenant, nodes, parent=None):
             system_key=node.get("system_key", ""),
             is_intercompany=node.get("is_intercompany", False),
             allow_posting=not children,
+            allow_manual_posting=node.get("system_key", "") not in CONTROL_SYSTEM_KEYS,
             is_system=True,
         )
         if children:
@@ -232,6 +245,7 @@ def get_or_create_party_role_account(party, role):
         name=party.name,
         type=parent.type,
         allow_posting=True,
+        allow_manual_posting=False,
         is_system=False,
         party=party,
     )
@@ -255,6 +269,7 @@ def get_or_create_treasury_account(instance, system_key):
         name=instance.name,
         type=parent.type,
         allow_posting=True,
+        allow_manual_posting=False,
         is_system=False,
     )
     instance.gl_account = account
@@ -530,8 +545,33 @@ def void_invoice_journal_entry(invoice):
 
 @transaction.atomic
 def create_manual_journal_entry(
-    tenant, user, legal_entity, date, line_specs, currency=None, exchange_rate=None, memo="", reference=""
+    tenant, user, legal_entity, date, line_specs, currency=None, exchange_rate=None, memo="", reference="",
+    override_reason="", request=None,
 ):
+    """CFO_REVIEW_1 C2: any line targeting a control account
+    (`Account.allow_manual_posting=False`) requires `override_reason`
+    — the caller (the view) has already checked the user holds
+    `accounting.post_control_accounts` before getting here; this
+    function just does the actual gating + logging + flagging, so a
+    future second caller of this service can't bypass either check by
+    skipping the view."""
+    control_lines = [spec for spec in line_specs if not spec["account"].allow_manual_posting]
+    if control_lines:
+        if not override_reason:
+            raise ValidationError(
+                _(
+                    "لا يمكن الترحيل يدويًا على حساب رقابة (%(codes)s) بدون تجاوز مسجَّل بسبب — "
+                    "استخدم سند قبض/صرف أو حرّك الضريبة من الفاتورة."
+                )
+                % {"codes": ", ".join(sorted({spec["account"].code for spec in control_lines}))}
+            )
+        from apps.access.services import user_has_permission
+
+        if not user_has_permission(user, "accounting.post_control_accounts"):
+            raise PermissionDenied(
+                _("You do not have permission to override a control account's posting restriction.")
+            )
+
     currency = currency or legal_entity.base_currency
     exchange_rate = exchange_rate if exchange_rate is not None else Decimal("1")
     entry = JournalEntry.objects.create(
@@ -545,10 +585,19 @@ def create_manual_journal_entry(
         created_by=user,
         currency=currency,
         exchange_rate=exchange_rate,
+        is_control_override=bool(control_lines),
     )
     lines = build_journal_lines_with_fx_rounding(tenant, entry, line_specs, exchange_rate)
     _require_fc_balance_if_single_currency(entry, lines)
     JournalLine.objects.bulk_create(lines)
+    if control_lines:
+        log_action(
+            actor_type=AuditLog.ActorType.TENANT_USER, actor_id=user.id,
+            action="journal_entry.control_account_override", target_type="journal_entry", target_id=entry.id,
+            tenant_id=tenant.id,
+            after={"reason": override_reason, "accounts": sorted({spec["account"].code for spec in control_lines})},
+            request=request,
+        )
     return entry
 
 
@@ -620,26 +669,53 @@ def reject_journal_entry(entry, user, reason, request=None):
     return entry
 
 
-def post_journal_entry(entry, user, request=None):
-    if entry.status != JournalEntry.Status.APPROVED:
-        raise ValidationError(_("Only an approved entry can be posted."))
-    _transition_journal_entry(entry, JournalEntry.Status.POSTED, user, "post")
+def withdraw_journal_entry(entry, user, request=None):
+    """CFO_REVIEW_1 C3."""
+    from apps.approvals.services import withdraw as approvals_withdraw
+
+    approvals_withdraw(entry, user, "journal_entry", request=request)
+    return entry
 
 
 @transaction.atomic
-def reverse_journal_entry(entry, user, reason):
+def post_journal_entry(entry, user, request=None):
+    """CFO_REVIEW_1 C4: locks the row before re-checking its status, so
+    two concurrent "post" requests for the same entry can't both pass
+    the precondition check — the second blocks on the lock, then finds
+    the row already POSTED and raises cleanly instead of double-posting.
+    Syncs `entry.status` in place (same object identity, same pattern
+    as apps.approvals.services._lock) rather than rebinding to a new
+    instance — every existing caller keeps working whether or not it
+    captures this function's return value."""
+    entry.status = JournalEntry.objects.select_for_update().get(pk=entry.pk).status
+    if entry.status != JournalEntry.Status.APPROVED:
+        raise ValidationError(_("Only an approved entry can be posted."))
+    _transition_journal_entry(entry, JournalEntry.Status.POSTED, user, "post")
+    return entry
+
+
+@transaction.atomic
+def reverse_journal_entry(entry, user, reason, date=None):
+    """CFO_REVIEW_1 C8: `date` defaults to today and may never precede
+    the original entry's own date (a reversal can't happen before what
+    it reverses). CFO_REVIEW_1 C4: row-locked (in place — see
+    post_journal_entry's docstring) before the status check."""
+    entry.status = JournalEntry.objects.select_for_update().get(pk=entry.pk).status
     if entry.status != JournalEntry.Status.POSTED:
         raise ValidationError(_("Only a posted entry can be reversed."))
     if not reason:
         raise ValidationError(_("A reason is required to reverse a journal entry."))
+    reversal_date = date or timezone.localdate()
+    if reversal_date < entry.date:
+        raise ValidationError(_("The reversal date cannot precede the original entry's date."))
 
     tenant = entry.tenant
     reversal = JournalEntry.objects.create(
         tenant=tenant,
         legal_entity=entry.legal_entity,
-        date=timezone.localdate(),
+        date=reversal_date,
         memo=f"Reversal of {entry.number or entry.id}: {reason}",
-        number=next_document_number(tenant, "journal_entry", entry.legal_entity, timezone.localdate()),
+        number=next_document_number(tenant, "journal_entry", entry.legal_entity, reversal_date),
         status=JournalEntry.Status.POSTED,
         reverses=entry,
         created_by=user,
@@ -667,7 +743,8 @@ def reverse_journal_entry(entry, user, reason):
         ]
     )
     entry.status = JournalEntry.Status.REVERSED
-    entry.save(update_fields=["status"])
+    entry.reversed_at = timezone.now()
+    entry.save(update_fields=["status", "reversed_at"])
     log_action(
         actor_type=AuditLog.ActorType.TENANT_USER,
         actor_id=user.id,

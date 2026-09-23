@@ -19,7 +19,7 @@ from apps.numbering.services import DEFAULT_PREFIXES, next_document_number
 from apps.organization.services import create_default_legal_entities
 from apps.parties.models import PartyRole
 from apps.parties.services import generate_party_code
-from apps.sales.services import create_invoice
+from apps.sales.services import create_invoice, issue_invoice
 
 from .factories import LegalEntityFactory, PartyFactory, ProductFactory, TenantFactory, UserFactory
 
@@ -170,7 +170,16 @@ def test_two_branches_first_real_invoices_via_api_get_different_numbers(db):
 
     assert inv_a.status_code == 201
     assert inv_b.status_code == 201
-    assert inv_a.data["number"] != inv_b.data["number"]
+    # CFO_REVIEW_1 C6 / decision D2: the number is blank at draft now —
+    # assigned only at issue(), the first exit from DRAFT.
+    assert inv_a.data["number"] == ""
+    assert inv_b.data["number"] == ""
+
+    issued_a = client.post(f"/api/invoices/{inv_a.data['id']}/issue/")
+    issued_b = client.post(f"/api/invoices/{inv_b.data['id']}/issue/")
+    assert issued_a.status_code == 200
+    assert issued_b.status_code == 200
+    assert issued_a.data["number"] != issued_b.data["number"]
 
 
 @pytest.mark.django_db
@@ -216,16 +225,21 @@ def test_50_concurrent_invoice_creations_get_50_unique_gapless_numbers():
     product = ProductFactory(tenant=tenant)
     tax_code_z = TaxCode.objects.get(tenant=tenant, code="Z")
     line_inputs = [{"product": product, "quantity": Decimal("1"), "cost_center": None, "tax_code": tax_code_z}]
+    owner = UserFactory(tenant=tenant, email="owner@concurrent-invoices.test")
 
     results = [None] * 50
     errors = []
 
     def worker(index):
         try:
+            # CFO_REVIEW_1 C6 / decision D2: numbering happens at
+            # issue() now, not at create — the concurrency this test
+            # exists to prove moved with it.
             invoice = create_invoice(
                 tenant, party, entity, date(2026, 6, 1), line_inputs,
                 currency="SAR", exchange_rate=Decimal("1"),
             )
+            invoice = issue_invoice(invoice, owner)
             results[index] = invoice.number
         except Exception as exc:  # noqa: BLE001 — surfaced via `errors` for the assertion below
             errors.append(exc)

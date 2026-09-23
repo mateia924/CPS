@@ -1,15 +1,53 @@
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
 from apps.accounting.services import get_or_create_party_role_account
 from apps.common.constants import MONEY_DECIMAL_PLACES, MONEY_MAX_DIGITS
+from apps.common.validators import (
+    validate_saudi_commercial_registration,
+    validate_saudi_national_id,
+    validate_saudi_tax_number,
+)
 from apps.organization.models import LegalEntity
 
 from .models import Party, PartyRole
 from .services import generate_party_code, link_employee_cost_center
+
+
+class _SaudiFormatValidationMixin:
+    """CFO_REVIEW_1 C16 — format-only checks (never required, blank
+    always allowed), country_code-gated. One mixin reused by every
+    party serializer below instead of duplicating the same two
+    validate_<field> methods five times: DRF calls validate_tax_number/
+    validate_national_id_or_cr automatically for any class whose MRO
+    defines them, regardless of which parent actually does."""
+
+    def _field_country_code(self):
+        return self.initial_data.get("country_code") or getattr(self.instance, "country_code", "SA") or "SA"
+
+    def validate_tax_number(self, value):
+        if self._field_country_code() == "SA":
+            try:
+                validate_saudi_tax_number(value)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError(exc.message)
+        return value
+
+    def validate_national_id_or_cr(self, value):
+        if not value or self._field_country_code() != "SA":
+            return value
+        party_type = self.initial_data.get("party_type") or getattr(self.instance, "party_type", None)
+        validator = validate_saudi_national_id if party_type == "individual" else validate_saudi_commercial_registration
+        try:
+            validator(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.message)
+        return value
+
 
 # Sprint 3.5 field-name sentinel: distinguishes "the client didn't send
 # this key at all" (leave the existing PartyRole.legal_entity alone,
@@ -76,7 +114,7 @@ class PartyRoleInputSerializer(serializers.Serializer):
         return attrs
 
 
-class PartySerializer(serializers.ModelSerializer):
+class PartySerializer(_SaudiFormatValidationMixin, serializers.ModelSerializer):
     roles = PartyRoleSerializer(many=True, read_only=True)
     # Write-only: the first role a new party is created with — 3.3's
     # frontend spec requires "دور واحد على الأقل" at creation time.
@@ -210,7 +248,7 @@ class _RoleDetailsMixin:
         return rep
 
 
-class CustomerPartySerializer(_RoleDetailsMixin, serializers.ModelSerializer):
+class CustomerPartySerializer(_SaudiFormatValidationMixin, _RoleDetailsMixin, serializers.ModelSerializer):
     """Backs `/api/parties/customers/` — the screen an accountant sees
     as simply "العملاء", no role concept visible at all."""
 
@@ -231,7 +269,7 @@ class CustomerPartySerializer(_RoleDetailsMixin, serializers.ModelSerializer):
         read_only_fields = _PARTY_BASE_READ_ONLY
 
 
-class SupplierPartySerializer(_RoleDetailsMixin, serializers.ModelSerializer):
+class SupplierPartySerializer(_SaudiFormatValidationMixin, _RoleDetailsMixin, serializers.ModelSerializer):
     """Backs `/api/parties/suppliers/`."""
 
     role_const = PartyRole.Role.SUPPLIER
@@ -251,7 +289,7 @@ class SupplierPartySerializer(_RoleDetailsMixin, serializers.ModelSerializer):
         read_only_fields = _PARTY_BASE_READ_ONLY
 
 
-class EmployeePartySerializer(serializers.ModelSerializer):
+class EmployeePartySerializer(_SaudiFormatValidationMixin, serializers.ModelSerializer):
     """Backs `/api/parties/employees/`. Unlike Customer/Supplier, this
     one also sets PartyRole.legal_entity (reused here as "which branch",
     see the model docstring) and optionally auto-links a cost center."""
@@ -342,7 +380,7 @@ class EmployeePartySerializer(serializers.ModelSerializer):
         return rep
 
 
-class AffiliatePartySerializer(serializers.ModelSerializer):
+class AffiliatePartySerializer(_SaudiFormatValidationMixin, serializers.ModelSerializer):
     """Backs `/api/parties/affiliates/`. `legal_entity` here is the
     matching node in the legal tree — required, not optional (3.3:
     "الكيان القانوني المقابل")."""

@@ -491,3 +491,69 @@ def test_journal_entry_actions_are_tenant_isolated(tenant_a, tenant_b, client_a)
 
     submit = client_a.post(f"/api/journal-entries/{entry_b.id}/submit/")
     assert submit.status_code == 404
+
+
+# ---------------------------------------------------------------------
+# CFO_REVIEW_1 C4: every state transition locks the row (select_for_
+# update) inside its own transaction before re-checking status — two
+# concurrent "post" requests for the same entry must never both
+# succeed.
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_post_requests_only_one_succeeds():
+    import threading
+
+    from django.db import connection
+
+    tenant = TenantFactory()
+    seed_chart_of_accounts(tenant)
+    entity = LegalEntityFactory(tenant=tenant)
+    roles = seed_default_roles(tenant)
+    creator = UserFactory(tenant=tenant, email="creator@concurrent-post.test")
+    creator.roles.add(roles["Accountant"])
+    approver = UserFactory(tenant=tenant, email="approver@concurrent-post.test")
+    approver.roles.add(roles["Owner"])
+    _require_approval_for_every_jv(tenant, roles["Owner"])
+    cash, sales = _leaf_pair(tenant)
+
+    entry = create_manual_journal_entry(
+        tenant=tenant, user=creator, legal_entity=entity, date=date(2026, 1, 1),
+        line_specs=[
+            {"account": cash, "debit_fc": Decimal("50.00"), "credit_fc": Decimal("0")},
+            {"account": sales, "debit_fc": Decimal("0"), "credit_fc": Decimal("50.00")},
+        ],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+    submit_journal_entry_for_approval(entry, creator)
+    approve_journal_entry(entry, approver)
+    entry.refresh_from_db()
+    assert entry.status == "approved"
+
+    results = []
+    errors = []
+
+    def worker():
+        # Each thread re-fetches its own instance — same setup as the
+        # real view (self.get_object() per request), not a shared
+        # in-memory object racing on the same Python attribute.
+        own_copy = JournalEntry.objects.get(pk=entry.pk)
+        try:
+            post_journal_entry(own_copy, approver)
+            results.append("posted")
+        except Exception as exc:  # noqa: BLE001 — surfaced via `errors`
+            errors.append(exc)
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert results == ["posted"]
+    assert len(errors) == 1
+    entry.refresh_from_db()
+    assert entry.status == "posted"

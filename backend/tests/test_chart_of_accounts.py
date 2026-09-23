@@ -255,8 +255,14 @@ def test_deleting_an_account_with_a_journal_line_returns_409(tenant_a, client_a)
     account = Account.objects.create(
         tenant=tenant_a, code="9999", name="Test Leaf", type=Account.Type.ASSET
     )
+    cash = Account.objects.get(tenant=tenant_a, system_key="CASH")
     entry = JournalEntry.objects.create(tenant=tenant_a, legal_entity=entity, date="2026-01-01")
+    # Sprint 5.7 (C1): the deferred balance trigger now enforces Σdebit
+    # = Σcredit per entry at commit — a second, offsetting line keeps
+    # this fixture's entry valid; the test itself only cares that
+    # `account` is referenced by some line at all.
     JournalLine.objects.create(entry=entry, account=account, debit=Decimal("10.00"), debit_fc=Decimal("10.00"))
+    JournalLine.objects.create(entry=entry, account=cash, credit=Decimal("10.00"), credit_fc=Decimal("10.00"))
 
     response = client_a.delete(f"/api/accounts/{account.id}/")
     assert response.status_code == 409
@@ -268,8 +274,11 @@ def test_changing_type_of_an_account_with_posted_lines_returns_400(tenant_a, cli
     account = Account.objects.create(
         tenant=tenant_a, code="9998", name="Test Leaf 2", type=Account.Type.ASSET
     )
+    cash = Account.objects.get(tenant=tenant_a, system_key="CASH")
     entry = JournalEntry.objects.create(tenant=tenant_a, legal_entity=entity, date="2026-01-01")
+    # Sprint 5.7 (C1): see the identical note above.
     JournalLine.objects.create(entry=entry, account=account, debit=Decimal("10.00"), debit_fc=Decimal("10.00"))
+    JournalLine.objects.create(entry=entry, account=cash, credit=Decimal("10.00"), credit_fc=Decimal("10.00"))
 
     response = client_a.patch(
         f"/api/accounts/{account.id}/", {"type": "liability"}, format="json"

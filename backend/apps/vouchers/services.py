@@ -12,6 +12,7 @@ from apps.accounting.services import (
     get_or_create_treasury_account,
     get_system_account,
 )
+from apps.common.validators import future_date_warning as _future_date_warning
 from apps.numbering.services import next_document_number
 from apps.platform.models import AuditLog
 from apps.platform.services import log_action
@@ -540,6 +541,23 @@ def _implicit_rate_warnings(voucher):
     return warnings
 
 
+def _stale_rate_warning(voucher):
+    """CFO_REVIEW_1 C14: only meaningful when the voucher's own rate
+    wasn't a manual override (that's its own, separate, already-logged
+    signal) and the currency actually needed a real lookup."""
+    if voucher.exchange_rate_overridden or voucher.currency == voucher.legal_entity.base_currency:
+        return []
+    try:
+        from apps.treasury.services import get_rate_with_warnings
+
+        _rate, warnings = get_rate_with_warnings(
+            voucher.tenant, voucher.currency, voucher.legal_entity.base_currency, voucher.date
+        )
+        return warnings
+    except Exception:
+        return []
+
+
 @transaction.atomic
 def post_voucher(voucher, user, request=None):
     """POST /vouchers/{id}/post/ — decision list: "إرسال + (اعتماد
@@ -550,7 +568,12 @@ def post_voucher(voucher, user, request=None):
     if voucher.status != Voucher.Status.DRAFT:
         raise VoucherValidationError({"detail": [_("Only a draft voucher can be submitted.")]})
 
-    warnings = _balance_warnings_and_checks(voucher.tenant, voucher) + _implicit_rate_warnings(voucher)
+    warnings = (
+        _balance_warnings_and_checks(voucher.tenant, voucher)
+        + _implicit_rate_warnings(voucher)
+        + _stale_rate_warning(voucher)
+        + _future_date_warning(voucher.date)
+    )
 
     doc_type = f"voucher_{voucher.voucher_type}"
     auto_approved = submit_for_approval(voucher, user, doc_type, voucher.total_base, request=request)
@@ -635,7 +658,13 @@ def _recompute_invoice_payment_fields(invoices):
             invoice.save(update_fields=["status"])
 
 
+@transaction.atomic
 def approve_voucher(voucher, user, request=None):
+    # CFO_REVIEW_1 C4: wrapping the whole call (not just approvals_approve
+    # internally) keeps the row lock held from the status check through
+    # _actually_post — otherwise the lock would release the instant
+    # approvals_approve's own (inner, otherwise-outermost) transaction
+    # committed, reopening the same race this is meant to close.
     from apps.approvals.services import approve as approvals_approve
 
     approvals_approve(voucher, user, f"voucher_{voucher.voucher_type}", voucher.total_base, request=request)
@@ -650,7 +679,11 @@ def reject_voucher(voucher, user, reason, request=None):
     return voucher
 
 
+@transaction.atomic
 def withdraw_voucher(voucher, user, request=None):
+    # CFO_REVIEW_1 C4 — see apps.approvals.services._lock's docstring
+    # for why this syncs status in place instead of rebinding `voucher`.
+    voucher.status = Voucher.objects.select_for_update().get(pk=voucher.pk).status
     if voucher.status != Voucher.Status.PENDING_APPROVAL:
         raise VoucherValidationError({"detail": [_("Only a pending-approval voucher can be withdrawn.")]})
     if voucher.created_by_id != user.id:
@@ -668,6 +701,7 @@ def withdraw_voucher(voucher, user, request=None):
 def reverse_voucher(voucher, user, reason, request=None):
     from apps.accounting.services import reverse_journal_entry
 
+    voucher.status = Voucher.objects.select_for_update().get(pk=voucher.pk).status
     if voucher.status != Voucher.Status.POSTED:
         raise VoucherValidationError({"detail": [_("Only a posted voucher can be reversed.")]})
     if not reason:
