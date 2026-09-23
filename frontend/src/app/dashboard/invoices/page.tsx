@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
+import { AttachmentPanel } from "@/components/AttachmentPanel";
 import type { CostCenter, CustomerParty, Invoice, LegalEntity, Paginated, Product, TaxCode } from "@/lib/types";
 
 interface LineDraft {
@@ -320,6 +321,8 @@ export default function InvoicesPage() {
           )}
         </form>
       </div>
+
+      {editing && <AttachmentPanel targetType="invoice" targetId={editing.id} />}
 
       <DataTable<Invoice>
         endpoint="/invoices/"

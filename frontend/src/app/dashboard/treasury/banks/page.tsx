@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
+import { AttachmentPanel } from "@/components/AttachmentPanel";
 import type { Bank, LegalEntity, Paginated } from "@/lib/types";
 
 export default function BanksPage() {
@@ -142,6 +143,8 @@ export default function BanksPage() {
           )}
         </form>
       </div>
+
+      {editing && <AttachmentPanel targetType="bank" targetId={editing.id} />}
 
       <DataTable<Bank>
         endpoint="/banks/"

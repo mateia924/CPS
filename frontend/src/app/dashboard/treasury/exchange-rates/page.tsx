@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
+import { AttachmentPanel } from "@/components/AttachmentPanel";
 import type { ExchangeRate } from "@/lib/types";
 
 export default function ExchangeRatesPage() {
@@ -15,6 +16,7 @@ export default function ExchangeRatesPage() {
   const [source, setSource] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
+  const [attachmentsFor, setAttachmentsFor] = useState<string | null>(null);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,7 +84,17 @@ export default function ExchangeRatesPage() {
           { key: "rate", label: t("rate") },
           { key: "source", label: t("rateSource") },
         ]}
+        renderExtraActions={(row) => (
+          <button
+            className="secondary"
+            onClick={() => setAttachmentsFor(attachmentsFor === row.id ? null : row.id)}
+          >
+            📎 {t("attachments")}
+          </button>
+        )}
       />
+
+      {attachmentsFor && <AttachmentPanel targetType="exchange_rate" targetId={attachmentsFor} />}
     </div>
   );
 }

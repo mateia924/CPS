@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { AttachmentPanel } from "@/components/AttachmentPanel";
 import { useLocale } from "@/lib/i18n";
 import type { Asset, Custody, EmployeeParty, Paginated } from "@/lib/types";
 
@@ -96,6 +97,8 @@ export default function EmployeeDetailPage() {
           </table>
         )}
       </div>
+
+      <AttachmentPanel targetType="party" targetId={employee.id} />
     </div>
   );
 }

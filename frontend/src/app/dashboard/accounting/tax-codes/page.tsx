@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
+import { AttachmentPanel } from "@/components/AttachmentPanel";
 import { flattenLeafAccounts, type FlatAccountOption } from "@/lib/accounts";
 import type {
   AccountTreeNode,
@@ -221,6 +222,8 @@ export default function TaxCodesPage() {
           )}
         </form>
       </div>
+
+      {editing && <AttachmentPanel targetType="tax_code" targetId={editing.id} />}
 
       <DataTable<TaxCode>
         endpoint="/tax-codes/"

@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
+import { AttachmentPanel } from "@/components/AttachmentPanel";
 import { flattenLeafAccounts, type FlatAccountOption } from "@/lib/accounts";
 import type { AccountTreeNode, CostCenter, JournalEntry, LegalEntity, Paginated } from "@/lib/types";
 
@@ -36,6 +37,7 @@ export default function JournalEntriesPage() {
   const [refreshToken, setRefreshToken] = useState(0);
   const [showFx, setShowFx] = useState(false);
   const [reasonFor, setReasonFor] = useState<{ id: string; kind: "reject" | "reverse" } | null>(null);
+  const [attachmentsFor, setAttachmentsFor] = useState<string | null>(null);
   const [reasonText, setReasonText] = useState("");
 
   const showCostCenterUI = !!me && me.features.cost_centers;
@@ -296,9 +298,18 @@ export default function JournalEntriesPage() {
                 {t("reverse")}
               </button>
             )}
+            <button
+              className="secondary"
+              style={{ marginInlineStart: "0.4rem" }}
+              onClick={() => setAttachmentsFor(attachmentsFor === entry.id ? null : entry.id)}
+            >
+              📎 {t("attachments")}
+            </button>
           </>
         )}
       />
+
+      {attachmentsFor && <AttachmentPanel targetType="journal_entry" targetId={attachmentsFor} />}
     </div>
   );
 }

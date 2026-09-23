@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
+import { AttachmentPanel } from "@/components/AttachmentPanel";
 import type { Asset, AssetCategory, CostCenter, LegalEntity, Paginated, Party } from "@/lib/types";
 
 const CATEGORIES: AssetCategory[] = ["vehicle", "equipment", "building", "furniture", "it", "other"];
@@ -244,6 +245,8 @@ export default function AssetsPage() {
           )}
         </form>
       </div>
+
+      {editing && <AttachmentPanel targetType="asset" targetId={editing.id} />}
 
       <DataTable<Asset>
         endpoint="/assets/"

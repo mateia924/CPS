@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { AccountTree } from "@/components/AccountTree";
+import { AttachmentPanel } from "@/components/AttachmentPanel";
 import { flattenAccountTree } from "@/lib/accounts";
 import type { Account, AccountTreeNode, AccountType } from "@/lib/types";
 
@@ -179,6 +180,8 @@ export default function ChartOfAccountsPage() {
           )}
         </form>
       </div>
+
+      {editing && <AttachmentPanel targetType="account" targetId={editing.id} />}
 
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem" }}>
         <button className={view === "tree" ? "primary" : "secondary"} onClick={() => setView("tree")}>

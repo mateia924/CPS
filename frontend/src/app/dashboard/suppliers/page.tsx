@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { checkPartyDuplicate } from "@/lib/duplicateCheck";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
+import { AttachmentPanel } from "@/components/AttachmentPanel";
 import type { SupplierParty } from "@/lib/types";
 
 const ROLE_LABEL_KEY: Record<string, string> = {
@@ -188,6 +189,8 @@ export default function SuppliersPage() {
           )}
         </form>
       </div>
+
+      {editing && <AttachmentPanel targetType="party" targetId={editing.id} />}
 
       <DataTable<SupplierParty>
         endpoint="/parties/suppliers/"

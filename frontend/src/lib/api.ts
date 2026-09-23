@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
 
 export class ApiError extends Error {
   status: number;
@@ -28,7 +28,12 @@ async function request<T>(
   tokenKey = "cps_access"
 ): Promise<T> {
   const headers = new Headers(options.headers);
-  headers.set("Content-Type", "application/json");
+  // FormData (file uploads) must NOT get a manual Content-Type — the
+  // browser sets "multipart/form-data; boundary=..." itself, and
+  // overriding it here would drop the boundary and break parsing.
+  if (!(options.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
   // Backend messages (validation errors, etc.) are translated per the
   // active Django language, chosen from this header — tied to the
   // app's own ar/en toggle so error text always matches the UI
@@ -102,6 +107,8 @@ export const api = {
   patch: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+  /** multipart/form-data POST — sprint 5.1/5.2 attachment uploads. */
+  upload: <T>(path: string, formData: FormData) => request<T>(path, { method: "POST", body: formData }),
 };
 
 /** Same request/error handling as `api`, but reads its bearer token from

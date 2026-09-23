@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
+import { AttachmentPanel } from "@/components/AttachmentPanel";
 import type { CashBox, LegalEntity, Paginated, Party } from "@/lib/types";
 
 export default function CashBoxesPage() {
@@ -132,6 +133,8 @@ export default function CashBoxesPage() {
           )}
         </form>
       </div>
+
+      {editing && <AttachmentPanel targetType="cash_box" targetId={editing.id} />}
 
       <DataTable<CashBox>
         endpoint="/cash-boxes/"

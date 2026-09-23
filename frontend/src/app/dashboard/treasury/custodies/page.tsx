@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
+import { AttachmentPanel } from "@/components/AttachmentPanel";
 import type { Custody, LegalEntity, Paginated, Party } from "@/lib/types";
 
 export default function CustodiesPage() {
@@ -129,6 +130,8 @@ export default function CustodiesPage() {
           )}
         </form>
       </div>
+
+      {editing && <AttachmentPanel targetType="custody" targetId={editing.id} />}
 
       <DataTable<Custody>
         endpoint="/custodies/"

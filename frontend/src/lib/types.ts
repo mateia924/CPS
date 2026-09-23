@@ -544,6 +544,43 @@ export interface DocumentNumberingSetting {
   include_entity_code: boolean | null;
 }
 
+// --- Sprint 5.1 (docs/SYSTEM_ANALYSIS.md 3.17) ---
+
+export type AttachmentTargetType =
+  | "party" | "bank" | "cash_box" | "custody" | "asset"
+  | "invoice" | "journal_entry"
+  | "account" | "tax_code" | "exchange_rate";
+
+export type AttachmentCategory =
+  | "fatura_original" | "receipt" | "contract" | "bank_letter"
+  | "id_document" | "approval_minutes" | "other";
+
+export type AttachmentScanStatus = "pending" | "clean" | "infected" | "error" | "skipped";
+export type AttachmentIntegrityStatus = "unchecked" | "ok" | "mismatch";
+
+export interface Attachment {
+  id: string;
+  target_type: AttachmentTargetType;
+  object_id: string;
+  category: AttachmentCategory;
+  description: string;
+  original_name: string;
+  mime_type: string;
+  size: number;
+  sha256: string;
+  uploaded_by_email: string;
+  uploaded_at: string;
+  status: "active" | "voided";
+  void_reason: string;
+  voided_by_email: string;
+  voided_at: string | null;
+  version: number;
+  supersedes: string | null;
+  scan_status: AttachmentScanStatus;
+  scanned_at: string | null;
+  integrity_status: AttachmentIntegrityStatus;
+}
+
 export interface PendingApproval {
   doc_type: ApprovalDocType;
   id: string;

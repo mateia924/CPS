@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
+import { AttachmentPanel } from "@/components/AttachmentPanel";
 import type { AffiliateParty, LegalEntity, Paginated } from "@/lib/types";
 
 export default function AffiliatesPage() {
@@ -118,6 +119,8 @@ export default function AffiliatesPage() {
           )}
         </form>
       </div>
+
+      {editing && <AttachmentPanel targetType="party" targetId={editing.id} />}
 
       <DataTable<AffiliateParty>
         endpoint="/parties/affiliates/"

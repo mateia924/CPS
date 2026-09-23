@@ -3,13 +3,14 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { AttachmentPanel } from "@/components/AttachmentPanel";
 import { useLocale } from "@/lib/i18n";
 import type { CustomerParty, Invoice, Paginated } from "@/lib/types";
 
 // 3.18 rule 2: every list screen leads to a detail screen with the
 // record's data and its relations — for a customer, that's its
-// invoices (AttachmentPanel and the record's own audit log come in
-// sprint 5 alongside Attachment).
+// invoices. AttachmentPanel (sprint 5.2) below; the record's own audit
+// log (F10, CFO_REVIEW_1) is sprint 5.7.
 export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -74,6 +75,8 @@ export default function CustomerDetailPage() {
           </table>
         )}
       </div>
+
+      <AttachmentPanel targetType="party" targetId={customer.id} />
     </div>
   );
 }
