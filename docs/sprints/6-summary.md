@@ -84,3 +84,27 @@
 - **398/398** اختبارًا (382 + 16 جديدة في `tests/test_opening_balances.py` — كل سيناريوهات الكتلة المطلوبة: سطر إيراد 400، حساب رقابة مباشر 400 وعبر الطرف ينجح، `open_items` غير مطابق 400، بنك بالدولار يحوَّل بسعر تاريخ الافتتاح، سطر `OPENING_BALANCE` WARN لا BLOCK، مسودة غير متوازنة تُحفظ والجاهزية تُظهر BLOCK، `submit` غير متوازن 400، الاعتماد الذاتي 403 خارج وضع المستخدم الواحد ويُقبل داخله، اعتماد بلا إقرار 400، اعتماد صحيح يُنتج قيدًا POSTED ويضبط `opening_approved_at` ويسجَّل في AuditLog بالإقرار، عكس قيد الافتتاح 409، تعديل بعد الاعتماد 409، تعديل ADJUSTMENT متوازن يُعتمد ويُرحَّل، فترة مقفلة BLOCK في الجاهزية، عزل مستأجر).
 - `ruff check .` نظيف، `manage.py check` نظيف، `makemigrations --check --dry-run` نظيف، `tsc --noEmit` نظيف، `next build` نظيف (44 مسارًا، شاملة مسارَي الأرصدة الافتتاحية الجديدين)، `check-brand.sh`/`check-money.sh` ناجحان.
 - `docker compose restart backend celery_worker frontend` + `make smoke` نُفِّذا فعليًا بعد آخر commit — نجحا (تسجيل دخول 200، ميزان مراجعة متوازن 52802.59 ريال على Fatma الحية — بلا تغيير، كما هو متوقَّع إذ لا افتتاح اعتُمد على Fatma في هذه الكتلة).
+
+---
+
+## الكتلة 6.4 — القيود الدورية (المقدمات والمؤجلات) ✅
+
+**Commit:** `f659cee` — `Sprint 6.4: recurring entries (prepaid/deferred) with Celery beat and on-demand generation`
+
+### ما بُني
+- `RecurringEntry`/`RecurringInstallment` (`backend/apps/accounting/models.py`، migration `0026`) — حالة `RecurringEntry`: DRAFT/PENDING_APPROVAL/APPROVED(نشط)/COMPLETED/CANCELLED (بلا REJECTED خاصة، بخلاف مستند الافتتاح — الرفض يعود DRAFT عبر محرك الاعتماد العام كأي مستند آخر)؛ `RecurringInstallment`: DUE/GENERATED/SKIPPED/CANCELLED، فريد على `(entry, seq)`. `ApprovalRule.DocType.RECURRING_ENTRY` + قاعدة افتراضية `min_amount=0 → Owner` مزروعة (migration `approvals/0009`، قابلة للتعديل/الحذف كـ`journal_entry` — بخلاف القاعدتين الثابتتين IBAN_CHANGE/OPENING_BALANCE). صلاحية جديدة `accounting.post` (Owner+Accountant، migration `access/0017`) منفصلة عن `accounting.manage` — لتوليد الأقساط عند الطلب فقط.
+- `apps/accounting/recurring.py` (خدمة كاملة جديدة): تقسيم المبلغ (`_split_amount`، الباقي على الأخير)، `preview_installments` (معاينة بلا أثر جانبي — لا تُنشئ سنة مالية حتى لو نفدت الفترات، بخلاف التفعيل الفعلي)، `_consecutive_periods` (يُنشئ السنة المالية التالية تلقائيًا عند الاعتماد إن لزم — القرار 2، بإعادة استخدام دالة مستخرَجة من `periods.py`: `create_next_fiscal_year_for_tenant` بدل تكرار منطق البيت الخاص بـ6.1)، `create_recurring_entry`، `submit_recurring_entry` (رقم RE- عند أول خروج من DRAFT)، `approve_recurring_entry`/`_activate_recurring_entry` (تُنشئ كل الأقساط دفعة واحدة عند الاعتماد)، `cancel_recurring_entry` (يُلغي DUE فقط)، `generate_due_installments` (فترة OPEN → قيد POSTED مباشر، مدين to_account/دائن from_account بمركز التكلفة، البيان «قسط N/M — الوصف»؛ فترة CLOSED/LOCKED → SKIPPED بسبب لا فشل صامت؛ آمنة عند التكرار بنيويًا — DUE تتحول ولا تُعاد معالجتها)، `regenerate_installment` (لقسط SKIPPED بعد إعادة فتح فترته).
+- Celery beat يومي 01:00 UTC (`apps.accounting.tasks.generate_due_recurring_installments`، `crontab(hour=1, minute=0)` مع `CELERY_TIMEZONE=UTC` فعليًا).
+- API: `/api/recurring-entries/` (إنشاء، `preview/`، `submit/`، `approve/`، `reject/`، `withdraw/`، `cancel/`، `generate-due/`)، `/api/recurring-installments/{id}/regenerate/`.
+- الشاشة: المحاسبة ← **«القيود الدورية»** (فورم بالنوع/الحسابين/الإجمالي/العدد/الفترة الأولى مع معاينة الجدول قبل الحفظ، زر «توليد المستحق الآن»)، وتفاصيل بجدول الأقساط وحالاتها وروابط القيود وزر «إعادة التوليد» لكل قسط متخطّى.
+- إصلاح جانبي أثناء العمل: `get_queryset()`'s `.prefetch_related("installments")` كانت تُبقي استجابتَي `submit`/`approve` تُظهران 0 أقساط رغم إنشائها للتو (كاش الجلب السابق للتفعيل) — أُضيف `entry.refresh_from_db()` بعد كل استدعاء خدمة يُنشئ صفوفًا؛ اكتُشف بالاختبار لا افتراضيًا (نفس فئة خطأ عكس القيد في 6.3).
+
+### ما لم يكتمل / استثناءات موثَّقة
+- لا اختبار Playwright/E2E متصفح فعلي للشاشتين الجديدتين — `next build` + `tsc --noEmit` + مراجعة كود فقط (نفس قيد 6.3).
+- شاشة القيود الدورية لا تُخفي نفسها في الوضع المبسّط بعد — القرار مؤجَّل لتوحيد القائمة الكاملة في الكتلة 6.9 كما ينص `sprint-6.md` صراحة («الوضع المبسّط يُخفي الدورية»، §القائمة).
+
+### الاختبارات والفحوص
+- **408/408** اختبارًا (398 + 10 جديدة في `tests/test_recurring_entries.py` — كل سيناريوهات الكتلة المطلوبة: تقسيم 12,000 على 12 قسطًا × 1,000 بتواريخ نهاية الفترات، تقسيم 10,000 على 3 بالباقي على الأخير (3333.33+3333.33+3333.34)، توليد قيد POSTED واحد بمدين/دائن ومركز تكلفة صحيحين، تشغيل مزدوج بلا تكرار، فترة CLOSED → SKIPPED بسبب ثم `regenerate` بعد إعادة الفتح → GENERATED، القسط الأخير → COMPLETED، `cancel` يُلغي DUE فقط، جدول يحتاج سنة تالية غير موجودة → تُنشأ تلقائيًا، المنشئ يعتمد جدوله → 403، عزل مستأجر).
+- `ruff check .` نظيف، `manage.py check` نظيف، `makemigrations --check --dry-run` نظيف، `tsc --noEmit` نظيف، `next build` نظيف (46 مسارًا)، `check-brand.sh`/`check-money.sh` ناجحان.
+- قبل تطبيق migrations هذه الكتلة (`access/0017`، `approvals/0009`): `scripts/backup.sh` نُفِّذ فعليًا (`cps-db-20260924-181031.sql.gz`، 88K) — إضافة صلاحية وقاعدة اعتماد افتراضية جديدتين، لا تغيير سلوك على أي مستند موجود، فلا سؤال إلزاميًا وفق قاعدة §11.
+- `docker compose restart backend celery_worker frontend` + `make smoke` نُفِّذا فعليًا بعد آخر commit — نجحا (تسجيل دخول 200، ميزان مراجعة متوازن 52802.59 ريال على Fatma الحية — بلا تغيير).
