@@ -2,12 +2,24 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import type { PendingApproval } from "@/lib/types";
+
+// BRAND.md §4 "الشريط الجانبي": the active item gets a filled background
+// plus a --sidebar-active-bar stripe on the leading edge.
+function SidebarLink({ href, children }: { href: string; children: React.ReactNode }) {
+  const pathname = usePathname();
+  const active = pathname === href || pathname.startsWith(`${href}/`);
+  return (
+    <Link href={href} className={active ? "active" : undefined}>
+      {children}
+    </Link>
+  );
+}
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, tenant, me, meError, isReady, logout, refreshMe } = useAuth();
@@ -57,7 +69,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <h2>{tenant?.name}</h2>
+        <img
+          src="/brand/cps-logo-stacked-compact-white.svg"
+          alt="CPS"
+          style={{ width: 120, display: "block", marginBottom: "0.5rem" }}
+        />
+        <h2 style={{ margin: "0 0 0.75rem", fontSize: "0.95rem", fontWeight: 500, color: "var(--sidebar-text)" }}>
+          {tenant?.name}
+        </h2>
         {meError && (
           // Sprint 4.8: /me failing must never look like "this tenant
           // just has fewer permissions" — a visible, explicit error
@@ -67,7 +86,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           // intentionally limited menu).
           <div
             className="card"
-            style={{ padding: "0.6rem 0.75rem", marginBottom: "0.75rem", borderColor: "#a3492f" }}
+            style={{ padding: "0.6rem 0.75rem", marginBottom: "0.75rem", borderColor: "var(--danger)" }}
           >
             <p style={{ margin: 0, fontSize: "0.85rem" }}>{meError}</p>
             <button
@@ -81,15 +100,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         )}
         <div className="topbar" style={{ marginBottom: "0.5rem" }}>
-          <Link href="/dashboard/approvals">
+          <Link href="/dashboard/approvals" style={{ color: "var(--sidebar-text)" }}>
             {t("approvalInbox")}
             {pendingCount > 0 && (
               <span
                 style={{
                   marginInlineStart: "0.4rem",
-                  background: "#a3492f",
-                  color: "#fff",
-                  borderRadius: "999px",
+                  background: "var(--danger)",
+                  color: "var(--color-on-primary)",
+                  borderRadius: "var(--radius-pill)",
                   padding: "0.05rem 0.5rem",
                   fontSize: "0.75rem",
                 }}
@@ -99,64 +118,64 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )}
           </Link>
         </div>
-        <Link href="/dashboard">{t("dashboard")}</Link>
+        <SidebarLink href="/dashboard">{t("dashboard")}</SidebarLink>
 
         <div className="sidebar-section-label">{t("salesSection")}</div>
-        <Link href="/dashboard/customers">{t("customers")}</Link>
-        <Link href="/dashboard/products">{t("products")}</Link>
-        <Link href="/dashboard/invoices">{t("invoices")}</Link>
+        <SidebarLink href="/dashboard/customers">{t("customers")}</SidebarLink>
+        <SidebarLink href="/dashboard/products">{t("products")}</SidebarLink>
+        <SidebarLink href="/dashboard/invoices">{t("invoices")}</SidebarLink>
 
         {showPurchasing && (
           <>
             <div className="sidebar-section-label">{t("purchasingSection")}</div>
-            <Link href="/dashboard/suppliers">{t("suppliers")}</Link>
+            <SidebarLink href="/dashboard/suppliers">{t("suppliers")}</SidebarLink>
           </>
         )}
 
         {showTreasury && (
           <>
             <div className="sidebar-section-label">{t("treasurySection")}</div>
-            <Link href="/dashboard/treasury/banks">{t("banks")}</Link>
-            <Link href="/dashboard/treasury/cash-boxes">{t("cashBoxes")}</Link>
-            <Link href="/dashboard/treasury/custodies">{t("custodies")}</Link>
+            <SidebarLink href="/dashboard/treasury/banks">{t("banks")}</SidebarLink>
+            <SidebarLink href="/dashboard/treasury/cash-boxes">{t("cashBoxes")}</SidebarLink>
+            <SidebarLink href="/dashboard/treasury/custodies">{t("custodies")}</SidebarLink>
             {showVouchers && (
               <>
-                <Link href="/dashboard/treasury/vouchers/receipt">{t("receiptVouchers")}</Link>
-                <Link href="/dashboard/treasury/vouchers/payment">{t("paymentVouchers")}</Link>
-                <Link href="/dashboard/treasury/vouchers/settlement">{t("settlementVouchers")}</Link>
+                <SidebarLink href="/dashboard/treasury/vouchers/receipt">{t("receiptVouchers")}</SidebarLink>
+                <SidebarLink href="/dashboard/treasury/vouchers/payment">{t("paymentVouchers")}</SidebarLink>
+                <SidebarLink href="/dashboard/treasury/vouchers/settlement">{t("settlementVouchers")}</SidebarLink>
               </>
             )}
-            <Link href="/dashboard/treasury/exchange-rates">{t("exchangeRatesNav")}</Link>
+            <SidebarLink href="/dashboard/treasury/exchange-rates">{t("exchangeRatesNav")}</SidebarLink>
           </>
         )}
 
         {showAccounting && (
           <>
             <div className="sidebar-section-label">{t("accountingSection")}</div>
-            <Link href="/dashboard/accounting/chart-of-accounts">{t("chartOfAccounts")}</Link>
-            <Link href="/dashboard/accounting/journal-entries">{t("manualJournalEntries")}</Link>
-            <Link href="/dashboard/accounting/tax-codes">{t("taxCodesNav")}</Link>
-            <Link href="/dashboard/accounting/tax-periods">{t("taxPeriodsNav")}</Link>
+            <SidebarLink href="/dashboard/accounting/chart-of-accounts">{t("chartOfAccounts")}</SidebarLink>
+            <SidebarLink href="/dashboard/accounting/journal-entries">{t("manualJournalEntries")}</SidebarLink>
+            <SidebarLink href="/dashboard/accounting/tax-codes">{t("taxCodesNav")}</SidebarLink>
+            <SidebarLink href="/dashboard/accounting/tax-periods">{t("taxPeriodsNav")}</SidebarLink>
           </>
         )}
 
         {showAccounting && (
           <>
             <div className="sidebar-section-label">{t("reportsSection")}</div>
-            <Link href="/dashboard/reports/trial-balance">{t("trialBalanceNav")}</Link>
-            <Link href="/dashboard/reports/ledger">{t("ledgerNav")}</Link>
+            <SidebarLink href="/dashboard/reports/trial-balance">{t("trialBalanceNav")}</SidebarLink>
+            <SidebarLink href="/dashboard/reports/ledger">{t("ledgerNav")}</SidebarLink>
           </>
         )}
 
         {showAssets && (
           <>
             <div className="sidebar-section-label">{t("assetsSection")}</div>
-            <Link href="/dashboard/assets">{t("assets")}</Link>
+            <SidebarLink href="/dashboard/assets">{t("assets")}</SidebarLink>
           </>
         )}
 
         <div className="sidebar-section-label">{t("hrSection")}</div>
-        <Link href="/dashboard/employees">{t("employeesNav")}</Link>
+        <SidebarLink href="/dashboard/employees">{t("employeesNav")}</SidebarLink>
 
         {(showOrganization ||
           showCostCenters ||
@@ -166,19 +185,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           showApprovalRules ||
           showDocumentNumbering ||
           showCompanySettings) && <div className="sidebar-section-label">{t("settingsSection")}</div>}
-        {showCompanySettings && <Link href="/dashboard/settings/company">{t("companySettingsNav")}</Link>}
-        {showOrganization && <Link href="/dashboard/organization">{t("organization")}</Link>}
-        {showCostCenters && <Link href="/dashboard/cost-centers">{t("costCenters")}</Link>}
-        {showAffiliates && <Link href="/dashboard/affiliates">{t("affiliatesNav")}</Link>}
-        {showRoles && <Link href="/dashboard/roles">{t("rolesAndUsers")}</Link>}
+        {showCompanySettings && <SidebarLink href="/dashboard/settings/company">{t("companySettingsNav")}</SidebarLink>}
+        {showOrganization && <SidebarLink href="/dashboard/organization">{t("organization")}</SidebarLink>}
+        {showCostCenters && <SidebarLink href="/dashboard/cost-centers">{t("costCenters")}</SidebarLink>}
+        {showAffiliates && <SidebarLink href="/dashboard/affiliates">{t("affiliatesNav")}</SidebarLink>}
+        {showRoles && <SidebarLink href="/dashboard/roles">{t("rolesAndUsers")}</SidebarLink>}
         {showFullPartiesView && (
-          <Link href="/dashboard/settings/parties">{t("fullPartiesView")}</Link>
+          <SidebarLink href="/dashboard/settings/parties">{t("fullPartiesView")}</SidebarLink>
         )}
         {showApprovalRules && (
-          <Link href="/dashboard/settings/approval-rules">{t("approvalRulesNav")}</Link>
+          <SidebarLink href="/dashboard/settings/approval-rules">{t("approvalRulesNav")}</SidebarLink>
         )}
         {showDocumentNumbering && (
-          <Link href="/dashboard/settings/document-numbering">{t("documentNumberingNav")}</Link>
+          <SidebarLink href="/dashboard/settings/document-numbering">{t("documentNumberingNav")}</SidebarLink>
         )}
 
         <div style={{ marginTop: "auto", paddingTop: "1rem" }}>

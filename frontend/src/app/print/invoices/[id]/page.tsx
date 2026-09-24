@@ -57,12 +57,15 @@ export default function InvoicePrintPage() {
       </div>
       <div className="print-page">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
-          <div>
+          <div style={{ display: "flex", gap: "0.75rem", alignItems: "start" }}>
+            <img src="/brand/cps-logo-horizontal.svg" alt="CPS" style={{ height: 48 }} />
+            <div>
             <h2 style={{ margin: 0 }}>{entity.name}</h2>
             {profile.commercial_registration && <p>{t("commercialRegistration")}: {profile.commercial_registration}</p>}
             {entity.tax_number && <p>{t("taxNumber")}: {entity.tax_number}</p>}
             {addressLine && <p>{addressLine}</p>}
             {profile.phone && <p>{profile.phone}</p>}
+            </div>
           </div>
           <div style={{ textAlign: "end" }}>
             <h2>{t(isSimplified ? "simplifiedTaxInvoiceTitle" : "taxInvoiceTitle")}</h2>

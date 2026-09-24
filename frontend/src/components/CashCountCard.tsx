@@ -64,7 +64,7 @@ export function CashCountCard({ cashBoxId }: { cashBoxId: string }) {
         </button>
       </div>
 
-      {error && <p style={{ color: "#a3492f" }}>{error}</p>}
+      {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
 
       {showNew && (
         <div className="card" style={{ background: "var(--surface-2)" }}>
@@ -101,7 +101,7 @@ export function CashCountCard({ cashBoxId }: { cashBoxId: string }) {
               <td>{c.count_date}</td>
               <td>{c.counted_amount}</td>
               <td>{c.book_balance_snapshot}</td>
-              <td style={{ color: Number(c.difference) === 0 ? "inherit" : "#a3492f" }}>{c.difference}</td>
+              <td style={{ color: Number(c.difference) === 0 ? "inherit" : "var(--danger)" }}>{c.difference}</td>
               <td>{c.status === "confirmed" ? t("confirmed") : t("draft")}</td>
               <td>
                 {c.status === "draft" && (

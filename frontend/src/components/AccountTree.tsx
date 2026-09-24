@@ -18,8 +18,8 @@ function TreeNode({ node, onAddChild }: { node: AccountTreeNode; onAddChild: (pa
       {!node.allow_manual_posting && (
         <span
           style={{
-            display: "inline-block", padding: "0.05rem 0.5rem", borderRadius: "999px",
-            fontSize: "0.7rem", color: "#fff", background: "#a3492f",
+            display: "inline-block", padding: "0.05rem 0.5rem", borderRadius: "var(--radius-pill)",
+            fontSize: "0.7rem", color: "var(--color-on-primary)", background: "var(--danger)",
           }}
         >
           {t("controlAccountBadge")}

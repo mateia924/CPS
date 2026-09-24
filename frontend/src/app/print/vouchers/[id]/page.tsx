@@ -42,10 +42,13 @@ export default function VoucherPrintPage() {
       </div>
       <div className="print-page">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
-          <div>
-            <h2 style={{ margin: 0 }}>{entity.name}</h2>
-            {entity.tax_number && <p>{t("taxNumber")}: {entity.tax_number}</p>}
-            {addressLine && <p>{addressLine}</p>}
+          <div style={{ display: "flex", gap: "0.75rem", alignItems: "start" }}>
+            <img src="/brand/cps-logo-horizontal.svg" alt="CPS" style={{ height: 48 }} />
+            <div>
+              <h2 style={{ margin: 0 }}>{entity.name}</h2>
+              {entity.tax_number && <p>{t("taxNumber")}: {entity.tax_number}</p>}
+              {addressLine && <p>{addressLine}</p>}
+            </div>
           </div>
           <div style={{ textAlign: "end" }}>
             <h2>{t(DOC_TYPE_LABEL[voucher.voucher_type])}</h2>

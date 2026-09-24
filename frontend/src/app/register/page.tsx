@@ -64,6 +64,7 @@ export default function RegisterPage() {
 
   return (
     <div className="container">
+      <img src="/brand/cps-logo-stacked.svg" alt="CPS" className="brand-lockup" style={{ width: 200 }} />
       <div className="topbar">
         <h1>{t("appName")}</h1>
         <LocaleSwitcher />

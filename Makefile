@@ -1,4 +1,4 @@
-.PHONY: dev-up dev-down dev-logs dev-build prod-up prod-down prod-config dev-config test lint smoke backup
+.PHONY: dev-up dev-down dev-logs dev-build prod-up prod-down prod-config dev-config test lint check smoke backup
 
 COMPOSE_DIR := infra
 ENV_FILE := .env
@@ -35,6 +35,15 @@ test:
 
 lint:
 	$(DC) $(DEV) run --rm --entrypoint '' backend sh -c "pip install -q -r requirements-dev.txt && ruff check ."
+
+## Brand/money structural checks (sprint 6.0.1, permanent rules 1-4):
+## zero literal colors outside tokens.css, tokens.css matches
+## docs/brand/tokens.css, WCAG AA contrast, no raw money field without
+## <Money>. Runs against the already-running dev frontend service
+## (`make dev-up` first) — node_modules live there via its volume.
+check:
+	$(DC) $(DEV) exec frontend npm run check-brand
+	$(DC) $(DEV) exec frontend npm run check-money
 
 ## Live-environment smoke test (sprint 5.0, CFO_REVIEW_1 O8) — run this
 ## after every `docker compose restart backend celery_worker`, before

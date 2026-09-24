@@ -21,7 +21,8 @@ const SCAN_LABEL_KEY: Record<string, string> = {
   clean: "scanClean", pending: "scanPending", infected: "scanInfected", error: "scanError", skipped: "scanSkipped",
 };
 const SCAN_COLOR: Record<string, string> = {
-  clean: "#1f9d55", pending: "#b8860b", infected: "#a3492f", error: "#a3492f", skipped: "#8a8f98",
+  clean: "var(--success)", pending: "var(--warning)", infected: "var(--danger)", error: "var(--danger)",
+  skipped: "var(--muted)",
 };
 
 function formatSize(bytes: number) {
@@ -131,8 +132,8 @@ export function AttachmentPanel({
       <td>
         <span
           style={{
-            display: "inline-block", padding: "0.1rem 0.5rem", borderRadius: "999px",
-            fontSize: "0.75rem", color: "#fff", background: SCAN_COLOR[attachment.scan_status],
+            display: "inline-block", padding: "0.1rem 0.5rem", borderRadius: "var(--radius-pill)",
+            fontSize: "0.75rem", color: "var(--color-on-primary)", background: SCAN_COLOR[attachment.scan_status],
           }}
         >
           {t(SCAN_LABEL_KEY[attachment.scan_status])}

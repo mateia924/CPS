@@ -1,13 +1,4 @@
-:root {
-  --bg: #f7f7f8;
-  --surface: #ffffff;
-  --border: #e2e2e6;
-  --text: #1a1a1f;
-  --muted: #6b6b76;
-  --primary: #2c5f4f;
-  --primary-hover: #244f42;
-  --danger: #b3261e;
-}
+@import "../styles/tokens.css";
 
 * {
   box-sizing: border-box;
@@ -15,9 +6,8 @@
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+  background: var(--ground);
+  color: var(--ink);
 }
 
 a {
@@ -34,7 +24,13 @@ input, select, button {
   padding: 2rem;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
+}
+
+.brand-lockup {
+  display: block;
+  margin: 0 auto 1.5rem;
+  height: auto;
 }
 
 .form-field {
@@ -51,27 +47,38 @@ input, select, button {
 
 .form-field input, .form-field select {
   padding: 0.55rem 0.7rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.form-field input:focus, .form-field select:focus {
+  outline: none;
+  border-color: var(--color-focus);
+  border-width: 2px;
 }
 
 button.primary, a.primary {
-  background: var(--primary);
-  color: white;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius);
   padding: 0.6rem 1rem;
   cursor: pointer;
 }
 
 button.primary:hover, a.primary:hover {
-  background: var(--primary-hover);
+  background: var(--color-primary-hover);
+}
+
+button.primary:active, a.primary:active {
+  background: var(--color-primary-active);
 }
 
 button.secondary, a.secondary {
   background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  color: var(--ink);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
   padding: 0.5rem 0.9rem;
   cursor: pointer;
 }
@@ -99,8 +106,7 @@ a.primary, a.secondary {
 
 .sidebar {
   width: 220px;
-  background: var(--surface);
-  border-inline-end: 1px solid var(--border);
+  background: var(--sidebar-bg);
   padding: 1.5rem 1rem;
   display: flex;
   flex-direction: column;
@@ -110,20 +116,27 @@ a.primary, a.secondary {
 .sidebar a {
   display: block;
   padding: 0.5rem 0.75rem;
-  border-radius: 8px;
+  border-radius: var(--radius);
   text-decoration: none;
-  color: var(--text);
+  color: var(--sidebar-text);
 }
 
 .sidebar a:hover {
-  background: var(--bg);
+  background: var(--sidebar-active-bg);
+}
+
+.sidebar a.active {
+  background: var(--sidebar-active-bg);
+  border-inline-start: 3px solid var(--sidebar-active-bar);
+  padding-inline-start: calc(0.75rem - 3px);
 }
 
 .sidebar-section-label {
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
-  color: var(--muted);
+  color: var(--sidebar-text);
+  opacity: 0.7;
   margin-top: 0.75rem;
   padding: 0 0.75rem;
 }
@@ -142,7 +155,7 @@ table {
   border-collapse: collapse;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius);
   overflow: hidden;
 }
 
@@ -150,6 +163,10 @@ th, td {
   text-align: start;
   padding: 0.6rem 0.8rem;
   border-bottom: 1px solid var(--border);
+}
+
+th {
+  background: var(--surface-2);
 }
 
 .topbar {
@@ -162,9 +179,10 @@ th, td {
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 1.5rem;
   margin-bottom: 1.5rem;
+  box-shadow: var(--shadow);
 }
 
 /* Sprint 5.6 (block 5.6): invoice/voucher print pages — no sidebar (a
@@ -176,7 +194,7 @@ th, td {
   margin: 1.5rem auto;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 2rem;
 }
 
@@ -200,10 +218,10 @@ th, td {
 
 /* Sprint 6 (block 6.0, item 6): PAST_DUE warning banner. */
 .banner-warning {
-  background: #fff1d6;
-  color: #7a4e00;
-  border: 1px solid #f0c987;
-  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--warning);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius);
   padding: 0.6rem 1rem;
   margin-bottom: 1rem;
   font-size: 0.9rem;
@@ -230,6 +248,6 @@ th, td {
     max-width: none;
   }
   body {
-    background: #fff;
+    background: white;
   }
 }

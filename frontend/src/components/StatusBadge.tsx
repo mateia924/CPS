@@ -3,32 +3,34 @@
 import { useLocale } from "@/lib/i18n";
 import type { DocumentStatus } from "@/lib/types";
 
-// Sprint 4.7 (3.18): one status pill shared by invoices and journal
-// entries, so "draft/pending/approved/posted/reversed/cancelled" reads
-// the same everywhere instead of each screen inventing its own colors.
-const COLORS: Record<DocumentStatus, string> = {
-  draft: "#8a8f98",
-  pending_approval: "#b8860b",
-  approved: "#2f6fb3",
-  posted: "#1f9d55",
-  issued: "#1f9d55",
-  paid: "#1f9d55",
-  reversed: "#a3492f",
-  cancelled: "#a3492f",
+// Sprint 4.7 (3.18), tokens per BRAND.md §2.5 (sprint 6.0.1): one status
+// pill shared by invoices and journal entries — text/background pairs
+// read exclusively from --status-* tokens (tokens.css), never a literal
+// color, so every document status reads the same everywhere.
+const STATUS_TOKENS: Record<DocumentStatus, { color: string; bg: string }> = {
+  draft: { color: "var(--status-draft)", bg: "var(--status-draft-bg)" },
+  pending_approval: { color: "var(--status-pending)", bg: "var(--status-pending-bg)" },
+  approved: { color: "var(--status-approved)", bg: "var(--status-approved-bg)" },
+  posted: { color: "var(--status-posted)", bg: "var(--status-posted-bg)" },
+  issued: { color: "var(--status-posted)", bg: "var(--status-posted-bg)" },
+  paid: { color: "var(--status-posted)", bg: "var(--status-posted-bg)" },
+  reversed: { color: "var(--status-reversed)", bg: "var(--status-reversed-bg)" },
+  cancelled: { color: "var(--status-void)", bg: "var(--status-void-bg)" },
 };
 
 export function StatusBadge({ status }: { status: DocumentStatus }) {
   const { t } = useLocale();
-  const color = COLORS[status] ?? "#8a8f98";
+  const tokens = STATUS_TOKENS[status] ?? STATUS_TOKENS.draft;
   return (
     <span
       style={{
         display: "inline-block",
         padding: "0.15rem 0.6rem",
-        borderRadius: "999px",
+        borderRadius: "var(--radius-pill)",
         fontSize: "0.8rem",
-        color: "#fff",
-        background: color,
+        fontWeight: 600,
+        color: tokens.color,
+        background: tokens.bg,
         whiteSpace: "nowrap",
       }}
     >

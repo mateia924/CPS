@@ -135,7 +135,7 @@ export default function CompanySettingsPage() {
 
           <br />
           {error && <p className="error-text">{error}</p>}
-          {saved && <p style={{ color: "#1f9d55" }}>✓</p>}
+          {saved && <p style={{ color: "var(--success)" }}>✓</p>}
           <button className="primary" type="submit">{t("saveChanges")}</button>
         </form>
       </div>

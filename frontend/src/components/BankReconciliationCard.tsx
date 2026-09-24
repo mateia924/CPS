@@ -62,7 +62,7 @@ export function BankReconciliationCard({ bankId }: { bankId: string }) {
         </button>
       </div>
 
-      {error && <p style={{ color: "#a3492f" }}>{error}</p>}
+      {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
 
       {showImport && (
         <ImportStatementForm
@@ -83,7 +83,7 @@ export function BankReconciliationCard({ bankId }: { bankId: string }) {
             {t("bankAdjustedBalance")}: {report.bank_adjusted_balance} {report.currency} —{" "}
             {t("bookAdjustedBalance")}: {report.book_adjusted_balance} {report.currency}
           </p>
-          <p style={{ fontWeight: 600, color: report.difference === "0.00" || Number(report.difference) === 0 ? "#1f9d55" : "#a3492f" }}>
+          <p style={{ fontWeight: 600, color: report.difference === "0.00" || Number(report.difference) === 0 ? "var(--success)" : "var(--danger)" }}>
             {t("difference")}: {report.difference} {report.currency} —{" "}
             {Number(report.difference) === 0 ? t("reconciled") : t("notReconciled")}
           </p>

@@ -57,9 +57,9 @@ export default function PlatformAuditLogPage() {
           <p>{t("actor")}: {selected.actor_type} — {selected.actor_id ?? "—"}</p>
           <pre
             style={{
-              background: "var(--bg)",
+              background: "var(--ground)",
               padding: "0.75rem",
-              borderRadius: "8px",
+              borderRadius: "var(--radius)",
               overflowX: "auto",
               fontSize: "0.85rem",
             }}
