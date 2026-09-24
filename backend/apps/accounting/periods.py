@@ -231,38 +231,17 @@ def _previous_period(period):
     )
 
 
-def close_period(period, user, note=""):
-    """Decision 4 (this block's simplified form — the full checklist
-    replacing this is block 6.7): the previous period (if any) must
-    already be CLOSED or LOCKED, and nothing unposted may date inside
-    this one. `close_snapshot` here is just this simple check's result;
-    6.7 overwrites it with the full checklist's own snapshot shape."""
-    previous = _previous_period(period)
-    if previous is not None and previous.status == FiscalPeriod.Status.OPEN:
-        raise ValidationError(
-            str(_("The previous period (%(period)s) must be closed first.")) % {"period": str(previous)}
-        )
-    if period.status != FiscalPeriod.Status.OPEN:
-        raise ValidationError(str(_("Only an open period can be closed.")))
+def close_period(period, user, note="", acknowledge_warnings=False):
+    """Decision 13 (sprint 6.7): the full BLOCK/WARN/INFO checklist —
+    replaces this function's original 6.1 form (previous period closed
+    + no unposted document only). Kept here, under this same name, so
+    every existing caller (the view, other blocks' tests) picks up the
+    stricter behavior automatically; the real implementation lives in
+    period_close.py to keep this file's own scope to the year/period
+    CRUD + lifecycle primitives."""
+    from .period_close import close_period as _close_period_with_checklist
 
-    unposted = _unposted_documents_in_range(period.fiscal_year.tenant_id, period.start_date, period.end_date)
-    if unposted:
-        raise ValidationError(
-            str(_("This period still has %(count)s unposted document(s) dated inside it.")) % {"count": len(unposted)}
-        )
-
-    from django.utils import timezone
-
-    period.status = FiscalPeriod.Status.CLOSED
-    period.closed_by = user
-    period.closed_at = timezone.now()
-    period.close_note = note
-    period.close_snapshot = {"unposted_documents": [], "checked_at": timezone.now().isoformat()}
-    period.save(update_fields=["status", "closed_by", "closed_at", "close_note", "close_snapshot"])
-
-    _log_period_action(period, user, "fiscal_period.closed", before_status="open", after_status="closed")
-    _lock_year_if_all_periods_locked(period.fiscal_year)
-    return period
+    return _close_period_with_checklist(period, user, note=note, acknowledge_warnings=acknowledge_warnings)
 
 
 def _log_period_action(period, user, action, before_status, after_status):
@@ -279,41 +258,6 @@ def _log_period_action(period, user, action, before_status, after_status):
         before={"status": before_status},
         after={"status": after_status},
     )
-
-
-def _unposted_documents_in_range(tenant_id, start_date, end_date):
-    """Every DRAFT/PENDING_APPROVAL/APPROVED document dated inside the
-    range — the checklist's simplified 6.1 form (invoice, voucher,
-    manual journal entry; opening balances/recurring installments join
-    this once 6.3/6.4 build them)."""
-    from apps.sales.models import Invoice
-    from apps.vouchers.models import Voucher
-
-    from .models import JournalEntry
-
-    unposted = []
-    unposted += list(
-        Invoice.objects.filter(
-            tenant_id=tenant_id,
-            issue_date__gte=start_date,
-            issue_date__lte=end_date,
-            status__in=[Invoice.Status.DRAFT, Invoice.Status.PENDING_APPROVAL, Invoice.Status.APPROVED],
-        ).values_list("id", flat=True)
-    )
-    unposted += list(
-        Voucher.objects.filter(
-            tenant_id=tenant_id, date__gte=start_date, date__lte=end_date, status__in=["draft", "pending_approval", "approved"]
-        ).values_list("id", flat=True)
-    )
-    unposted += list(
-        JournalEntry.objects.filter(
-            tenant_id=tenant_id,
-            date__gte=start_date,
-            date__lte=end_date,
-            status__in=["draft", "pending_approval", "approved"],
-        ).values_list("id", flat=True)
-    )
-    return unposted
 
 
 def reopen_period(period, user, reason):

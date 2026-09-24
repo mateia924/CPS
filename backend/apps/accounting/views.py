@@ -36,6 +36,7 @@ from .opening_balances import approve_opening_balance as _approve_opening_balanc
 from .opening_balances import reject_opening_balance as _reject_opening_balance
 from .opening_balances import submit_opening_balance as _submit_opening_balance
 from .opening_balances import withdraw_opening_balance as _withdraw_opening_balance
+from .period_close import period_checklist
 from .periods import (
     FiscalYearBoundariesLocked,
     PeriodLocked,
@@ -590,6 +591,7 @@ class FiscalPeriodViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
         "list": "accounting.view",
         "retrieve": "accounting.view",
         "current": "accounting.view",
+        "checklist": "accounting.view",
         "close": "accounting.close_period",
         "reopen": "accounting.reopen_period",
         "lock": "accounting.lock_period",
@@ -612,11 +614,19 @@ class FiscalPeriodViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
     def close(self, request, pk=None):
         period = self.get_object()
         try:
-            close_period(period, request.user, note=request.data.get("note", ""))
+            close_period(
+                period, request.user, note=request.data.get("note", ""),
+                acknowledge_warnings=bool(request.data.get("acknowledge_warnings", False)),
+            )
         except ValidationError as exc:
             detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": [str(exc)]}
             return Response(detail, status=400)
         return Response(FiscalPeriodSerializer(period).data)
+
+    @action(detail=True, methods=["get"])
+    def checklist(self, request, pk=None):
+        period = self.get_object()
+        return Response({"items": period_checklist(period)})
 
     @action(detail=True, methods=["post"])
     def reopen(self, request, pk=None):

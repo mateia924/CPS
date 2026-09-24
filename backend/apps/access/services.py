@@ -89,6 +89,10 @@ DEFAULT_PERMISSIONS = [
     # approving a recurring schedule), matching the create/post split
     # vouchers already use.
     ("accounting.post", _("Generate due recurring-entry installments on demand")),
+    # Sprint 6.7 (decision 14, C7): a documented temporary override
+    # ("حتى إشعارات الدائن في سبرنت 9 حيث تُلغى الصلاحية") — Owner-only
+    # by default, never granted to Accountant.
+    ("sales.void_delivered_invoice", _("Void an invoice that has already been delivered to the customer")),
 ]
 
 # Reasonable, editable defaults per system role — not specified in full

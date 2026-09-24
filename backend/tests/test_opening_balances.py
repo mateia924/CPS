@@ -231,7 +231,7 @@ def test_opening_in_closed_period_blocks_readiness(tenant_a, owner_client):
     from apps.accounting.models import FiscalPeriod
 
     period = FiscalPeriod.objects.get(fiscal_year__tenant=tenant_a, fiscal_year__name="2026", seq=1)
-    close_period(period, list(tenant_a.users.all())[0])
+    close_period(period, list(tenant_a.users.all())[0], acknowledge_warnings=True)
 
     entity = _entity(tenant_a)
     response = owner_client.post(

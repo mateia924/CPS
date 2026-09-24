@@ -73,7 +73,10 @@ def _close_period_directly(tenant, seq):
     for month in range(1, seq + 1):
         period = _period(tenant, month)
         if period.status == FiscalPeriod.Status.OPEN:
-            response = client.post(f"/api/fiscal-periods/{period.id}/close/", {"note": "test"}, format="json")
+            response = client.post(
+                f"/api/fiscal-periods/{period.id}/close/",
+                {"note": "test", "acknowledge_warnings": True}, format="json",
+            )
             assert response.status_code == 200, response.data
 
 
@@ -322,7 +325,9 @@ def test_year_locks_once_every_period_is_locked(tenant_a, client_a):
 
     year = FiscalYear.objects.get(pk=year_id)
     for period in year.periods.order_by("seq"):
-        close_response = client_a.post(f"/api/fiscal-periods/{period.id}/close/", {}, format="json")
+        close_response = client_a.post(
+            f"/api/fiscal-periods/{period.id}/close/", {"acknowledge_warnings": True}, format="json"
+        )
         assert close_response.status_code == 200, close_response.data
         lock_response = client_a.post(
             f"/api/fiscal-periods/{period.id}/lock/",

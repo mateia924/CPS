@@ -6,12 +6,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.access.permissions import HasModulePermission
-from apps.accounting.services import void_invoice_journal_entry
 from apps.common.validators import future_date_warning
 from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 from apps.organization.services import get_accessible_entity_ids
-from apps.platform.models import AuditLog
-from apps.platform.services import log_action
 from apps.tenants.services import TenantLimitExceeded, check_invoice_limit
 
 from .models import Customer, Invoice, Product
@@ -22,7 +19,14 @@ from .serializers import (
     ProductSerializer,
     RejectInvoiceSerializer,
 )
-from .services import approve_invoice, issue_invoice, reject_invoice, withdraw_invoice
+from .services import (
+    VoidRejected,
+    approve_invoice,
+    issue_invoice,
+    reject_invoice,
+    void_invoice,
+    withdraw_invoice,
+)
 
 
 class CustomerViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
@@ -179,23 +183,12 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def void(self, request, pk=None):
         invoice = self.get_object()
-        if invoice.status != Invoice.Status.ISSUED:
-            return Response(
-                {"detail": _("Only issued invoices can be voided.")}, status=400
-            )
-        invoice.status = Invoice.Status.CANCELLED
-        invoice.save(update_fields=["status"])
-        void_invoice_journal_entry(invoice)
-        log_action(
-            actor_type=AuditLog.ActorType.TENANT_USER,
-            actor_id=request.user.id,
-            action="invoice.void",
-            target_type="sales.Invoice",
-            target_id=invoice.id,
-            tenant_id=request.user.tenant_id,
-            after={"number": invoice.number},
-            request=request,
-        )
+        try:
+            void_invoice(invoice, request.user, reason=request.data.get("reason", ""), request=request)
+        except VoidRejected as exc:
+            return Response({"detail": str(exc)}, status=409)
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
         return Response(InvoiceSerializer(invoice).data)
 
     @action(detail=True, methods=["post"])

@@ -65,6 +65,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const showAccounting = !!me && me.permissions.includes("accounting.view");
   const showApprovalRules = !!me && me.permissions.includes("approvals.view");
   const showDocumentNumbering = !!me && me.permissions.includes("numbering.view");
+  const showAttachmentRules = !!me && me.permissions.includes("attachments.view");
   // Sprint 6.1 (decision 1): fiscal years/periods management screen —
   // gated by the "manage" permission, same pattern as company settings.
   const showFiscalYears = !!me && me.permissions.includes("accounting.manage_fiscal_periods");
@@ -207,6 +208,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           showFullPartiesView ||
           showApprovalRules ||
           showDocumentNumbering ||
+          showAttachmentRules ||
           showFiscalYears ||
           showCompanySettings) && <div className="sidebar-section-label">{t("settingsSection")}</div>}
         {showCompanySettings && <SidebarLink href="/dashboard/settings/company">{t("companySettingsNav")}</SidebarLink>}
@@ -222,6 +224,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
         {showDocumentNumbering && (
           <SidebarLink href="/dashboard/settings/document-numbering">{t("documentNumberingNav")}</SidebarLink>
+        )}
+        {showAttachmentRules && (
+          <SidebarLink href="/dashboard/settings/attachment-rules">{t("attachmentRulesNav")}</SidebarLink>
         )}
         {showFiscalYears && (
           <SidebarLink href="/dashboard/settings/fiscal-years">{t("fiscalYearsNav")}</SidebarLink>

@@ -85,14 +85,15 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "customer_name", "customer_party_type",
             "legal_entity", "legal_entity_name", "currency", "exchange_rate",
             "subtotal", "tax_total", "total", "base_total", "paid_fc", "balance_fc", "payment_status",
-            "delivered_at", "journal_entry_id", "journal_entry_number", "lines", "created_at", "updated_at",
+            "delivered_at", "is_post_delivery_void", "journal_entry_id", "journal_entry_number", "lines",
+            "created_at", "updated_at",
         )
         read_only_fields = (
             "id", "number", "status", "status_label", "created_by", "due_date", "customer_name",
             "customer_party_type",
             "legal_entity_name", "currency", "exchange_rate", "subtotal", "tax_total", "total", "base_total",
-            "paid_fc", "balance_fc", "payment_status", "delivered_at", "journal_entry_id", "journal_entry_number",
-            "lines", "created_at", "updated_at",
+            "paid_fc", "balance_fc", "payment_status", "delivered_at", "is_post_delivery_void",
+            "journal_entry_id", "journal_entry_number", "lines", "created_at", "updated_at",
         )
 
     def _journal_entry(self, obj):

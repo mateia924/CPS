@@ -123,3 +123,36 @@ class Attachment(TenantScopedModel):
 
     def __str__(self):
         return f"{self.original_name} ({self.category})"
+
+
+class AttachmentRule(TenantScopedModel):
+    """Sprint 6.7 (3.17 rule 4, sprint-6.md decision 15): الإعدادات ←
+    «قواعد المرفقات الإلزامية» — a tenant opts into requiring an
+    attachment of a given category on a document type once its amount
+    reaches a threshold (e.g. "سند صرف ≥ 5,000 يتطلب فاتورة أصلية").
+    Checked in apps.approvals.services.submit_for_approval, the single
+    choke point every document type's submit/issue/post path already
+    goes through — never a second, doc-type-specific copy of this
+    check. No default rule is ever seeded."""
+
+    class DocType(models.TextChoices):
+        INVOICE = "invoice", _("Invoice")
+        JOURNAL_ENTRY = "journal_entry", _("Journal Entry")
+        VOUCHER_PAYMENT = "voucher_payment", _("Payment Voucher")
+        VOUCHER_RECEIPT = "voucher_receipt", _("Receipt Voucher")
+        VOUCHER_SETTLEMENT = "voucher_settlement", _("Settlement Voucher")
+        OPENING_BALANCE = "opening_balance", _("Opening Balance")
+
+    doc_type = models.CharField(_("document type"), max_length=30, choices=DocType.choices)
+    min_amount_base = models.DecimalField(
+        _("minimum amount"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
+    )
+    required_category = models.CharField(_("required category"), max_length=30, choices=Attachment.Category.choices)
+    is_active = models.BooleanField(_("active"), default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["doc_type", "-min_amount_base"]
+
+    def __str__(self):
+        return f"{self.doc_type} >= {self.min_amount_base} -> {self.required_category}"

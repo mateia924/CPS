@@ -8,11 +8,17 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.access.permissions import HasModulePermission
+from apps.common.viewsets import TenantScopedViewSet
 from apps.platform.models import AuditLog
 from apps.platform.services import log_action
 
-from .models import Attachment
-from .serializers import AttachmentSerializer, AttachmentUploadSerializer, VoidAttachmentSerializer
+from .models import Attachment, AttachmentRule
+from .serializers import (
+    AttachmentRuleSerializer,
+    AttachmentSerializer,
+    AttachmentUploadSerializer,
+    VoidAttachmentSerializer,
+)
 from .services import (
     ALLOWED_TARGETS,
     AttachmentValidationError,
@@ -187,3 +193,19 @@ class AttachmentDownloadView(APIView):
         response = FileResponse(attachment.file.open("rb"), content_type=attachment.mime_type)
         response["Content-Disposition"] = f'{disposition}; filename="{attachment.original_name}"'
         return response
+
+
+class AttachmentRuleViewSet(TenantScopedViewSet):
+    """Sprint 6.7 (decision 15): الإعدادات ← «قواعد المرفقات الإلزامية»."""
+
+    serializer_class = AttachmentRuleSerializer
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    queryset = AttachmentRule.objects.all()
+    permission_map = {
+        "list": "attachments.view",
+        "retrieve": "attachments.view",
+        "create": "attachments.manage",
+        "update": "attachments.manage",
+        "partial_update": "attachments.manage",
+        "destroy": "attachments.manage",
+    }

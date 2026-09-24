@@ -150,6 +150,35 @@ def _lock(document):
     return document
 
 
+def _check_mandatory_attachments(document, doc_type, amount_base):
+    """Sprint 6.7 (3.17 rule 4, decision 15): every active AttachmentRule
+    matching this doc_type at this amount must have a corresponding
+    ACTIVE attachment already on the document — checked here, the one
+    choke point every document type's submit/issue/post path already
+    goes through, so no doc-type-specific copy of this check exists
+    anywhere else."""
+    from django.contrib.contenttypes.models import ContentType
+
+    from apps.attachments.models import Attachment, AttachmentRule
+
+    rules = AttachmentRule.objects.filter(
+        tenant=document.tenant, doc_type=doc_type, is_active=True, min_amount_base__lte=amount_base
+    )
+    if not rules:
+        return
+    content_type = ContentType.objects.get_for_model(type(document))
+    for rule in rules:
+        has_attachment = Attachment.objects.filter(
+            tenant=document.tenant, content_type=content_type, object_id=document.id,
+            category=rule.required_category, status=Attachment.Status.ACTIVE,
+        ).exists()
+        if not has_attachment:
+            raise ValidationError(
+                _("المستند يتطلب مرفق «%(category)s» لأنه يتجاوز %(amount)s.")
+                % {"category": rule.get_required_category_display(), "amount": rule.min_amount_base}
+            )
+
+
 @transaction.atomic
 def submit_for_approval(document, user, doc_type, amount_base, request=None):
     """DRAFT -> PENDING_APPROVAL, then immediately auto-approved if no
@@ -160,6 +189,7 @@ def submit_for_approval(document, user, doc_type, amount_base, request=None):
     _lock(document)
     if document.status != STATUS_DRAFT:
         raise ValidationError(_("Only a draft document can be submitted for approval."))
+    _check_mandatory_attachments(document, doc_type, amount_base)
 
     document.status = STATUS_PENDING_APPROVAL
     document.save(update_fields=["status"])

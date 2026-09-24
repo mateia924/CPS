@@ -147,12 +147,19 @@ def test_generate_due_twice_does_not_duplicate(tenant_a, owner_client):
 
 
 def test_closed_period_skips_then_regenerate_after_reopen(tenant_a, owner_client, user_a):
+    # Period 1 is closed BEFORE the schedule exists — decision 13 (6.7)
+    # blocks closing a period that already has a due-and-ungenerated
+    # installment, so the only way a period is CLOSED with a DUE
+    # installment still sitting in it is a schedule approved *against*
+    # an already-closed first_period (e.g. a back-dated schedule) —
+    # exactly what this builds, rather than closing out from under an
+    # already-approved schedule (no longer reachable through the API).
+    period1 = _period(tenant_a, 1)
+    close_period(period1, user_a, acknowledge_warnings=True)
+
     entity = _entity(tenant_a)
     entry_id = _create(owner_client, tenant_a, entity, "3000", 3)
     _submit_and_approve(owner_client, entry_id)
-
-    period1 = _period(tenant_a, 1)
-    close_period(period1, user_a)
 
     result = generate_due_installments(tenant=tenant_a, as_of=period1.end_date)
     assert result["skipped"] == 1

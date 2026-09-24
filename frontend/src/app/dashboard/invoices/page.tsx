@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, generalError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
@@ -397,12 +397,31 @@ export default function InvoicesPage() {
                 className="secondary"
                 onClick={async () => {
                   if (!window.confirm(t("confirmVoid"))) return;
-                  await api.post(`/invoices/${invoice.id}/void/`);
-                  reload();
+                  let reason = "";
+                  if (invoice.delivered_at) {
+                    reason = window.prompt(t("postDeliveryVoidReason")) || "";
+                    if (!reason) return;
+                  }
+                  try {
+                    await api.post(`/invoices/${invoice.id}/void/`, { reason });
+                    reload();
+                  } catch (err) {
+                    window.alert(generalError((err as { body?: unknown }).body, t("couldNotSave")));
+                  }
                 }}
               >
                 {t("void")}
               </button>
+            )}
+            {invoice.is_post_delivery_void && (
+              <span
+                style={{
+                  marginInlineStart: "0.4rem", padding: "0.1rem 0.5rem", borderRadius: "var(--radius-pill)",
+                  fontSize: "0.75rem", color: "var(--status-void)", background: "var(--status-void-bg)",
+                }}
+              >
+                {t("postDeliveryVoidBadge")}
+              </span>
             )}
           </>
         )}

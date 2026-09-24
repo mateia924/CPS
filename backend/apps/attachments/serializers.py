@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Attachment
+from .models import Attachment, AttachmentRule
 from .services import ALLOWED_TARGETS
 
 
@@ -38,3 +38,10 @@ class AttachmentSerializer(serializers.ModelSerializer):
 
 class VoidAttachmentSerializer(serializers.Serializer):
     reason = serializers.CharField(min_length=3)
+
+
+class AttachmentRuleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AttachmentRule
+        fields = ("id", "doc_type", "min_amount_base", "required_category", "is_active", "created_at")
+        read_only_fields = ("id", "created_at")

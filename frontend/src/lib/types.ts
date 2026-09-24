@@ -82,6 +82,7 @@ export interface Invoice {
   balance_fc: string;
   payment_status: PaymentStatus;
   delivered_at: string | null;
+  is_post_delivery_void: boolean;
   journal_entry_id: string | null;
   journal_entry_number: string | null;
   lines: InvoiceLine[];
@@ -754,6 +755,26 @@ export interface ReadinessItem {
   level: "block" | "warn" | "info";
   code: string;
   message: string;
+}
+
+// Sprint 6.7 (decision 13): the period-close checklist — same
+// BLOCK/WARN/INFO shape as ReadinessItem, plus an optional reference
+// list for items that name specific documents/installments.
+export interface PeriodChecklistItem extends ReadinessItem {
+  references?: { id: string; type?: string; reference: string }[];
+}
+
+// Sprint 6.7 (3.17 rule 4, decision 15).
+export type AttachmentRuleDocType =
+  | "invoice" | "journal_entry" | "voucher_payment" | "voucher_receipt" | "voucher_settlement" | "opening_balance";
+
+export interface AttachmentRule {
+  id: string;
+  doc_type: AttachmentRuleDocType;
+  min_amount_base: string;
+  required_category: AttachmentCategory;
+  is_active: boolean;
+  created_at: string;
 }
 
 export interface OpeningBalanceEntry {

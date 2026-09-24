@@ -3,12 +3,18 @@
 import { useEffect, useState } from "react";
 import { api, generalError } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
-import type { FiscalPeriod, FiscalPeriodicStatus, FiscalYear, Paginated } from "@/lib/types";
+import type { FiscalPeriod, FiscalPeriodicStatus, FiscalYear, Paginated, PeriodChecklistItem } from "@/lib/types";
 
 const STATUS_LABEL_KEY: Record<FiscalPeriodicStatus, string> = {
   open: "periodOpen",
   closed: "periodClosed",
   locked: "periodLocked",
+};
+
+const LEVEL_COLOR: Record<PeriodChecklistItem["level"], string> = {
+  block: "var(--status-void)",
+  warn: "var(--status-pending)",
+  info: "var(--muted)",
 };
 
 // Sprint 6.1 (3.9): الإعدادات ← "السنوات والفترات المالية" — جدول
@@ -27,6 +33,10 @@ export default function FiscalYearsPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
+  const [checklistFor, setChecklistFor] = useState<FiscalPeriod | null>(null);
+  const [checklistItems, setChecklistItems] = useState<PeriodChecklistItem[] | null>(null);
+  const [acknowledgeWarnings, setAcknowledgeWarnings] = useState(false);
+  const [closeNote, setCloseNote] = useState("");
 
   const load = () => {
     api.get<Paginated<FiscalYear>>("/fiscal-years/").then((data) => setYears(data.results));
@@ -58,7 +68,7 @@ export default function FiscalYearsPage() {
     }
   };
 
-  const runPeriodAction = async (period: FiscalPeriod, action: "close" | "reopen" | "lock", payload: Record<string, string>) => {
+  const runPeriodAction = async (period: FiscalPeriod, action: "close" | "reopen" | "lock", payload: Record<string, unknown>) => {
     setActionError(null);
     try {
       await api.post(`/fiscal-periods/${period.id}/${action}/`, payload);
@@ -68,9 +78,19 @@ export default function FiscalYearsPage() {
     }
   };
 
-  const closePeriod = (period: FiscalPeriod) => {
-    const note = window.prompt(t("closeNote")) || "";
-    runPeriodAction(period, "close", { note });
+  const openChecklist = async (period: FiscalPeriod) => {
+    setChecklistFor(period);
+    setAcknowledgeWarnings(false);
+    setCloseNote("");
+    const data = await api.get<{ items: PeriodChecklistItem[] }>(`/fiscal-periods/${period.id}/checklist/`);
+    setChecklistItems(data.items);
+  };
+
+  const closePeriod = async () => {
+    if (!checklistFor) return;
+    await runPeriodAction(checklistFor, "close", { note: closeNote, acknowledge_warnings: acknowledgeWarnings });
+    setChecklistFor(null);
+    setChecklistItems(null);
   };
 
   const reopenPeriod = (period: FiscalPeriod) => {
@@ -170,8 +190,8 @@ export default function FiscalYearsPage() {
                     <td>{t(STATUS_LABEL_KEY[period.status])}</td>
                     <td style={{ whiteSpace: "nowrap" }}>
                       {period.status === "open" && (
-                        <button className="secondary" onClick={() => closePeriod(period)}>
-                          {t("closePeriod")}
+                        <button className="secondary" onClick={() => openChecklist(period)}>
+                          {t("closeChecklist")}
                         </button>
                       )}
                       {period.status === "closed" && (
@@ -192,6 +212,74 @@ export default function FiscalYearsPage() {
           )}
         </div>
       ))}
+
+      {checklistFor && (
+        <div className="card">
+          <h3>
+            {t("closeChecklist")} — #{checklistFor.seq} ({checklistFor.start_date} — {checklistFor.end_date})
+          </h3>
+          {checklistItems === null ? (
+            <p>…</p>
+          ) : (
+            <>
+              <ul>
+                {checklistItems.map((item, i) => (
+                  <li key={i} style={{ color: LEVEL_COLOR[item.level] }}>
+                    [{item.level.toUpperCase()}] {item.message}
+                    {item.references && item.references.length > 0 && (
+                      <ul>
+                        {item.references.map((ref) => (
+                          <li key={ref.id}>{ref.reference}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ul>
+
+              {checklistItems.some((item) => item.level === "block") ? (
+                <p className="error-text">{t("couldNotSave")}</p>
+              ) : (
+                <>
+                  {checklistItems.some((item) => item.level === "warn") && (
+                    <div className="form-field">
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={acknowledgeWarnings}
+                          onChange={(e) => setAcknowledgeWarnings(e.target.checked)}
+                        />{" "}
+                        {t("acknowledgeWarnings")}
+                      </label>
+                    </div>
+                  )}
+                  <div className="form-field" style={{ maxWidth: "360px" }}>
+                    <label>{t("closeNote")}</label>
+                    <input value={closeNote} onChange={(e) => setCloseNote(e.target.value)} />
+                  </div>
+                  <button
+                    className="primary"
+                    disabled={checklistItems.some((item) => item.level === "warn") && !acknowledgeWarnings}
+                    onClick={closePeriod}
+                  >
+                    {t("closePeriod")}
+                  </button>
+                </>
+              )}
+            </>
+          )}
+          <button
+            className="secondary"
+            style={{ marginInlineStart: "0.5rem" }}
+            onClick={() => {
+              setChecklistFor(null);
+              setChecklistItems(null);
+            }}
+          >
+            {t("cancel")}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

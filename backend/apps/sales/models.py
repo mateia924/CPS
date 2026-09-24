@@ -167,6 +167,13 @@ class Invoice(TenantScopedModel):
     # built) will use it as a guard against cancelling an invoice the
     # customer has already seen.
     delivered_at = models.DateTimeField(_("delivered at"), null=True, blank=True)
+    # Sprint 6.7 (decision 14, CFO_REVIEW_1 C7): the guard delivered_at
+    # was reserved for — set when this invoice was voided despite
+    # already being delivered (`sales.void_delivered_invoice` + a
+    # mandatory reason). A documented temporary override until sprint
+    # 9's creditor notices exist, at which point that permission is
+    # removed entirely (see the Decision Log).
+    is_post_delivery_void = models.BooleanField(_("voided after delivery"), default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

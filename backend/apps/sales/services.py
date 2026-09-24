@@ -225,3 +225,67 @@ def withdraw_invoice(invoice, user, request=None):
 
     approvals_withdraw(invoice, user, "invoice", request=request)
     return invoice
+
+
+class VoidRejected(Exception):
+    """Sprint 6.7 (decision 14, C7): both of this function's guards map
+    to 409 in the view — a genuinely different document state than the
+    plain 400 "not an issued invoice" case."""
+
+
+def void_invoice(invoice, user, reason="", request=None):
+    """Decision 14: (1) a FILED/PAID tax period covering issue_date
+    blocks voiding **always**, no override; (2) a delivered invoice
+    needs `sales.void_delivered_invoice` (Owner by default) + a
+    mandatory reason — both flagged (`is_post_delivery_void`, AuditLog)
+    since this is a documented temporary override, not a routine path;
+    (3) the reversal itself always posts at today's date regardless of
+    the invoice's own (possibly closed) fiscal period — already
+    void_invoice_journal_entry's own behavior (CFO_REVIEW_1 C8-style
+    exception, decision 3), unchanged here."""
+    from apps.access.services import user_has_permission
+    from apps.accounting.models import TaxPeriod
+    from apps.accounting.services import void_invoice_journal_entry
+    from apps.platform.models import AuditLog
+    from apps.platform.services import log_action
+
+    if invoice.status != Invoice.Status.ISSUED:
+        raise ValidationError(_("Only issued invoices can be voided."))
+
+    tax_period = TaxPeriod.objects.filter(
+        tenant=invoice.tenant, legal_entity=invoice.legal_entity,
+        start__lte=invoice.issue_date, end__gte=invoice.issue_date,
+    ).first()
+    if tax_period is not None and tax_period.status in (TaxPeriod.Status.FILED, TaxPeriod.Status.PAID):
+        raise VoidRejected(
+            str(_("لا يمكن إلغاء هذه الفاتورة — فترة الإقرار الضريبي المحتوية لتاريخها %(status)s.") % {
+                "status": tax_period.get_status_display()
+            })
+        )
+
+    is_post_delivery = invoice.delivered_at is not None
+    if is_post_delivery:
+        if not user_has_permission(user, "sales.void_delivered_invoice"):
+            raise VoidRejected(str(_("لا يمكن إلغاء فاتورة سُلِّمت للعميل بالفعل بدون صلاحية خاصة.")))
+        if not reason:
+            raise VoidRejected(str(_("إلغاء فاتورة بعد تسليمها يشترط سببًا.")))
+
+    invoice.status = Invoice.Status.CANCELLED
+    update_fields = ["status"]
+    if is_post_delivery:
+        invoice.is_post_delivery_void = True
+        update_fields.append("is_post_delivery_void")
+    invoice.save(update_fields=update_fields)
+
+    reversal = void_invoice_journal_entry(invoice)
+
+    log_action(
+        actor_type=AuditLog.ActorType.TENANT_USER, actor_id=user.id, action="invoice.void",
+        target_type="sales.Invoice", target_id=invoice.id, tenant_id=invoice.tenant_id,
+        after={
+            "number": invoice.number,
+            **({"is_post_delivery_void": True, "reason": reason} if is_post_delivery else {}),
+        },
+        request=request,
+    )
+    return invoice, reversal

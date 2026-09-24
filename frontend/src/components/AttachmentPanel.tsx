@@ -5,7 +5,7 @@ import { API_BASE, ApiError, api, generalError } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import type { Attachment, AttachmentCategory, AttachmentTargetType, Paginated } from "@/lib/types";
 
-const CATEGORY_LABEL_KEY: Record<AttachmentCategory, string> = {
+export const CATEGORY_LABEL_KEY: Record<AttachmentCategory, string> = {
   fatura_original: "categoryFaturaOriginal",
   receipt: "categoryReceipt",
   contract: "categoryContract",
