@@ -6,6 +6,8 @@ from .views import (
     FiscalYearViewSet,
     JournalEntryViewSet,
     OpeningBalanceViewSet,
+    RecurringEntryViewSet,
+    RecurringInstallmentViewSet,
     TaxCodeViewSet,
     TaxPeriodViewSet,
 )
@@ -18,5 +20,7 @@ router.register("tax-periods", TaxPeriodViewSet, basename="tax-period")
 router.register("fiscal-years", FiscalYearViewSet, basename="fiscal-year")
 router.register("fiscal-periods", FiscalPeriodViewSet, basename="fiscal-period")
 router.register("opening-balances", OpeningBalanceViewSet, basename="opening-balance")
+router.register("recurring-entries", RecurringEntryViewSet, basename="recurring-entry")
+router.register("recurring-installments", RecurringInstallmentViewSet, basename="recurring-installment")
 
 urlpatterns = router.urls

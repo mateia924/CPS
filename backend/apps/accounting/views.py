@@ -21,6 +21,8 @@ from .models import (
     FiscalYear,
     JournalEntry,
     OpeningBalanceEntry,
+    RecurringEntry,
+    RecurringInstallment,
     TaxCode,
     TaxPeriod,
 )
@@ -42,6 +44,17 @@ from .periods import (
     reopen_period,
     update_fiscal_year_boundaries,
 )
+from .recurring import approve_recurring_entry as _approve_recurring_entry
+from .recurring import (
+    cancel_recurring_entry,
+    create_recurring_entry,
+    generate_due_installments,
+    preview_installments,
+    regenerate_installment,
+)
+from .recurring import reject_recurring_entry as _reject_recurring_entry
+from .recurring import submit_recurring_entry as _submit_recurring_entry
+from .recurring import withdraw_recurring_entry as _withdraw_recurring_entry
 from .serializers import (
     AccountSerializer,
     AccountTreeSerializer,
@@ -56,6 +69,9 @@ from .serializers import (
     OpeningBalanceEntrySerializer,
     OpeningBalanceLineInputSerializer,
     OpeningBalanceReasonSerializer,
+    RecurringEntryCreateSerializer,
+    RecurringEntrySerializer,
+    RecurringInstallmentSerializer,
     TaxCodeSerializer,
     TaxPeriodSerializer,
 )
@@ -758,3 +774,166 @@ class OpeningBalanceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vi
                 for entity in entities
             ]
         )
+
+
+def _resolve_recurring_entry_input(tenant, data):
+    try:
+        from_account = Account.objects.get(tenant=tenant, id=data["from_account"])
+    except Account.DoesNotExist:
+        raise ValidationError({"from_account": ["Account not found."]})
+    try:
+        to_account = Account.objects.get(tenant=tenant, id=data["to_account"])
+    except Account.DoesNotExist:
+        raise ValidationError({"to_account": ["Account not found."]})
+    cost_center = None
+    if data.get("cost_center"):
+        try:
+            cost_center = CostCenter.objects.get(tenant=tenant, id=data["cost_center"])
+        except CostCenter.DoesNotExist:
+            raise ValidationError({"cost_center": ["Cost center not found."]})
+    return from_account, to_account, cost_center
+
+
+class RecurringEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    """Sprint 6.4 (decisions 9-10) — "القيود الدورية"."""
+
+    serializer_class = RecurringEntrySerializer
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    permission_map = {
+        "list": "accounting.view",
+        "retrieve": "accounting.view",
+        "create": "accounting.manage",
+        "preview": "accounting.view",
+        "submit": "accounting.manage",
+        "withdraw": "accounting.manage",
+        "approve": "accounting.manage",
+        "reject": "accounting.manage",
+        "cancel": "accounting.manage",
+        "generate_due": "accounting.post",
+    }
+
+    def get_queryset(self):
+        accessible_ids = get_accessible_entity_ids(self.request.user)
+        return (
+            RecurringEntry.objects.filter(tenant=self.request.user.tenant, legal_entity_id__in=accessible_ids)
+            .select_related("legal_entity", "from_account", "to_account")
+            .prefetch_related("installments")
+        )
+
+    def create(self, request, *args, **kwargs):
+        serializer = RecurringEntryCreateSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        tenant = request.user.tenant
+        try:
+            from_account, to_account, cost_center = _resolve_recurring_entry_input(tenant, data)
+            entry = create_recurring_entry(
+                tenant, request.user, data["legal_entity"], data["kind"], data["description"],
+                from_account, to_account, data["total_amount_base"], data["installments_count"],
+                data["first_period"], cost_center=cost_center, request=request,
+            )
+        except (ValidationError, ValueError) as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": [str(exc)]}
+            return Response(detail, status=400)
+        return Response(RecurringEntrySerializer(entry).data, status=201)
+
+    @action(detail=False, methods=["post"])
+    def preview(self, request):
+        """Decision 9's screen requirement: the installment schedule
+        preview, computed before anything is saved — takes the same
+        total/count/first_period the create form already has."""
+        serializer = RecurringEntryCreateSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        rows = preview_installments(data["total_amount_base"], data["installments_count"], data["first_period"])
+        return Response(
+            [
+                {"seq": row["seq"], "period": str(row["period"].id), "due_date": row["due_date"], "amount_base": str(row["amount_base"])}
+                for row in rows
+            ]
+        )
+
+    @action(detail=True, methods=["post"])
+    def submit(self, request, pk=None):
+        entry = self.get_object()
+        try:
+            _submit_recurring_entry(entry, request.user, request=request)
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        # get_queryset() prefetches `installments` — refresh so the
+        # defensive no-matching-rule auto-approve path (which creates
+        # them) is reflected instead of the stale empty prefetch cache.
+        entry.refresh_from_db()
+        return Response(RecurringEntrySerializer(entry).data)
+
+    @action(detail=True, methods=["post"])
+    def withdraw(self, request, pk=None):
+        entry = self.get_object()
+        try:
+            _withdraw_recurring_entry(entry, request.user, request=request)
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        except PermissionDenied as exc:
+            return Response({"detail": str(exc)}, status=403)
+        return Response(RecurringEntrySerializer(entry).data)
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        entry = self.get_object()
+        try:
+            _approve_recurring_entry(entry, request.user, request=request)
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        except PermissionDenied as exc:
+            return Response({"detail": str(exc)}, status=403)
+        # get_queryset() prefetches `installments` — refresh so the
+        # rows _activate_recurring_entry just bulk_created are reflected
+        # instead of the stale (empty, fetched pre-approval) cache.
+        entry.refresh_from_db()
+        return Response(RecurringEntrySerializer(entry).data)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        entry = self.get_object()
+        serializer = OpeningBalanceReasonSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            _reject_recurring_entry(entry, request.user, serializer.validated_data["reason"], request=request)
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        return Response(RecurringEntrySerializer(entry).data)
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        entry = self.get_object()
+        try:
+            cancel_recurring_entry(entry, request.user, request=request)
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        return Response(RecurringEntrySerializer(entry).data)
+
+    @action(detail=False, methods=["post"], url_path="generate-due")
+    def generate_due(self, request):
+        result = generate_due_installments(tenant=request.user.tenant)
+        return Response(result)
+
+
+class RecurringInstallmentViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    serializer_class = RecurringInstallmentSerializer
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    permission_map = {"retrieve": "accounting.view", "regenerate": "accounting.post"}
+
+    def get_queryset(self):
+        accessible_ids = get_accessible_entity_ids(self.request.user)
+        return RecurringInstallment.objects.filter(
+            entry__tenant=self.request.user.tenant, entry__legal_entity_id__in=accessible_ids
+        ).select_related("entry", "period")
+
+    @action(detail=True, methods=["post"])
+    def regenerate(self, request, pk=None):
+        installment = self.get_object()
+        try:
+            regenerate_installment(installment, request.user, request=request)
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        return Response(RecurringInstallmentSerializer(installment).data)

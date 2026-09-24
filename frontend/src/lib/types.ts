@@ -52,7 +52,10 @@ export type DocumentStatus =
   // Sprint 6.3: OpeningBalanceEntry's own vocabulary — the only
   // document type with a real terminal REJECTED (every other doc type
   // just bounces a rejection back to "draft").
-  | "rejected";
+  | "rejected"
+  // Sprint 6.4: RecurringEntry's own terminal state once every
+  // installment has been generated.
+  | "completed";
 
 export type PaymentStatus = "unpaid" | "partial" | "paid";
 
@@ -775,6 +778,52 @@ export interface OpeningBalanceStatusRow {
   legal_entity_name: string;
   approved: boolean;
   approved_at: string | null;
+}
+
+// Sprint 6.4 (3.15.4): recurring entries (prepaid/deferred/accrual).
+export type RecurringEntryKind = "prepaid_expense" | "deferred_revenue" | "accrual" | "other" | "depreciation";
+export type RecurringInstallmentStatus = "due" | "generated" | "skipped" | "cancelled";
+
+export interface RecurringInstallment {
+  id: string;
+  seq: number;
+  period: string;
+  due_date: string;
+  amount_base: string;
+  status: RecurringInstallmentStatus;
+  journal_entry: string | null;
+  generated_at: string | null;
+  skip_reason: string;
+}
+
+export interface RecurringEntry {
+  id: string;
+  legal_entity: string;
+  legal_entity_name: string;
+  number: string;
+  description: string;
+  kind: RecurringEntryKind;
+  from_account: string;
+  from_account_code: string;
+  from_account_name: string;
+  to_account: string;
+  to_account_code: string;
+  to_account_name: string;
+  cost_center: string | null;
+  total_amount_base: string;
+  installments_count: number;
+  first_period: string;
+  status: DocumentStatus;
+  created_by: string | null;
+  installments: RecurringInstallment[];
+  created_at: string;
+}
+
+export interface RecurringInstallmentPreviewRow {
+  seq: number;
+  period: string;
+  due_date: string;
+  amount_base: string;
 }
 
 export interface ApprovalRule {

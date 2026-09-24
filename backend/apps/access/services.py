@@ -84,6 +84,11 @@ DEFAULT_PERMISSIONS = [
     ("accounting.close_period", _("Close a fiscal period")),
     ("accounting.reopen_period", _("Reopen a closed fiscal period")),
     ("accounting.lock_period", _("Lock a fiscal period permanently")),
+    # Sprint 6.4 (decision 10): "توليد الأقساط المستحقة الآن" — a
+    # deliberately separate authority from accounting.manage (drafting/
+    # approving a recurring schedule), matching the create/post split
+    # vouchers already use.
+    ("accounting.post", _("Generate due recurring-entry installments on demand")),
 ]
 
 # Reasonable, editable defaults per system role — not specified in full
@@ -119,6 +124,7 @@ SYSTEM_ROLES = {
         "treasury.reconcile",
         "treasury.count_cash",
         "accounting.close_period",
+        "accounting.post",
     ],
     "Sales": [
         "customers.view",

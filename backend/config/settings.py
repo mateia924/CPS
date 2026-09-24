@@ -9,6 +9,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import environ
+from celery.schedules import crontab
 from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -250,6 +251,13 @@ CELERY_BEAT_SCHEDULE = {
     "create-due-fiscal-years": {
         "task": "apps.accounting.tasks.create_due_fiscal_years",
         "schedule": timedelta(days=1),
+    },
+    # Sprint 6.4 (decision 10): "Celery beat يوميًا 01:00 UTC" — a fixed
+    # time of day, unlike the two entries above (CELERY_TIMEZONE=
+    # TIME_ZONE, which defaults to UTC, so this really is 01:00 UTC).
+    "generate-due-recurring-installments": {
+        "task": "apps.accounting.tasks.generate_due_recurring_installments",
+        "schedule": crontab(hour=1, minute=0),
     },
 }
 

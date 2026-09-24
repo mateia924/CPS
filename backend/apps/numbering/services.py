@@ -24,6 +24,9 @@ DEFAULT_PREFIXES = {
     # confirmation, not at creation (same "at issue, not at draft"
     # principle as every other document number in this project).
     "cash_count": "CC",
+    # Sprint 6.4 (decision 9): granted at first exit from DRAFT (submit),
+    # same timing as vouchers/cash counts above.
+    "recurring_entry": "RE",
 }
 
 

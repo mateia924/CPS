@@ -22,6 +22,8 @@ from .models import (
     JournalLine,
     OpeningBalanceEntry,
     OpeningBalanceLine,
+    RecurringEntry,
+    RecurringInstallment,
     TaxCode,
     TaxPeriod,
 )
@@ -394,3 +396,66 @@ class OpeningBalanceApproveSerializer(serializers.Serializer):
 
 class OpeningBalanceReasonSerializer(serializers.Serializer):
     reason = serializers.CharField(min_length=3)
+
+
+# ---------------------------------------------------------------------
+# Sprint 6.4: recurring entries — "القيود الدورية".
+# ---------------------------------------------------------------------
+
+
+class RecurringInstallmentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RecurringInstallment
+        fields = (
+            "id", "seq", "period", "due_date", "amount_base", "status",
+            "journal_entry", "generated_at", "skip_reason",
+        )
+        read_only_fields = fields
+
+
+class RecurringEntrySerializer(serializers.ModelSerializer):
+    installments = RecurringInstallmentSerializer(many=True, read_only=True)
+    legal_entity_name = serializers.CharField(source="legal_entity.name", read_only=True)
+    from_account_code = serializers.CharField(source="from_account.code", read_only=True)
+    from_account_name = serializers.CharField(source="from_account.name", read_only=True)
+    to_account_code = serializers.CharField(source="to_account.code", read_only=True)
+    to_account_name = serializers.CharField(source="to_account.name", read_only=True)
+
+    class Meta:
+        model = RecurringEntry
+        fields = (
+            "id", "legal_entity", "legal_entity_name", "number", "description", "kind",
+            "from_account", "from_account_code", "from_account_name",
+            "to_account", "to_account_code", "to_account_name",
+            "cost_center", "total_amount_base", "installments_count", "first_period",
+            "status", "created_by", "installments", "created_at",
+        )
+        read_only_fields = fields
+
+
+class RecurringEntryCreateSerializer(serializers.Serializer):
+    legal_entity = serializers.PrimaryKeyRelatedField(queryset=LegalEntity.objects.none())
+    description = serializers.CharField(max_length=255)
+    kind = serializers.ChoiceField(
+        choices=[c for c in RecurringEntry.Kind.choices if c[0] != RecurringEntry.Kind.DEPRECIATION]
+    )
+    from_account = serializers.UUIDField()
+    to_account = serializers.UUIDField()
+    cost_center = serializers.UUIDField(required=False, allow_null=True)
+    total_amount_base = serializers.DecimalField(
+        max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, min_value=decimal.Decimal("0.01")
+    )
+    installments_count = serializers.IntegerField(min_value=1)
+    first_period = serializers.PrimaryKeyRelatedField(queryset=FiscalPeriod.objects.none())
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request is not None and request.user.is_authenticated:
+            accessible_ids = get_accessible_entity_ids(request.user)
+            self.fields["legal_entity"].queryset = LegalEntity.objects.filter(
+                tenant=request.user.tenant, id__in=accessible_ids
+            )
+            self.fields["first_period"].queryset = FiscalPeriod.objects.filter(
+                fiscal_year__tenant=request.user.tenant
+            )

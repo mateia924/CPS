@@ -542,3 +542,106 @@ class OpeningBalanceLine(models.Model):
 
     def __str__(self):
         return f"{self.account} {self.debit_fc}/{self.credit_fc}"
+
+
+class RecurringEntry(TenantScopedModel):
+    """Sprint 6.4 (docs/SYSTEM_ANALYSIS.md 3.15.4, sprint-6.md decision
+    9): "القيود الدورية" — a prepaid expense/deferred revenue/accrual
+    schedule that generates one POSTED JournalEntry per due installment
+    (apps.accounting.recurring.generate_due_installments). `kind` is a
+    label only, same as TaxCode.kind — nothing branches on it except
+    display. `DEPRECIATION` is reserved for sprint 6.5 and never
+    produced by this block's own create path."""
+
+    class Kind(models.TextChoices):
+        PREPAID_EXPENSE = "prepaid_expense", _("Prepaid expense")
+        DEFERRED_REVENUE = "deferred_revenue", _("Deferred revenue")
+        ACCRUAL = "accrual", _("Accrual")
+        OTHER = "other", _("Other")
+        DEPRECIATION = "depreciation", _("Depreciation")
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", _("Draft")
+        PENDING_APPROVAL = "pending_approval", _("Pending approval")
+        APPROVED = "approved", _("Active")
+        COMPLETED = "completed", _("Completed")
+        CANCELLED = "cancelled", _("Cancelled")
+
+    legal_entity = models.ForeignKey(
+        "organization.LegalEntity", on_delete=models.PROTECT, related_name="recurring_entries"
+    )
+    # Sprint 6.4 (decision 9): granted at first exit from DRAFT (submit),
+    # same "at issue, not at draft" timing as Voucher.number — blank on
+    # a still-DRAFT schedule.
+    number = models.CharField(_("number"), max_length=32, blank=True, default="")
+    description = models.CharField(_("description"), max_length=255)
+    kind = models.CharField(_("kind"), max_length=20, choices=Kind.choices)
+    from_account = models.ForeignKey(
+        "accounting.Account", on_delete=models.PROTECT, related_name="recurring_entries_from"
+    )
+    to_account = models.ForeignKey(
+        "accounting.Account", on_delete=models.PROTECT, related_name="recurring_entries_to"
+    )
+    cost_center = models.ForeignKey(
+        "organization.CostCenter", null=True, blank=True, on_delete=models.PROTECT, related_name="recurring_entries"
+    )
+    total_amount_base = models.DecimalField(
+        _("total amount"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES
+    )
+    installments_count = models.PositiveIntegerField(_("installments"))
+    first_period = models.ForeignKey(
+        "accounting.FiscalPeriod", on_delete=models.PROTECT, related_name="recurring_entries_starting_here"
+    )
+    status = models.CharField(_("status"), max_length=20, choices=Status.choices, default=Status.DRAFT)
+    created_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.number or '(draft)'} {self.description}"
+
+    # apps.approvals.services is written generically against
+    # "document.created_by_id" — already the literal field name here,
+    # unlike OpeningBalanceEntry's `prepared_by` — no alias needed.
+
+
+class RecurringInstallment(models.Model):
+    """Child of RecurringEntry — same no-direct-tenant-FK pattern as
+    JournalLine/FiscalPeriod/OpeningBalanceLine. Created all at once, for
+    every period in the schedule, the moment the parent is approved
+    (decision 9); each is generated into its own POSTED JournalEntry
+    independently as its own period's end_date is reached (decision 10)."""
+
+    class Status(models.TextChoices):
+        DUE = "due", _("Due")
+        GENERATED = "generated", _("Generated")
+        SKIPPED = "skipped", _("Skipped")
+        CANCELLED = "cancelled", _("Cancelled")
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    entry = models.ForeignKey(RecurringEntry, on_delete=models.CASCADE, related_name="installments")
+    seq = models.PositiveIntegerField()
+    period = models.ForeignKey(
+        "accounting.FiscalPeriod", on_delete=models.PROTECT, related_name="recurring_installments"
+    )
+    due_date = models.DateField()
+    amount_base = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES)
+    status = models.CharField(_("status"), max_length=20, choices=Status.choices, default=Status.DUE)
+    journal_entry = models.ForeignKey(
+        JournalEntry, null=True, blank=True, on_delete=models.PROTECT, related_name="recurring_installment"
+    )
+    generated_at = models.DateTimeField(null=True, blank=True)
+    skip_reason = models.CharField(_("skip reason"), max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["entry", "seq"]
+        constraints = [
+            models.UniqueConstraint(fields=["entry", "seq"], name="unique_recurring_installment_seq_per_entry")
+        ]
+
+    def __str__(self):
+        return f"{self.entry_id} #{self.seq} ({self.status})"

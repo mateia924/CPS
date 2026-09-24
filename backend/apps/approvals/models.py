@@ -37,6 +37,11 @@ class ApprovalRule(TenantScopedModel):
         # sole user in a simplified-mode tenant) to approve every
         # opening balance, no amount threshold to configure away.
         OPENING_BALANCE = "opening_balance", _("Opening Balance")
+        # Sprint 6.4 (decision 9): a default rule (min_amount=0,
+        # required_role=Owner) is seeded per tenant, same as journal_entry
+        # got in 4.5 — freely editable/deletable, unlike IBAN_CHANGE/
+        # OPENING_BALANCE (not in _LOCKED_DOC_TYPES).
+        RECURRING_ENTRY = "recurring_entry", _("Recurring Entry")
 
     doc_type = models.CharField(_("document type"), max_length=30, choices=DocType.choices)
     min_amount = models.DecimalField(

@@ -367,6 +367,35 @@ def _lock_year_if_all_periods_locked(fiscal_year):
         fiscal_year.save(update_fields=["status"])
 
 
+def create_next_fiscal_year_for_tenant(tenant, latest=None):
+    """The single-tenant computation behind create_next_fiscal_year_if_due
+    (the beat) — extracted in 6.4 so a recurring-entry schedule that
+    outruns the fiscal periods that currently exist (decision 9: "تُنشأ
+    سنة تالية تلقائيًا إن لزم بالقرار 2") can force the same "next year,
+    same length, contiguous" creation for one tenant on demand, not just
+    when the beat's own 30-day-horizon condition is met."""
+    if latest is None:
+        latest = FiscalYear.objects.filter(tenant=tenant).order_by("-end_date").first()
+    if latest is None:
+        # decision 2: "لا مستأجر بلا سنة مالية في أي لحظة" — should
+        # never happen post-migration, but a defensive fallback.
+        from django.utils import timezone
+
+        return seed_fiscal_year_for_tenant(tenant, start_date=timezone.localdate())
+    next_start = latest.end_date + timedelta(days=1)
+    length_days = (latest.end_date - latest.start_date).days
+    next_end = next_start + timedelta(days=length_days)
+    period_length = "quarterly" if latest.periods.count() <= 4 else "monthly"
+    return create_fiscal_year_with_periods(
+        tenant=tenant,
+        name=str(next_start.year) if next_start.year == next_end.year else f"{next_start.year}-{next_end.year}",
+        start_date=next_start,
+        end_date=next_end,
+        period_length=period_length,
+        is_auto_created=True,
+    )
+
+
 def create_next_fiscal_year_if_due():
     """Decision 2's beat: for every tenant whose latest fiscal year ends
     within 30 days and has no successor yet, create the next year (same
@@ -381,25 +410,7 @@ def create_next_fiscal_year_if_due():
     created = []
     for tenant in Tenant.objects.all():
         latest = FiscalYear.objects.filter(tenant=tenant).order_by("-end_date").first()
-        if latest is None:
-            # decision 2: "لا مستأجر بلا سنة مالية في أي لحظة" — should
-            # never happen post-migration, but a defensive fallback.
-            year = seed_fiscal_year_for_tenant(tenant, start_date=today)
-            created.append(year)
+        if latest is not None and latest.end_date > horizon:
             continue
-        if latest.end_date > horizon:
-            continue
-        next_start = latest.end_date + timedelta(days=1)
-        length_days = (latest.end_date - latest.start_date).days
-        next_end = next_start + timedelta(days=length_days)
-        period_length = "quarterly" if latest.periods.count() <= 4 else "monthly"
-        year = create_fiscal_year_with_periods(
-            tenant=tenant,
-            name=str(next_start.year) if next_start.year == next_end.year else f"{next_start.year}-{next_end.year}",
-            start_date=next_start,
-            end_date=next_end,
-            period_length=period_length,
-            is_auto_created=True,
-        )
-        created.append(year)
+        created.append(create_next_fiscal_year_for_tenant(tenant, latest))
     return created

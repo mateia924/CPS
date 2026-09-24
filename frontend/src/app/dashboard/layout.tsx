@@ -172,6 +172,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <SidebarLink href="/dashboard/accounting/chart-of-accounts">{t("chartOfAccounts")}</SidebarLink>
             <SidebarLink href="/dashboard/accounting/journal-entries">{t("manualJournalEntries")}</SidebarLink>
             <SidebarLink href="/dashboard/accounting/opening-balances">{t("openingBalancesNav")}</SidebarLink>
+            <SidebarLink href="/dashboard/accounting/recurring-entries">{t("recurringEntriesNav")}</SidebarLink>
             <SidebarLink href="/dashboard/accounting/tax-codes">{t("taxCodesNav")}</SidebarLink>
             <SidebarLink href="/dashboard/accounting/tax-periods">{t("taxPeriodsNav")}</SidebarLink>
           </>
