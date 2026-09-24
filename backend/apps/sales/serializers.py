@@ -194,6 +194,20 @@ class InvoiceCreateSerializer(serializers.Serializer):
         currency = attrs.get("currency") or legal_entity.base_currency
         attrs["currency"] = currency
         issue_date = attrs.get("issue_date") or timezone.localdate()
+        attrs["issue_date"] = issue_date
+
+        # Sprint 6.1 (decision 3): checked at save time too (even a
+        # DRAFT), not just at issuance — assert_open_period is the one
+        # gate every document date clears before it's ever written.
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        from apps.accounting.periods import assert_open_period
+
+        tenant = self.context["request"].user.tenant
+        try:
+            assert_open_period(tenant, issue_date)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"issue_date": [str(exc.message)]})
 
         # Sprint 6 (block 6.0, item 6): surfaced to the view via
         # self.rate_warnings — a stale rate (>7 days old, CFO_REVIEW_1

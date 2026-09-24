@@ -9,6 +9,7 @@ from rest_framework.test import APIClient
 
 from apps.access.services import seed_default_roles
 from apps.accounting.models import Account, TaxCode
+from apps.accounting.periods import seed_fiscal_year_for_tenant
 from apps.accounting.services import (
     create_manual_journal_entry,
     seed_chart_of_accounts,
@@ -41,6 +42,7 @@ def test_tiered_rule_jv_over_10000_requires_owner_approval(db):
 
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     entity = LegalEntityFactory(tenant=tenant)
     roles = seed_default_roles(tenant)
     ApprovalRule.objects.create(
@@ -93,6 +95,7 @@ def test_jv_below_threshold_does_not_require_owner(db):
     tiered matching picks the highest qualifying rule, not just any."""
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     entity = LegalEntityFactory(tenant=tenant)
     roles = seed_default_roles(tenant)
     ApprovalRule.objects.create(
@@ -132,6 +135,7 @@ def test_jv_below_threshold_does_not_require_owner(db):
 def test_reject_without_reason_returns_400(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     entity = LegalEntityFactory(tenant=tenant)
     roles = seed_default_roles(tenant)
     ApprovalRule.objects.create(
@@ -172,6 +176,7 @@ def test_reject_without_reason_returns_400(db):
 def test_invoice_with_no_rule_issues_immediately_small_client_unchanged(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     seed_tax_codes_for_country(tenant, "SA")
     _company, entity = create_default_legal_entities(tenant, tenant.name)
     roles = seed_default_roles(tenant)
@@ -195,6 +200,7 @@ def test_invoice_with_no_rule_issues_immediately_small_client_unchanged(db):
 def test_invoice_blocked_by_rule_stays_pending_then_inbox_approval_issues_it(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     seed_tax_codes_for_country(tenant, "SA")
     _company, entity = create_default_legal_entities(tenant, tenant.name)
     roles = seed_default_roles(tenant)
@@ -234,6 +240,7 @@ def test_invoice_blocked_by_rule_stays_pending_then_inbox_approval_issues_it(db)
 def test_invoice_reject_sends_it_back_to_draft(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     seed_tax_codes_for_country(tenant, "SA")
     _company, entity = create_default_legal_entities(tenant, tenant.name)
     roles = seed_default_roles(tenant)
@@ -278,6 +285,7 @@ def test_invoice_reject_sends_it_back_to_draft(db):
 def test_pending_approvals_inbox_shows_matching_role_only(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     entity = LegalEntityFactory(tenant=tenant)
     roles = seed_default_roles(tenant)
     ApprovalRule.objects.create(
@@ -406,6 +414,7 @@ def test_voucher_blocked_by_rule_appears_in_inbox_and_creator_cannot_self_approv
 
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     seed_tax_codes_for_country(tenant, "SA")
     _company, entity = create_default_legal_entities(tenant, tenant.name)
     roles = seed_default_roles(tenant)

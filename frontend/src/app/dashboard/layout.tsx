@@ -65,6 +65,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const showAccounting = !!me && me.permissions.includes("accounting.view");
   const showApprovalRules = !!me && me.permissions.includes("approvals.view");
   const showDocumentNumbering = !!me && me.permissions.includes("numbering.view");
+  // Sprint 6.1 (decision 1): fiscal years/periods management screen —
+  // gated by the "manage" permission, same pattern as company settings.
+  const showFiscalYears = !!me && me.permissions.includes("accounting.manage_fiscal_periods");
   // Sprint 6.0.1-B: the inbox aggregates every approvable doc_type
   // (apps.approvals.views.PendingApprovalsView) — no single RBAC
   // permission covers all of them, so this reuses the same permission
@@ -199,6 +202,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           showFullPartiesView ||
           showApprovalRules ||
           showDocumentNumbering ||
+          showFiscalYears ||
           showCompanySettings) && <div className="sidebar-section-label">{t("settingsSection")}</div>}
         {showCompanySettings && <SidebarLink href="/dashboard/settings/company">{t("companySettingsNav")}</SidebarLink>}
         {showOrganization && <SidebarLink href="/dashboard/organization">{t("organization")}</SidebarLink>}
@@ -213,6 +217,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
         {showDocumentNumbering && (
           <SidebarLink href="/dashboard/settings/document-numbering">{t("documentNumberingNav")}</SidebarLink>
+        )}
+        {showFiscalYears && (
+          <SidebarLink href="/dashboard/settings/fiscal-years">{t("fiscalYearsNav")}</SidebarLink>
         )}
 
         <div style={{ marginTop: "auto", paddingTop: "1rem" }}>

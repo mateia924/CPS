@@ -11,6 +11,7 @@ from django.contrib.contenttypes.models import ContentType
 
 from apps.access.services import seed_default_roles
 from apps.accounting.models import Account, JournalEntry, TaxCode
+from apps.accounting.periods import seed_fiscal_year_for_tenant
 from apps.accounting.services import (
     approve_journal_entry,
     compute_trial_balance,
@@ -63,6 +64,7 @@ def _leaf_pair(tenant):
 def test_invoice_posting_sets_a_real_genericfk_source(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     seed_tax_codes_for_country(tenant, "SA")
     _company, entity = create_default_legal_entities(tenant, tenant.name)
     party = PartyFactory(tenant=tenant)
@@ -85,6 +87,7 @@ def test_invoice_posting_sets_a_real_genericfk_source(db):
 def test_invoice_posting_is_created_directly_as_posted_with_a_number(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     seed_tax_codes_for_country(tenant, "SA")
     _company, entity = create_default_legal_entities(tenant, tenant.name)
     party = PartyFactory(tenant=tenant)
@@ -111,6 +114,7 @@ def test_invoice_posting_is_created_directly_as_posted_with_a_number(db):
 def test_invoice_with_two_cost_centers_generates_two_revenue_lines(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     seed_tax_codes_for_country(tenant, "SA")
     _company, entity = create_default_legal_entities(tenant, tenant.name)
     party = PartyFactory(tenant=tenant)
@@ -142,6 +146,7 @@ def test_invoice_with_two_cost_centers_generates_two_revenue_lines(db):
 def test_invoice_lines_without_cost_center_are_grouped_into_one_line(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     seed_tax_codes_for_country(tenant, "SA")
     _company, entity = create_default_legal_entities(tenant, tenant.name)
     party = PartyFactory(tenant=tenant)
@@ -174,6 +179,7 @@ def test_invoice_lines_without_cost_center_are_grouped_into_one_line(db):
 def test_draft_manual_entry_does_not_appear_in_trial_balance(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     entity = LegalEntityFactory(tenant=tenant)
     owner = UserFactory(tenant=tenant)
     cash, sales = _leaf_pair(tenant)
@@ -196,6 +202,7 @@ def test_draft_manual_entry_does_not_appear_in_trial_balance(db):
 def test_posted_manual_entry_appears_in_trial_balance_and_reversal_zeroes_it(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     entity = LegalEntityFactory(tenant=tenant)
     roles = seed_default_roles(tenant)
     creator = UserFactory(tenant=tenant, email="creator@jv-tb.test")
@@ -240,6 +247,7 @@ def test_posted_manual_entry_appears_in_trial_balance_and_reversal_zeroes_it(db)
 def test_creator_cannot_approve_their_own_manual_entry(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     entity = LegalEntityFactory(tenant=tenant)
     roles = seed_default_roles(tenant)
     # A second active user must exist for segregation of duties to
@@ -270,6 +278,7 @@ def test_creator_cannot_approve_their_own_manual_entry(db):
 def test_single_active_user_tenant_is_exempt_from_segregation_of_duties(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     entity = LegalEntityFactory(tenant=tenant)
     roles = seed_default_roles(tenant)
     owner = UserFactory(tenant=tenant, email="solo-owner@jv-sod.test")
@@ -295,6 +304,7 @@ def test_single_active_user_tenant_is_exempt_from_segregation_of_duties(db):
 def test_cannot_post_a_non_approved_entry(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     entity = LegalEntityFactory(tenant=tenant)
     owner = UserFactory(tenant=tenant)
     cash, sales = _leaf_pair(tenant)
@@ -318,6 +328,7 @@ def test_cannot_post_a_non_approved_entry(db):
 def test_manual_entry_numbering_uses_jv_prefix(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     entity = LegalEntityFactory(tenant=tenant)
     owner = UserFactory(tenant=tenant)
     cash, sales = _leaf_pair(tenant)
@@ -347,6 +358,7 @@ def test_manual_jv_full_lifecycle_via_api(db):
 
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     entity = LegalEntityFactory(tenant=tenant)
     roles = seed_default_roles(tenant)
     creator = UserFactory(tenant=tenant, email="api-creator@jv-api.test")
@@ -408,6 +420,7 @@ def test_cannot_reverse_a_system_generated_entry_via_generic_action(db):
 
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     _company, entity = create_default_legal_entities(tenant, tenant.name)
     roles = seed_default_roles(tenant)
     owner = UserFactory(tenant=tenant, email="owner@jv-void-guard.test")
@@ -436,6 +449,7 @@ def test_trial_balance_endpoint_totals_match(db):
 
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     entity = LegalEntityFactory(tenant=tenant)
     roles = seed_default_roles(tenant)
     owner = UserFactory(tenant=tenant, email="owner@jv-trial.test")
@@ -509,6 +523,7 @@ def test_concurrent_post_requests_only_one_succeeds():
 
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     entity = LegalEntityFactory(tenant=tenant)
     roles = seed_default_roles(tenant)
     creator = UserFactory(tenant=tenant, email="creator@concurrent-post.test")

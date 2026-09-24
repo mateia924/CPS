@@ -15,10 +15,21 @@ from apps.organization.models import CostCenter
 from apps.organization.services import get_accessible_entity_ids
 from apps.treasury.services import ExchangeRateNotFound, get_rate_with_warnings
 
-from .models import Account, JournalEntry, TaxCode, TaxPeriod
+from .models import Account, FiscalPeriod, FiscalYear, JournalEntry, TaxCode, TaxPeriod
+from .periods import (
+    FiscalYearBoundariesLocked,
+    PeriodLocked,
+    close_period,
+    lock_period,
+    reopen_period,
+    update_fiscal_year_boundaries,
+)
 from .serializers import (
     AccountSerializer,
     AccountTreeSerializer,
+    FiscalPeriodSerializer,
+    FiscalYearSerializer,
+    FiscalYearWriteSerializer,
     JournalEntryReverseSerializer,
     JournalEntrySerializer,
     ManualJournalEntryCreateSerializer,
@@ -414,3 +425,117 @@ class DashboardSummaryView(APIView):
                 "payables_open": None,
             }
         )
+
+
+class FiscalYearViewSet(TenantScopedViewSet):
+    """Sprint 6.1 (decision 1): "السنوات والفترات المالية" — CRUD مقيَّد:
+    create/update always build or rebuild the year's periods together
+    with it (FiscalYearWriteSerializer), delete isn't offered at all
+    (rule 10 — no financial-setup data is ever deleted)."""
+
+    queryset = FiscalYear.objects.all().prefetch_related("periods")
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    http_method_names = ["get", "post", "patch", "head", "options"]
+    permission_map = {
+        "list": "accounting.view",
+        "retrieve": "accounting.view",
+        "create": "accounting.manage_fiscal_periods",
+        "partial_update": "accounting.manage_fiscal_periods",
+    }
+
+    def get_serializer_class(self):
+        if self.action in ("create", "partial_update"):
+            return FiscalYearWriteSerializer
+        return FiscalYearSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        year = serializer.save()
+        return Response(FiscalYearSerializer(year).data, status=201)
+
+    def partial_update(self, request, *args, **kwargs):
+        year = self.get_object()
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            year = update_fiscal_year_boundaries(
+                year,
+                name=data["name"],
+                start_date=data["start_date"],
+                end_date=data["end_date"],
+                period_length=data.get("period_length", "monthly"),
+                custom_period_end_dates=data.get("custom_period_end_dates"),
+            )
+        except FiscalYearBoundariesLocked as exc:
+            return Response({"detail": [str(exc)]}, status=409)
+        except ValidationError as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": [str(exc)]}
+            return Response(detail, status=400)
+        return Response(FiscalYearSerializer(year).data)
+
+
+class FiscalPeriodViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    """Sprint 6.1 — list/retrieve + the three lifecycle actions
+    (decision 4). Not a TenantScopedViewSet: FiscalPeriod has no direct
+    `tenant` FK (same child-of-tenant-scoped-parent pattern as
+    JournalLine under JournalEntry) — scoped via `fiscal_year__tenant`
+    instead."""
+
+    queryset = FiscalPeriod.objects.all().select_related("fiscal_year")
+    serializer_class = FiscalPeriodSerializer
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    permission_map = {
+        "list": "accounting.view",
+        "retrieve": "accounting.view",
+        "current": "accounting.view",
+        "close": "accounting.close_period",
+        "reopen": "accounting.reopen_period",
+        "lock": "accounting.lock_period",
+    }
+
+    def get_queryset(self):
+        return super().get_queryset().filter(fiscal_year__tenant=self.request.user.tenant)
+
+    @action(detail=False, methods=["get"])
+    def current(self, request):
+        from django.utils import timezone
+
+        today = timezone.localdate()
+        period = self.get_queryset().filter(start_date__lte=today, end_date__gte=today).first()
+        if period is None:
+            return Response({"detail": [str(_("No fiscal period covers today's date."))]}, status=404)
+        return Response(FiscalPeriodSerializer(period).data)
+
+    @action(detail=True, methods=["post"])
+    def close(self, request, pk=None):
+        period = self.get_object()
+        try:
+            close_period(period, request.user, note=request.data.get("note", ""))
+        except ValidationError as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": [str(exc)]}
+            return Response(detail, status=400)
+        return Response(FiscalPeriodSerializer(period).data)
+
+    @action(detail=True, methods=["post"])
+    def reopen(self, request, pk=None):
+        period = self.get_object()
+        try:
+            reopen_period(period, request.user, request.data.get("reason", ""))
+        except PeriodLocked as exc:
+            return Response({"detail": [str(exc)]}, status=409)
+        except ValidationError as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": [str(exc)]}
+            return Response(detail, status=400)
+        return Response(FiscalPeriodSerializer(period).data)
+
+    @action(detail=True, methods=["post"])
+    def lock(self, request, pk=None):
+        period = self.get_object()
+        try:
+            lock_period(period, request.user, request.data.get("lock_attestation", ""))
+        except ValidationError as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": [str(exc)]}
+            return Response(detail, status=400)
+        return Response(FiscalPeriodSerializer(period).data)

@@ -454,6 +454,10 @@ def post_invoice_journal_entry(invoice):
     from apps.parties.models import PartyRole
     from apps.sales.models import Invoice
 
+    from .periods import assert_open_period
+
+    assert_open_period(tenant, invoice.issue_date)
+
     ar = get_or_create_party_role_account(invoice.party, PartyRole.Role.CUSTOMER)
     if ar is None:
         ar = _get_system_account_or_fallback(tenant, "CUSTOMERS")
@@ -500,6 +504,11 @@ def void_invoice_journal_entry(invoice):
     original = JournalEntry.objects.get(
         tenant=invoice.tenant, source_type="invoice", source_id=invoice.id
     )
+    # Same exception as reverse_journal_entry: gated on today's date,
+    # not the original invoice's (often-closed) issue_date.
+    from .periods import assert_open_period
+
+    assert_open_period(invoice.tenant, timezone.localdate())
     reversal = JournalEntry.objects.create(
         tenant=invoice.tenant,
         legal_entity=invoice.legal_entity,
@@ -559,6 +568,10 @@ def create_manual_journal_entry(
     function just does the actual gating + logging + flagging, so a
     future second caller of this service can't bypass either check by
     skipping the view."""
+    from .periods import assert_open_period
+
+    assert_open_period(tenant, date)
+
     control_lines = [spec for spec in line_specs if not spec["account"].allow_manual_posting]
     if control_lines:
         if not override_reason:
@@ -694,6 +707,9 @@ def post_journal_entry(entry, user, request=None):
     entry.status = JournalEntry.objects.select_for_update().get(pk=entry.pk).status
     if entry.status != JournalEntry.Status.APPROVED:
         raise ValidationError(_("Only an approved entry can be posted."))
+    from .periods import assert_open_period
+
+    assert_open_period(entry.tenant, entry.date)
     _transition_journal_entry(entry, JournalEntry.Status.POSTED, user, "post")
     return entry
 
@@ -714,6 +730,12 @@ def reverse_journal_entry(entry, user, reason, date=None):
         raise ValidationError(_("The reversal date cannot precede the original entry's date."))
 
     tenant = entry.tenant
+    # Decision 3's own exception: the reversal is gated on ITS OWN
+    # date's period being open, never the original entry's (which may
+    # be — is often expected to be — closed by now).
+    from .periods import assert_open_period
+
+    assert_open_period(tenant, reversal_date)
     reversal = JournalEntry.objects.create(
         tenant=tenant,
         legal_entity=entry.legal_entity,

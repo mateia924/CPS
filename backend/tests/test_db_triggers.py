@@ -16,6 +16,7 @@ from django.db import DatabaseError, transaction
 
 from apps.access.services import seed_default_roles
 from apps.accounting.models import Account, JournalEntry, JournalLine
+from apps.accounting.periods import seed_fiscal_year_for_tenant
 from apps.accounting.services import (
     approve_journal_entry,
     create_manual_journal_entry,
@@ -59,6 +60,7 @@ def posted_setup(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
     seed_tax_codes_for_country(tenant, "SA")
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     entity = LegalEntityFactory(tenant=tenant)
     roles = seed_default_roles(tenant)
     creator = UserFactory(tenant=tenant, email="creator@db-trigger.test")
@@ -147,6 +149,7 @@ def test_manually_inserted_unbalanced_lines_fail_at_commit_not_per_row(db):
     INSERT — necessarily "unbalanced" on its own — fail immediately)."""
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     entity = LegalEntityFactory(tenant=tenant)
     cash = Account.objects.get(tenant=tenant, system_key="CASH")
     sales = Account.objects.get(tenant=tenant, system_key="SALES")

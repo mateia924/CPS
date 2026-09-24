@@ -10,6 +10,8 @@ TenantAwareJWTAuthentication status checks). Those tests log in for
 real via /api/auth/login/ or /api/platform/auth/login/ instead.
 """
 
+from datetime import date
+
 import pyotp
 import pytest
 from django.db import DatabaseError, transaction
@@ -17,6 +19,7 @@ from rest_framework.test import APIClient
 
 from apps.access.services import seed_default_roles
 from apps.accounting.models import TaxCode
+from apps.accounting.periods import seed_fiscal_year_for_tenant
 from apps.accounting.services import seed_chart_of_accounts, seed_tax_codes_for_country
 from apps.organization.services import create_default_legal_entities
 from apps.platform.models import AuditLog, Plan, PlatformBackupCode
@@ -459,6 +462,7 @@ def test_exceeding_max_invoices_per_month_returns_402(db):
     create_default_legal_entities(tenant, tenant.name)
     seed_chart_of_accounts(tenant)
     seed_tax_codes_for_country(tenant, "SA")
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     roles = seed_default_roles(tenant)
     owner = UserFactory(tenant=tenant, email="owner@limited-invoices.test")
     owner.roles.add(roles["Owner"])
@@ -487,6 +491,7 @@ def test_below_max_invoices_per_month_succeeds(db):
     create_default_legal_entities(tenant, tenant.name)
     seed_chart_of_accounts(tenant)
     seed_tax_codes_for_country(tenant, "SA")
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     roles = seed_default_roles(tenant)
     owner = UserFactory(tenant=tenant, email="owner@roomy-invoices.test")
     owner.roles.add(roles["Owner"])

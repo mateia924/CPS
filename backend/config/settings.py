@@ -246,6 +246,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.tenants.tasks.auto_suspend_past_due_tenants",
         "schedule": timedelta(days=1),
     },
+    # Sprint 6.1 (decision 2).
+    "create-due-fiscal-years": {
+        "task": "apps.accounting.tasks.create_due_fiscal_years",
+        "schedule": timedelta(days=1),
+    },
 }
 
 # ---------------------------------------------------------------------------

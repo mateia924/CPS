@@ -5,12 +5,15 @@ correctly gets 403 (they're not looking at someone else's data — the
 about cross-tenant access, not in-tenant permission checks).
 """
 
+from datetime import date
+
 import pytest
 from rest_framework.test import APIClient
 
 from apps.access.models import UserEntityAccess
 from apps.access.services import seed_default_roles
 from apps.accounting.models import TaxCode
+from apps.accounting.periods import seed_fiscal_year_for_tenant
 from apps.accounting.services import seed_chart_of_accounts, seed_tax_codes_for_country
 from apps.organization.models import LegalEntity
 
@@ -31,6 +34,7 @@ def tenant_with_two_branches(db):
     )
     seed_chart_of_accounts(tenant)
     seed_tax_codes_for_country(tenant, "SA")
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     return tenant, branch_a, branch_b
 
 

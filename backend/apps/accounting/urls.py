@@ -1,11 +1,20 @@
 from rest_framework.routers import DefaultRouter
 
-from .views import AccountViewSet, JournalEntryViewSet, TaxCodeViewSet, TaxPeriodViewSet
+from .views import (
+    AccountViewSet,
+    FiscalPeriodViewSet,
+    FiscalYearViewSet,
+    JournalEntryViewSet,
+    TaxCodeViewSet,
+    TaxPeriodViewSet,
+)
 
 router = DefaultRouter()
 router.register("accounts", AccountViewSet, basename="account")
 router.register("journal-entries", JournalEntryViewSet, basename="journal-entry")
 router.register("tax-codes", TaxCodeViewSet, basename="tax-code")
 router.register("tax-periods", TaxPeriodViewSet, basename="tax-period")
+router.register("fiscal-years", FiscalYearViewSet, basename="fiscal-year")
+router.register("fiscal-periods", FiscalPeriodViewSet, basename="fiscal-period")
 
 urlpatterns = router.urls

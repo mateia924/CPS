@@ -76,6 +76,14 @@ DEFAULT_PERMISSIONS = [
     # nothing here posts a journal entry on its own.
     ("treasury.reconcile", _("Import bank statements and match statement lines")),
     ("treasury.count_cash", _("Record and confirm a cash box physical count")),
+    # Sprint 6.1 (3.9): fiscal years/periods — separate authorities per
+    # decision 4 (close is routine accountant work; reopen/lock/create
+    # are Owner-only, matching the control matrix's own split for
+    # period-related actions).
+    ("accounting.manage_fiscal_periods", _("Create and edit fiscal years and periods")),
+    ("accounting.close_period", _("Close a fiscal period")),
+    ("accounting.reopen_period", _("Reopen a closed fiscal period")),
+    ("accounting.lock_period", _("Lock a fiscal period permanently")),
 ]
 
 # Reasonable, editable defaults per system role — not specified in full
@@ -110,6 +118,7 @@ SYSTEM_ROLES = {
         "treasury.request_iban_change",
         "treasury.reconcile",
         "treasury.count_cash",
+        "accounting.close_period",
     ],
     "Sales": [
         "customers.view",

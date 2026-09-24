@@ -69,6 +69,10 @@ def create_voucher(
     — see views.py for the raw-input -> resolved-object step, same
     split as every other create-flow in this project.
     """
+    from apps.accounting.periods import assert_open_period
+
+    assert_open_period(tenant, date)
+
     treasury_instance = _treasury_instance(tenant, treasury_kind, treasury_id)
     if treasury_instance.legal_entity_id != legal_entity.id:
         raise VoucherValidationError(
@@ -179,6 +183,10 @@ def create_internal_transfer_voucher(
     never posted as an FX line (see _build_transfer_posting_specs:
     both journal lines get the SAME base amount, computed from the
     source side only)."""
+    from apps.accounting.periods import assert_open_period
+
+    assert_open_period(tenant, date)
+
     if treasury_kind == counter_treasury_kind and str(treasury_id) == str(counter_treasury_id):
         raise VoucherValidationError(
             {"counter_treasury_id": [_("The source and destination treasury accounts cannot be the same.")]}
@@ -608,6 +616,10 @@ def post_voucher(voucher, user, request=None):
 
 def _actually_post(voucher, user, request=None):
     from django.contrib.contenttypes.models import ContentType
+
+    from apps.accounting.periods import assert_open_period
+
+    assert_open_period(voucher.tenant, voucher.date)
 
     specs, allocation_specs = _build_posting_specs(voucher.tenant, voucher)
     entry = JournalEntry.objects.create(

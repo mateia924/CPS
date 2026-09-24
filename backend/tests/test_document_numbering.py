@@ -13,6 +13,7 @@ from rest_framework.test import APIClient
 
 from apps.access.services import seed_default_roles
 from apps.accounting.models import TaxCode
+from apps.accounting.periods import seed_fiscal_year_for_tenant
 from apps.accounting.services import seed_chart_of_accounts, seed_tax_codes_for_country
 from apps.numbering.models import DocumentNumberingSetting, DocumentSequence
 from apps.numbering.services import DEFAULT_PREFIXES, next_document_number
@@ -149,6 +150,7 @@ def test_two_branches_first_real_invoices_via_api_get_different_numbers(db):
     branch_b = LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.BRANCH, parent=company)
     seed_chart_of_accounts(tenant)
     seed_tax_codes_for_country(tenant, "SA")
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     roles = seed_default_roles(tenant)
     owner = UserFactory(tenant=tenant, email="owner@two-branch-inv.test")
     owner.roles.add(roles["Owner"])
@@ -221,6 +223,7 @@ def test_50_concurrent_invoice_creations_get_50_unique_gapless_numbers():
     company, entity = create_default_legal_entities(tenant, tenant.name)
     seed_chart_of_accounts(tenant)
     seed_tax_codes_for_country(tenant, "SA")
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     party = PartyFactory(tenant=tenant)
     product = ProductFactory(tenant=tenant)
     tax_code_z = TaxCode.objects.get(tenant=tenant, code="Z")

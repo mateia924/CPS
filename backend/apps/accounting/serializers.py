@@ -1,5 +1,6 @@
 import decimal
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Sum
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
@@ -13,7 +14,8 @@ from apps.common.constants import (
 from apps.organization.models import LegalEntity
 from apps.organization.services import get_accessible_entity_ids
 
-from .models import Account, JournalEntry, JournalLine, TaxCode, TaxPeriod
+from .models import Account, FiscalPeriod, FiscalYear, JournalEntry, JournalLine, TaxCode, TaxPeriod
+from .periods import create_fiscal_year_with_periods
 from .services import REPORTABLE_STATUSES
 
 
@@ -227,3 +229,52 @@ class TaxPeriodSerializer(serializers.ModelSerializer):
             "reference", "created_at",
         )
         read_only_fields = fields
+
+
+class FiscalPeriodSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FiscalPeriod
+        fields = (
+            "id", "fiscal_year", "seq", "start_date", "end_date", "status",
+            "closed_by", "closed_at", "close_note", "close_snapshot",
+            "reopened_by", "reopened_at", "reopened_reason",
+            "locked_by", "locked_at", "lock_attestation",
+        )
+        read_only_fields = fields
+
+
+class FiscalYearSerializer(serializers.ModelSerializer):
+    periods = FiscalPeriodSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = FiscalYear
+        fields = ("id", "name", "start_date", "end_date", "status", "is_auto_created", "periods", "created_at")
+        read_only_fields = ("id", "status", "is_auto_created", "periods", "created_at")
+
+
+class FiscalYearWriteSerializer(serializers.Serializer):
+    """Sprint 6.1 (decision 1): create ("CRUD مقيَّد") always builds the
+    year AND its periods together in one atomic call — a bare
+    `FiscalYear` row with no periods is never a valid state this API
+    can produce. PATCH reuses the same shape: boundaries only move
+    together with a full period regeneration (see the view)."""
+
+    name = serializers.CharField(max_length=50)
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
+    period_length = serializers.ChoiceField(choices=["monthly", "quarterly", "custom"], default="monthly")
+    custom_period_end_dates = serializers.ListField(child=serializers.DateField(), required=False)
+
+    def create(self, validated_data):
+        tenant = self.context["request"].user.tenant
+        try:
+            return create_fiscal_year_with_periods(
+                tenant=tenant,
+                name=validated_data["name"],
+                start_date=validated_data["start_date"],
+                end_date=validated_data["end_date"],
+                period_length=validated_data["period_length"],
+                custom_period_end_dates=validated_data.get("custom_period_end_dates"),
+            )
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.message_dict if hasattr(exc, "message_dict") else {"detail": [str(exc)]})

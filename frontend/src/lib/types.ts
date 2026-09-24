@@ -683,6 +683,39 @@ export interface TaxPeriod {
   created_at: string;
 }
 
+// Sprint 6.1 (3.9): fiscal years and periods.
+export type FiscalPeriodicStatus = "open" | "closed" | "locked";
+
+export interface FiscalPeriod {
+  id: string;
+  fiscal_year: string;
+  seq: number;
+  start_date: string;
+  end_date: string;
+  status: FiscalPeriodicStatus;
+  closed_by: string | null;
+  closed_at: string | null;
+  close_note: string;
+  close_snapshot: Record<string, unknown> | null;
+  reopened_by: string | null;
+  reopened_at: string | null;
+  reopened_reason: string;
+  locked_by: string | null;
+  locked_at: string | null;
+  lock_attestation: string;
+}
+
+export interface FiscalYear {
+  id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  status: FiscalPeriodicStatus;
+  is_auto_created: boolean;
+  periods: FiscalPeriod[];
+  created_at: string;
+}
+
 export type ApprovalDocType =
   | "journal_entry" | "invoice"
   | "voucher_receipt" | "voucher_payment" | "voucher_settlement";

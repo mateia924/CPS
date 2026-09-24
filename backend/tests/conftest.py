@@ -1,7 +1,10 @@
+from datetime import date
+
 import pytest
 from rest_framework.test import APIClient
 
 from apps.access.services import seed_default_roles
+from apps.accounting.periods import seed_fiscal_year_for_tenant
 from apps.accounting.services import seed_chart_of_accounts, seed_tax_codes_for_country
 from apps.organization.services import create_default_legal_entities
 
@@ -48,6 +51,11 @@ def tenant_a(db):
     # by a test needs at least the SA compliance package's codes (S/Z/
     # E/O/RC/SN) available, same as a real tenant gets at registration.
     seed_tax_codes_for_country(tenant, "SA")
+    # Sprint 6.1: every document date this whole suite ever uses is
+    # somewhere in calendar year 2026 (checked directly) — one fixed
+    # open fiscal year covers all of it, same as a real tenant gets at
+    # registration (TenantFactory bypasses RegisterSerializer entirely).
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     return tenant
 
 
@@ -57,6 +65,7 @@ def tenant_b(db):
     create_default_legal_entities(tenant, tenant.name)
     seed_chart_of_accounts(tenant)
     seed_tax_codes_for_country(tenant, "SA")
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     return tenant
 
 

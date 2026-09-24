@@ -354,3 +354,85 @@ class TaxPeriod(TenantScopedModel):
 
     def __str__(self):
         return f"{self.legal_entity} {self.start}..{self.end}"
+
+
+class FiscalYear(TenantScopedModel):
+    """Sprint 6.1 (3.9, sprint-6.md decision 1/2): one fiscal year per
+    tenant (not per legal entity — a branch never has its own fiscal
+    year; per-company years are sprint 12), no overlap with another
+    year of the same tenant (validated in apps.accounting.periods, not
+    a DB constraint — see that module's own note on why)."""
+
+    class Status(models.TextChoices):
+        OPEN = "open", _("Open")
+        CLOSED = "closed", _("Closed")
+        LOCKED = "locked", _("Locked")
+
+    name = models.CharField(_("name"), max_length=50)
+    start_date = models.DateField(_("start date"))
+    end_date = models.DateField(_("end date"))
+    status = models.CharField(_("status"), max_length=10, choices=Status.choices, default=Status.OPEN)
+    # decision 2: True for years the daily beat created ahead of time,
+    # or the one migration 0025 backfilled for a pre-6.1 tenant — never
+    # set on a year a user explicitly created.
+    is_auto_created = models.BooleanField(_("auto-created"), default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["start_date"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(end_date__gt=models.F("start_date")), name="fiscal_year_end_after_start"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.start_date}..{self.end_date})"
+
+
+class FiscalPeriod(models.Model):
+    """Sprint 6.1 — a child of FiscalYear, same pattern as JournalLine
+    under JournalEntry (no direct `tenant` FK; scope every queryset via
+    `fiscal_year__tenant`)."""
+
+    class Status(models.TextChoices):
+        OPEN = "open", _("Open")
+        CLOSED = "closed", _("Closed")
+        LOCKED = "locked", _("Locked")
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    fiscal_year = models.ForeignKey(FiscalYear, on_delete=models.CASCADE, related_name="periods")
+    seq = models.PositiveIntegerField(_("sequence"))
+    start_date = models.DateField(_("start date"))
+    end_date = models.DateField(_("end date"))
+    status = models.CharField(_("status"), max_length=10, choices=Status.choices, default=Status.OPEN)
+    closed_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    closed_at = models.DateTimeField(null=True, blank=True)
+    close_note = models.TextField(_("close note"), blank=True)
+    # decision 13 (6.7): the full checklist result at the moment of
+    # closing, kept for the auditor even if later reopened/re-closed.
+    close_snapshot = models.JSONField(null=True, blank=True)
+    reopened_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    reopened_at = models.DateTimeField(null=True, blank=True)
+    reopened_reason = models.TextField(_("reopen reason"), blank=True)
+    locked_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    locked_at = models.DateTimeField(null=True, blank=True)
+    lock_attestation = models.TextField(_("lock attestation"), blank=True)
+
+    class Meta:
+        ordering = ["start_date"]
+        constraints = [
+            models.UniqueConstraint(fields=["fiscal_year", "seq"], name="unique_fiscal_period_seq"),
+            models.CheckConstraint(
+                condition=models.Q(end_date__gte=models.F("start_date")), name="fiscal_period_end_after_start"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.fiscal_year.name} #{self.seq} ({self.start_date}..{self.end_date})"

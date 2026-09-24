@@ -9,6 +9,7 @@ import pytest
 from rest_framework.test import APIClient
 
 from apps.accounting.models import JournalEntry, TaxCode
+from apps.accounting.periods import seed_fiscal_year_for_tenant
 from apps.accounting.services import (
     FX_ROUNDING_TOLERANCE,
     build_journal_lines_with_fx_rounding,
@@ -212,6 +213,7 @@ def test_fx_rounding_tolerance_is_5_cents():
 def test_usd_invoice_on_sar_entity_posts_correct_fc_and_base_amounts(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     company, entity = create_default_legal_entities(tenant, tenant.name)
     assert entity.base_currency == "SAR"
     ExchangeRate.objects.create(
@@ -249,6 +251,7 @@ def test_usd_invoice_on_sar_entity_posts_correct_fc_and_base_amounts(db):
 def test_changing_the_rate_later_does_not_affect_an_already_posted_entry(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     _company, entity = create_default_legal_entities(tenant, tenant.name)
     ExchangeRate.objects.create(
         tenant=tenant, from_currency="USD", to_currency="SAR", date=date(2026, 1, 1), rate=Decimal("3.75")

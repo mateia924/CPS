@@ -8,6 +8,7 @@ from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
 from apps.access.services import seed_default_roles
+from apps.accounting.periods import seed_fiscal_year_for_tenant
 from apps.accounting.services import (
     generate_tax_periods_for_year,
     seed_chart_of_accounts,
@@ -103,6 +104,11 @@ class RegisterSerializer(serializers.Serializer):
             # branch's country (every LegalEntity defaults to SA today).
             seed_tax_codes_for_country(tenant, branch.country_code)
             generate_tax_periods_for_year(branch, timezone.now().year)
+
+            # Sprint 6.1 (decision 2): "لا مستأجر بلا سنة مالية في أي
+            # لحظة" — a fresh calendar-year FiscalYear, 12 open monthly
+            # periods, from the moment the tenant exists.
+            seed_fiscal_year_for_tenant(tenant, start_date=timezone.now().date())
 
             # Sprint 4.5 (3.15.9): "لا قيد يدوي يُرحَّل بلا اعتماد" — every
             # tenant starts with this baseline rule so manual JVs always

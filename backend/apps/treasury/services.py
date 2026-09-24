@@ -437,6 +437,10 @@ def check_iban_change_guard(party):
 
 
 def create_cash_count(tenant, user, cash_box, count_date, counted_amount=None, denominations=None):
+    from apps.accounting.periods import assert_open_period
+
+    assert_open_period(tenant, count_date)
+
     denominations = denominations or {}
     if denominations:
         try:
