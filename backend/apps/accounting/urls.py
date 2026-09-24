@@ -5,6 +5,7 @@ from .views import (
     FiscalPeriodViewSet,
     FiscalYearViewSet,
     JournalEntryViewSet,
+    OpeningBalanceViewSet,
     TaxCodeViewSet,
     TaxPeriodViewSet,
 )
@@ -16,5 +17,6 @@ router.register("tax-codes", TaxCodeViewSet, basename="tax-code")
 router.register("tax-periods", TaxPeriodViewSet, basename="tax-period")
 router.register("fiscal-years", FiscalYearViewSet, basename="fiscal-year")
 router.register("fiscal-periods", FiscalPeriodViewSet, basename="fiscal-period")
+router.register("opening-balances", OpeningBalanceViewSet, basename="opening-balance")
 
 urlpatterns = router.urls

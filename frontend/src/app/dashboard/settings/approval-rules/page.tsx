@@ -9,12 +9,19 @@ import type { ApprovalDocType, ApprovalRule, Paginated, Role } from "@/lib/types
 const DOC_TYPES: ApprovalDocType[] = [
   "journal_entry", "invoice", "voucher_receipt", "voucher_payment", "voucher_settlement",
 ];
+// iban_change/opening_balance are deliberately absent from DOC_TYPES
+// (below) — both are fixed, non-deletable system rules (approvals/
+// migrations/0005, 0007) that never appear in the "create a new rule"
+// picker, but an existing rule row for either can still be listed, so
+// the label map itself must cover the full ApprovalDocType union.
 const DOC_TYPE_LABEL: Record<ApprovalDocType, string> = {
   journal_entry: "journalEntryDocType",
   invoice: "invoiceDocType",
   voucher_receipt: "voucherReceiptDocType",
   voucher_payment: "voucherPaymentDocType",
   voucher_settlement: "voucherSettlementDocType",
+  iban_change: "ibanChangeDocType",
+  opening_balance: "openingBalanceDocType",
 };
 
 export default function ApprovalRulesPage() {

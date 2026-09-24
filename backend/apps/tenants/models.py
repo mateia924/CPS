@@ -47,6 +47,12 @@ class Tenant(models.Model):
     # TenantAdminViewSet.mark_past_due); a daily beat auto-transitions
     # to SUSPENDED once settings.PAST_DUE_GRACE_DAYS has elapsed.
     past_due_since = models.DateTimeField(_("past due since"), null=True, blank=True)
+    # Sprint 6.3 (decision 8): set once every active LegalEntity's
+    # INITIAL opening balance is approved — surfaced on the Super Admin
+    # tenant list as a "not production-ready" warning, never a hard
+    # block (3.16.3: "لا يُعامَل أي مستأجر كعميل إنتاجي... تحمي المنصة
+    # قانونيًا" is an operational policy, not a technical gate).
+    opening_balances_approved_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

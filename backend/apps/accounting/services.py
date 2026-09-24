@@ -714,6 +714,14 @@ def post_journal_entry(entry, user, request=None):
     return entry
 
 
+class OpeningEntryReversalRejected(Exception):
+    """Sprint 6.3 (decision 8): "reverse_journal_entry يرفض is_opening
+    (409)" — the view maps this to 409, distinct from the ordinary 400
+    an unreversable-for-other-reasons entry gets. An opening balance's
+    only correction path is a new ADJUSTMENT document (apps.accounting.
+    opening_balances), never a reversal of the posted entry itself."""
+
+
 @transaction.atomic
 def reverse_journal_entry(entry, user, reason, date=None):
     """CFO_REVIEW_1 C8: `date` defaults to today and may never precede
@@ -723,6 +731,10 @@ def reverse_journal_entry(entry, user, reason, date=None):
     entry.status = JournalEntry.objects.select_for_update().get(pk=entry.pk).status
     if entry.status != JournalEntry.Status.POSTED:
         raise ValidationError(_("Only a posted entry can be reversed."))
+    if entry.is_opening:
+        raise OpeningEntryReversalRejected(
+            str(_("A posted opening balance entry can never be reversed — correct it with a new adjustment instead."))
+        )
     if not reason:
         raise ValidationError(_("A reason is required to reverse a journal entry."))
     reversal_date = date or timezone.localdate()

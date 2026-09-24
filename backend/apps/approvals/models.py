@@ -31,6 +31,12 @@ class ApprovalRule(TenantScopedModel):
         # الاعتماد" screen — 3.15.9 requires approval on every IBAN
         # change, with no amount threshold to fall below.
         IBAN_CHANGE = "iban_change", _("IBAN Change Request")
+        # Sprint 6.3 (decision 8): fixed rule (min_amount=0, required_
+        # role=Owner) seeded per tenant, same "not deletable/editable"
+        # treatment as IBAN_CHANGE — 3.16.3 requires the Owner (or the
+        # sole user in a simplified-mode tenant) to approve every
+        # opening balance, no amount threshold to configure away.
+        OPENING_BALANCE = "opening_balance", _("Opening Balance")
 
     doc_type = models.CharField(_("document type"), max_length=30, choices=DocType.choices)
     min_amount = models.DecimalField(

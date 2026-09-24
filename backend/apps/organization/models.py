@@ -53,6 +53,10 @@ class LegalEntity(TenantScopedModel):
     phone = models.CharField(_("phone"), max_length=30, blank=True)
     email = models.EmailField(_("email"), blank=True)
     is_active = models.BooleanField(_("active"), default=True)
+    # Sprint 6.3 (decision 8): set once this entity's INITIAL opening
+    # balance is approved — never cleared afterward (an ADJUSTMENT
+    # doesn't touch it).
+    opening_approved_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

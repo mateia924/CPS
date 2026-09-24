@@ -16,6 +16,8 @@ const STATUS_TOKENS: Record<DocumentStatus, { color: string; bg: string }> = {
   paid: { color: "var(--status-posted)", bg: "var(--status-posted-bg)" },
   reversed: { color: "var(--status-reversed)", bg: "var(--status-reversed-bg)" },
   cancelled: { color: "var(--status-void)", bg: "var(--status-void-bg)" },
+  // Sprint 6.3: OpeningBalanceEntry's own terminal REJECTED.
+  rejected: { color: "var(--status-void)", bg: "var(--status-void-bg)" },
 };
 
 export function StatusBadge({ status }: { status: DocumentStatus }) {

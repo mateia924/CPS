@@ -48,7 +48,11 @@ export type DocumentStatus =
   | "reversed"
   | "issued"
   | "paid"
-  | "cancelled";
+  | "cancelled"
+  // Sprint 6.3: OpeningBalanceEntry's own vocabulary — the only
+  // document type with a real terminal REJECTED (every other doc type
+  // just bounces a rejection back to "draft").
+  | "rejected";
 
 export type PaymentStatus = "unpaid" | "partial" | "paid";
 
@@ -718,7 +722,60 @@ export interface FiscalYear {
 
 export type ApprovalDocType =
   | "journal_entry" | "invoice"
-  | "voucher_receipt" | "voucher_payment" | "voucher_settlement";
+  | "voucher_receipt" | "voucher_payment" | "voucher_settlement"
+  | "iban_change" | "opening_balance";
+
+// Sprint 6.3 (3.10/3.16.3): opening balances.
+export type OpeningBalanceKind = "initial" | "adjustment";
+
+export interface OpeningBalanceLine {
+  id: string;
+  account: string;
+  account_code: string;
+  account_name: string;
+  party: string | null;
+  party_name: string;
+  party_role: PartyRoleType | "";
+  cost_center: string | null;
+  currency: string;
+  exchange_rate: string;
+  debit_fc: string;
+  credit_fc: string;
+  debit_base: string;
+  credit_base: string;
+  open_items: { ref: string; date: string; amount_fc: string }[] | null;
+  notes: string;
+}
+
+export interface ReadinessItem {
+  level: "block" | "warn" | "info";
+  code: string;
+  message: string;
+}
+
+export interface OpeningBalanceEntry {
+  id: string;
+  legal_entity: string;
+  legal_entity_name: string;
+  kind: OpeningBalanceKind;
+  opening_date: string;
+  status: DocumentStatus;
+  prepared_by: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  attestation_text: string;
+  readiness_snapshot: ReadinessItem[] | null;
+  journal_entry: string | null;
+  lines: OpeningBalanceLine[];
+  created_at: string;
+}
+
+export interface OpeningBalanceStatusRow {
+  legal_entity: string;
+  legal_entity_name: string;
+  approved: boolean;
+  approved_at: string | null;
+}
 
 export interface ApprovalRule {
   id: string;
@@ -755,7 +812,9 @@ export type AttachmentTargetType =
   | "invoice" | "journal_entry" | "voucher"
   | "account" | "tax_code" | "exchange_rate" | "legal_entity"
   // Sprint 5.5: IBAN letter, imported statement file, cash count sheet.
-  | "iban_change_request" | "bank_statement" | "cash_count";
+  | "iban_change_request" | "bank_statement" | "cash_count"
+  // Sprint 6.3: bank/cash-box readiness attachment on the entry itself.
+  | "opening_balance";
 
 export type AttachmentCategory =
   | "fatura_original" | "receipt" | "contract" | "bank_letter"

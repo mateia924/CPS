@@ -14,7 +14,17 @@ from apps.common.constants import (
 from apps.organization.models import LegalEntity
 from apps.organization.services import get_accessible_entity_ids
 
-from .models import Account, FiscalPeriod, FiscalYear, JournalEntry, JournalLine, TaxCode, TaxPeriod
+from .models import (
+    Account,
+    FiscalPeriod,
+    FiscalYear,
+    JournalEntry,
+    JournalLine,
+    OpeningBalanceEntry,
+    OpeningBalanceLine,
+    TaxCode,
+    TaxPeriod,
+)
 from .periods import create_fiscal_year_with_periods
 from .services import REPORTABLE_STATUSES
 
@@ -278,3 +288,109 @@ class FiscalYearWriteSerializer(serializers.Serializer):
             )
         except DjangoValidationError as exc:
             raise serializers.ValidationError(exc.message_dict if hasattr(exc, "message_dict") else {"detail": [str(exc)]})
+
+
+# ---------------------------------------------------------------------
+# Sprint 6.3: opening balances — "الأرصدة الافتتاحية". Same split as
+# manual journal entries: create()/lines-replace build a DRAFT document
+# from resolved objects (accounting/views.py resolves the raw account/
+# party UUIDs — declared here, before any request context exists, same
+# reasoning as ManualJournalLineInputSerializer.account); submit/
+# withdraw/approve/reject are separate no-body-or-small-body actions.
+# ---------------------------------------------------------------------
+
+
+class OpeningBalanceLineSerializer(serializers.ModelSerializer):
+    account_code = serializers.CharField(source="account.code", read_only=True)
+    account_name = serializers.CharField(source="account.name", read_only=True)
+    party_name = serializers.CharField(source="party.name", read_only=True, default="")
+
+    class Meta:
+        model = OpeningBalanceLine
+        fields = (
+            "id", "account", "account_code", "account_name", "party", "party_name", "party_role",
+            "cost_center", "currency", "exchange_rate", "debit_fc", "credit_fc", "debit_base", "credit_base",
+            "open_items", "notes",
+        )
+        read_only_fields = fields
+
+
+class OpeningBalanceEntrySerializer(serializers.ModelSerializer):
+    lines = OpeningBalanceLineSerializer(many=True, read_only=True)
+    legal_entity_name = serializers.CharField(source="legal_entity.name", read_only=True)
+
+    class Meta:
+        model = OpeningBalanceEntry
+        fields = (
+            "id", "legal_entity", "legal_entity_name", "kind", "opening_date", "status",
+            "prepared_by", "approved_by", "approved_at", "attestation_text", "readiness_snapshot",
+            "journal_entry", "lines", "created_at",
+        )
+        read_only_fields = fields
+
+
+class OpenItemInputSerializer(serializers.Serializer):
+    ref = serializers.CharField(max_length=100)
+    date = serializers.DateField()
+    amount_fc = serializers.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES)
+
+
+class OpeningBalanceLineInputSerializer(serializers.Serializer):
+    # Bare UUIDs, not PrimaryKeyRelatedField — resolved against the
+    # tenant explicitly in the view (same reasoning as
+    # ManualJournalLineInputSerializer.account).
+    account = serializers.UUIDField(required=False)
+    party = serializers.UUIDField(required=False)
+    party_role = serializers.CharField(required=False, allow_blank=True, default="")
+    cost_center = serializers.UUIDField(required=False, allow_null=True)
+    currency = serializers.CharField(max_length=3, required=False, allow_blank=True)
+    exchange_rate = serializers.DecimalField(
+        max_digits=RATE_MAX_DIGITS, decimal_places=RATE_DECIMAL_PLACES, required=False
+    )
+    debit_fc = serializers.DecimalField(
+        max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, min_value=0, default=decimal.Decimal("0")
+    )
+    credit_fc = serializers.DecimalField(
+        max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, min_value=0, default=decimal.Decimal("0")
+    )
+    open_items = OpenItemInputSerializer(many=True, required=False)
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate(self, attrs):
+        if attrs.get("account") and attrs.get("party"):
+            raise serializers.ValidationError(_("A line takes either an account or a party, not both."))
+        if not attrs.get("account") and not attrs.get("party"):
+            raise serializers.ValidationError(_("A line needs either an account or a party and role."))
+        if attrs["debit_fc"] and attrs["credit_fc"]:
+            raise serializers.ValidationError(_("A line cannot have both a debit and a credit amount."))
+        if not attrs["debit_fc"] and not attrs["credit_fc"]:
+            raise serializers.ValidationError(_("A line needs either a debit or a credit amount."))
+        return attrs
+
+
+class OpeningBalanceCreateSerializer(serializers.Serializer):
+    legal_entity = serializers.PrimaryKeyRelatedField(queryset=LegalEntity.objects.none())
+    kind = serializers.ChoiceField(choices=OpeningBalanceEntry.Kind.choices)
+    lines = OpeningBalanceLineInputSerializer(many=True)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request is not None and request.user.is_authenticated:
+            accessible_ids = get_accessible_entity_ids(request.user)
+            self.fields["legal_entity"].queryset = LegalEntity.objects.filter(
+                tenant=request.user.tenant, id__in=accessible_ids
+            )
+
+    def validate_lines(self, value):
+        if not value:
+            raise serializers.ValidationError(_("At least one line is required."))
+        return value
+
+
+class OpeningBalanceApproveSerializer(serializers.Serializer):
+    attestation_text = serializers.CharField(min_length=20)
+
+
+class OpeningBalanceReasonSerializer(serializers.Serializer):
+    reason = serializers.CharField(min_length=3)

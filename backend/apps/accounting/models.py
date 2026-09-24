@@ -189,6 +189,11 @@ class JournalEntry(TenantScopedModel, DocumentStateMixin):
     # one control-account line — override_reason itself lives only in
     # AuditLog (log_action), not duplicated as a column here.
     is_control_override = models.BooleanField(_("control override"), default=False)
+    # Sprint 6.3 (decision 8): marks the entry posted from an approved
+    # OpeningBalanceEntry — reverse_journal_entry refuses these (409);
+    # the only correction path is a new OpeningBalanceEntry(kind=
+    # ADJUSTMENT), never a reversal.
+    is_opening = models.BooleanField(_("opening entry"), default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -436,3 +441,104 @@ class FiscalPeriod(models.Model):
 
     def __str__(self):
         return f"{self.fiscal_year.name} #{self.seq} ({self.start_date}..{self.end_date})"
+
+
+class OpeningBalanceEntry(TenantScopedModel):
+    """Sprint 6.3 (docs/SYSTEM_ANALYSIS.md 3.10/3.16.3, sprint-6.md
+    decision 5): one INITIAL document per legal entity (enforced in
+    apps.accounting.opening_balances, not a DB constraint — matches
+    this app's own established preference, see periods.py's note), any
+    number of ADJUSTMENT documents afterward. Its own status vocabulary
+    (not DocumentStateMixin's — no POSTED/REVERSED here: approval
+    creates a separate, linked JournalEntry instead, same pattern as
+    Invoice not literally inheriting DocumentStateMixin)."""
+
+    class Kind(models.TextChoices):
+        INITIAL = "initial", _("Initial")
+        ADJUSTMENT = "adjustment", _("Adjustment")
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", _("Draft")
+        PENDING_APPROVAL = "pending_approval", _("Pending approval")
+        APPROVED = "approved", _("Approved")
+        REJECTED = "rejected", _("Rejected")
+
+    legal_entity = models.ForeignKey(
+        "organization.LegalEntity", on_delete=models.PROTECT, related_name="opening_balance_entries"
+    )
+    kind = models.CharField(_("kind"), max_length=10, choices=Kind.choices)
+    opening_date = models.DateField(_("opening date"))
+    status = models.CharField(_("status"), max_length=20, choices=Status.choices, default=Status.DRAFT)
+    prepared_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    approved_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    attestation_text = models.TextField(_("attestation"), blank=True)
+    # decision 7: computed on demand, snapshotted at submit and at
+    # approve — the auditor sees exactly what was known at each step.
+    readiness_snapshot = models.JSONField(null=True, blank=True)
+    journal_entry = models.ForeignKey(
+        JournalEntry, null=True, blank=True, on_delete=models.PROTECT, related_name="opening_balance_entry"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name_plural = "opening balance entries"
+
+    def __str__(self):
+        return f"{self.get_kind_display()} — {self.legal_entity} ({self.opening_date})"
+
+    # apps.approvals.services (submit_for_approval/can_approve/approve/
+    # withdraw) is written generically against "document.created_by_id"
+    # — every other approvable document names its own author field that
+    # way, but this one is `prepared_by` (decision 5's own field name).
+    # Aliasing here lets this model reuse that shared engine unchanged
+    # rather than forking it for one field-name difference.
+    @property
+    def created_by_id(self):
+        return self.prepared_by_id
+
+    @property
+    def created_by(self):
+        return self.prepared_by
+
+
+class OpeningBalanceLine(models.Model):
+    """Child of OpeningBalanceEntry — same no-direct-tenant-FK pattern
+    as JournalLine/FiscalPeriod. debit_fc/credit_fc mirror JournalLine's
+    own dual-field convention (one always zero) rather than a separate
+    "side" field, for the same reason: this project already reasons
+    about every line that way."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    entry = models.ForeignKey(OpeningBalanceEntry, on_delete=models.CASCADE, related_name="lines")
+    account = models.ForeignKey("accounting.Account", on_delete=models.PROTECT, related_name="opening_balance_lines")
+    party = models.ForeignKey(
+        "parties.Party", null=True, blank=True, on_delete=models.PROTECT, related_name="opening_balance_lines"
+    )
+    party_role = models.CharField(_("party role"), max_length=20, blank=True)
+    cost_center = models.ForeignKey(
+        "organization.CostCenter", null=True, blank=True, on_delete=models.PROTECT, related_name="opening_balance_lines"
+    )
+    currency = models.CharField(_("currency"), max_length=3, default="SAR")
+    exchange_rate = models.DecimalField(
+        _("exchange rate"), max_digits=RATE_MAX_DIGITS, decimal_places=RATE_DECIMAL_PLACES, default=1
+    )
+    debit_fc = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0)
+    credit_fc = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0)
+    debit_base = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0)
+    credit_base = models.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0)
+    # decision 6: [{ref, date, amount_fc}, ...] — used by aging (decision
+    # 12), optional, only meaningful on a party line.
+    open_items = models.JSONField(null=True, blank=True)
+    notes = models.CharField(_("notes"), max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"{self.account} {self.debit_fc}/{self.credit_fc}"

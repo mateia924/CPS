@@ -31,6 +31,10 @@ ALLOWED_TARGETS = {
     # FINANCIAL mode (receipts/photos of expenses) — not versioned,
     # same treatment as invoice/journal_entry.
     "voucher": ("vouchers", "voucher"),
+    # Sprint 6.3 (decision 7): a bank/cash-box opening-balance line's
+    # readiness check looks for a BANK_STATEMENT/BANK_LETTER attachment
+    # on the entry itself, not per-line.
+    "opening_balance": ("accounting", "openingbalanceentry"),
     # Sprint 5.5 (block 5.5.0): the mandatory IBAN letter attachment
     # (3.17) that submit_iban_change_request checks for before allowing
     # submission for approval.

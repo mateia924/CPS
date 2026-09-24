@@ -1,3 +1,4 @@
+from django.utils.translation import gettext_lazy as _
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -14,7 +15,9 @@ from .serializers import ApprovalRuleSerializer
 # every IBAN change with no amount threshold to configure away, so this
 # one row is read-only from the "قواعد الاعتماد" screen (unlike every
 # other doc_type's rules, which the tenant is free to edit/delete).
-_LOCKED_DOC_TYPES = {ApprovalRule.DocType.IBAN_CHANGE}
+# Sprint 6.3 (decision 8): OPENING_BALANCE, seeded by approvals/
+# migrations/0007, joins it — same "not editable/deletable" treatment.
+_LOCKED_DOC_TYPES = {ApprovalRule.DocType.IBAN_CHANGE, ApprovalRule.DocType.OPENING_BALANCE}
 
 
 class ApprovalRuleViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
@@ -37,7 +40,7 @@ class ApprovalRuleViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
     def _reject_if_locked(self, instance):
         if instance.doc_type in _LOCKED_DOC_TYPES:
             return Response(
-                {"detail": "This approval rule is fixed by policy and cannot be changed."}, status=409
+                {"detail": str(_("هذه قاعدة اعتماد ثابتة بحكم السياسة ولا يمكن تعديلها أو حذفها."))}, status=409
             )
         return None
 

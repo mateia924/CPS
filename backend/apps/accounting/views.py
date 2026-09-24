@@ -11,11 +11,29 @@ from rest_framework.views import APIView
 from apps.access.permissions import HasModulePermission
 from apps.common.validators import future_date_warning
 from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
-from apps.organization.models import CostCenter
+from apps.organization.models import CostCenter, LegalEntity
 from apps.organization.services import get_accessible_entity_ids
 from apps.treasury.services import ExchangeRateNotFound, get_rate_with_warnings
 
-from .models import Account, FiscalPeriod, FiscalYear, JournalEntry, TaxCode, TaxPeriod
+from .models import (
+    Account,
+    FiscalPeriod,
+    FiscalYear,
+    JournalEntry,
+    OpeningBalanceEntry,
+    TaxCode,
+    TaxPeriod,
+)
+from .opening_balances import (
+    OpeningBalanceLocked,
+    create_opening_balance_entry,
+    readiness_report,
+    replace_opening_balance_lines,
+)
+from .opening_balances import approve_opening_balance as _approve_opening_balance
+from .opening_balances import reject_opening_balance as _reject_opening_balance
+from .opening_balances import submit_opening_balance as _submit_opening_balance
+from .opening_balances import withdraw_opening_balance as _withdraw_opening_balance
 from .periods import (
     FiscalYearBoundariesLocked,
     PeriodLocked,
@@ -33,11 +51,17 @@ from .serializers import (
     JournalEntryReverseSerializer,
     JournalEntrySerializer,
     ManualJournalEntryCreateSerializer,
+    OpeningBalanceApproveSerializer,
+    OpeningBalanceCreateSerializer,
+    OpeningBalanceEntrySerializer,
+    OpeningBalanceLineInputSerializer,
+    OpeningBalanceReasonSerializer,
     TaxCodeSerializer,
     TaxPeriodSerializer,
 )
 from .services import (
     REPORTABLE_STATUSES,
+    OpeningEntryReversalRejected,
     approve_journal_entry,
     compute_trial_balance,
     create_manual_journal_entry,
@@ -151,6 +175,54 @@ def _resolve_manual_lines(tenant, raw_lines):
                 "description": line.get("description", ""),
                 "debit_fc": line["debit_fc"],
                 "credit_fc": line["credit_fc"],
+            }
+        )
+    return resolved
+
+
+def _resolve_opening_lines(tenant, raw_lines):
+    from apps.parties.models import Party
+
+    resolved = []
+    for line in raw_lines:
+        account = None
+        if line.get("account"):
+            try:
+                account = Account.objects.get(tenant=tenant, id=line["account"])
+            except Account.DoesNotExist:
+                raise ValidationError({"lines": ["Account not found."]})
+        party = None
+        if line.get("party"):
+            try:
+                party = Party.objects.get(tenant=tenant, id=line["party"])
+            except Party.DoesNotExist:
+                raise ValidationError({"lines": ["Party not found."]})
+        cost_center = None
+        cost_center_id = line.get("cost_center")
+        if cost_center_id:
+            try:
+                cost_center = CostCenter.objects.get(tenant=tenant, id=cost_center_id)
+            except CostCenter.DoesNotExist:
+                raise ValidationError({"lines": ["Cost center not found."]})
+        resolved.append(
+            {
+                "account": account,
+                "party": party,
+                "party_role": line.get("party_role", ""),
+                "cost_center": cost_center,
+                "currency": line.get("currency") or None,
+                "exchange_rate": line.get("exchange_rate"),
+                "debit_fc": line["debit_fc"],
+                "credit_fc": line["credit_fc"],
+                "open_items": (
+                    [
+                        {"ref": item["ref"], "date": item["date"].isoformat(), "amount_fc": str(item["amount_fc"])}
+                        for item in line["open_items"]
+                    ]
+                    if line.get("open_items")
+                    else None
+                ),
+                "notes": line.get("notes", ""),
             }
         )
     return resolved
@@ -271,6 +343,16 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
     @action(detail=True, methods=["post"])
     def reverse(self, request, pk=None):
         entry = self.get_object()
+        if entry.is_opening:
+            # Decision 8: checked before the generic source_type guard
+            # below — an opening entry has no "source document" reversal
+            # path at all (never reversed, only corrected by a new
+            # ADJUSTMENT), so it gets its own dedicated 409 rather than
+            # falling into that guard's generic 400.
+            return Response(
+                {"detail": str(_("لا يمكن عكس قيد افتتاحي مُرحَّل — صحّحه بمستند تعديل جديد بدلًا من ذلك."))},
+                status=409,
+            )
         if entry.source_type:
             # A system-generated entry (currently only invoices) has
             # its own reversal path (Invoice.void() ->
@@ -278,7 +360,7 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
             # document's own status — reversing it here directly would
             # desync Invoice.status from its journal entry.
             return Response(
-                {"detail": "This entry was generated automatically; reverse it from its source document instead."},
+                {"detail": str(_("هذا القيد مولَّد آليًا — اعكسه من مستنده المصدر بدلًا من هذه الشاشة."))},
                 status=400,
             )
         serializer = JournalEntryReverseSerializer(data=request.data)
@@ -293,6 +375,8 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
                 entry, request.user, serializer.validated_data["reason"],
                 date=serializer.validated_data.get("date"),
             )
+        except OpeningEntryReversalRejected as exc:
+            return Response({"detail": str(exc)}, status=409)
         except (ValidationError, ValueError) as exc:
             return Response({"detail": str(exc)}, status=400)
         payload = JournalEntrySerializer(reversal).data
@@ -539,3 +623,138 @@ class FiscalPeriodViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
             detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": [str(exc)]}
             return Response(detail, status=400)
         return Response(FiscalPeriodSerializer(period).data)
+
+
+class OpeningBalanceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    """Sprint 6.3 (decisions 5-8) — "الأرصدة الافتتاحية". Same split as
+    JournalEntryViewSet: create()/lines build a DRAFT document from
+    resolved account/party objects; readiness/submit/withdraw/approve/
+    reject are separate actions, each a state transition."""
+
+    serializer_class = OpeningBalanceEntrySerializer
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    permission_map = {
+        "list": "accounting.view",
+        "retrieve": "accounting.view",
+        "create": "accounting.manage",
+        "lines": "accounting.manage",
+        "readiness": "accounting.view",
+        "submit": "accounting.manage",
+        "withdraw": "accounting.manage",
+        "approve": "accounting.manage",
+        "reject": "accounting.manage",
+        "status_by_entity": "accounting.view",
+    }
+
+    def get_queryset(self):
+        accessible_ids = get_accessible_entity_ids(self.request.user)
+        return (
+            OpeningBalanceEntry.objects.filter(tenant=self.request.user.tenant, legal_entity_id__in=accessible_ids)
+            .select_related("legal_entity")
+            .prefetch_related("lines", "lines__account", "lines__party")
+        )
+
+    def create(self, request, *args, **kwargs):
+        serializer = OpeningBalanceCreateSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        tenant = request.user.tenant
+        try:
+            resolved_lines = _resolve_opening_lines(tenant, data["lines"])
+            entry, warnings = create_opening_balance_entry(
+                tenant, request.user, data["legal_entity"], data["kind"], resolved_lines, request=request,
+            )
+        except (ValidationError, ValueError) as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": [str(exc)]}
+            return Response(detail, status=400)
+        payload = OpeningBalanceEntrySerializer(entry).data
+        payload["warnings"] = warnings
+        return Response(payload, status=201)
+
+    @action(detail=True, methods=["patch"])
+    def lines(self, request, pk=None):
+        entry = self.get_object()
+        serializer = OpeningBalanceLineInputSerializer(data=request.data.get("lines", []), many=True)
+        serializer.is_valid(raise_exception=True)
+        tenant = request.user.tenant
+        try:
+            resolved_lines = _resolve_opening_lines(tenant, serializer.validated_data)
+            warnings = replace_opening_balance_lines(entry, resolved_lines)
+        except OpeningBalanceLocked as exc:
+            return Response({"detail": str(exc)}, status=409)
+        except (ValidationError, ValueError) as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": [str(exc)]}
+            return Response(detail, status=400)
+        entry.refresh_from_db()
+        payload = OpeningBalanceEntrySerializer(entry).data
+        payload["warnings"] = warnings
+        return Response(payload)
+
+    @action(detail=True, methods=["get"])
+    def readiness(self, request, pk=None):
+        entry = self.get_object()
+        return Response({"items": readiness_report(entry)})
+
+    @action(detail=True, methods=["post"])
+    def submit(self, request, pk=None):
+        entry = self.get_object()
+        try:
+            _submit_opening_balance(entry, request.user, request=request)
+        except (ValidationError, ValueError) as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": [str(exc)]}
+            return Response(detail, status=400)
+        return Response(OpeningBalanceEntrySerializer(entry).data)
+
+    @action(detail=True, methods=["post"])
+    def withdraw(self, request, pk=None):
+        entry = self.get_object()
+        try:
+            _withdraw_opening_balance(entry, request.user, request=request)
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        except PermissionDenied as exc:
+            return Response({"detail": str(exc)}, status=403)
+        return Response(OpeningBalanceEntrySerializer(entry).data)
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        entry = self.get_object()
+        serializer = OpeningBalanceApproveSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            _approve_opening_balance(entry, request.user, serializer.validated_data["attestation_text"], request=request)
+        except (ValidationError, ValueError) as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": [str(exc)]}
+            return Response(detail, status=400)
+        except PermissionDenied as exc:
+            return Response({"detail": str(exc)}, status=403)
+        return Response(OpeningBalanceEntrySerializer(entry).data)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        entry = self.get_object()
+        serializer = OpeningBalanceReasonSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            _reject_opening_balance(entry, request.user, serializer.validated_data["reason"], request=request)
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        return Response(OpeningBalanceEntrySerializer(entry).data)
+
+    @action(detail=False, methods=["get"], url_path="status")
+    def status_by_entity(self, request):
+        accessible_ids = get_accessible_entity_ids(request.user)
+        entities = LegalEntity.objects.filter(
+            tenant=request.user.tenant, id__in=accessible_ids, is_active=True
+        )
+        return Response(
+            [
+                {
+                    "legal_entity": str(entity.id),
+                    "legal_entity_name": entity.name,
+                    "approved": entity.opening_approved_at is not None,
+                    "approved_at": entity.opening_approved_at,
+                }
+                for entity in entities
+            ]
+        )
