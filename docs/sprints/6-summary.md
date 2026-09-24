@@ -136,3 +136,27 @@
 - `ruff check .` نظيف، `manage.py check` نظيف، `makemigrations --check --dry-run` نظيف، `tsc --noEmit` نظيف، `next build` نظيف (49 مسارًا)، `check-brand.sh`/`check-money.sh` ناجحان.
 - لا migration بيانات في هذه الكتلة (تطبيق `reports` بلا نماذج) — لا حاجة لـ`scripts/backup.sh`.
 - `docker compose restart backend celery_worker frontend` + `make smoke` نُفِّذا فعليًا بعد آخر commit — نجحا (تسجيل دخول 200، ميزان مراجعة متوازن 52802.59 ريال على Fatma الحية).
+
+---
+
+## الكتلة 6.7 — قائمة إقفال الفترة والقفل + حارس VOID + قاعدة المرفق الإلزامي ✅
+
+**Commit:** `3d5cfef` — `Sprint 6.7: period-close checklist with snapshot, lock, VOID guard, mandatory attachment rules`
+
+### ما بُني
+- `apps/accounting/period_close.py` (وحدة جديدة): `period_checklist(period)` — 9 بنود BLOCK/WARN/INFO كاملة بالقرار 13 (الفترة السابقة، مستندات غير مرحَّلة بمراجعها [فاتورة/سند/قيد يدوي/افتتاح]، أقساط دورية مستحقة غير مولَّدة بمراجعها، تسوية كل بنك عبر `reconciliation_report` الحالية، مستندات POSTED بلا مرفق، فترة الإقرار الضريبي، الافتتاح لكل كيان نشط، ميزان المراجعة INFO، الإهلاك INFO)، و`close_period()` الجديدة (BLOCK يمنع دائمًا، WARN يمنع بلا `acknowledge_warnings=True`، `close_snapshot` = القائمة كاملة وقت الإقفال). `periods.py::close_period` أصبحت تفويضًا رقيقًا لهذه — كل استدعاء قائم (الشاشة، اختبارات 6.1/6.3/6.4) يرث السلوك الأصرم تلقائيًا بلا تغيير في التوقيع الأساسي (فقط `acknowledge_warnings` جديدة بقيمة افتراضية `False`). حُذفت `_unposted_documents_in_range` (الفحص المبسّط القديم) — لا كود ميت.
+- `GET /api/fiscal-periods/{id}/checklist/` (جديد) + `POST .../close/` مُحدَّثة تقرأ `acknowledge_warnings` من الجسم.
+- حارس VOID (القرار 14): `apps.sales.services.void_invoice()` (خدمة جديدة، استُخرجت من منطق كان مباشرة في الـview) — `VoidRejected` (409) دائمًا لفترة إقرار ضريبي FILED/PAID؛ فاتورة `delivered_at` تشترط صلاحية `sales.void_delivered_invoice` (Owner فقط، migration `access/0018`) + سببًا إلزاميًا → `Invoice.is_post_delivery_void=True` (حقل جديد، migration `sales/0021`) + AuditLog بالسبب؛ القيد العكسي يبقى بتاريخ اليوم دائمًا (سلوك `void_invoice_journal_entry` الحالي من سبرنت سابق، لم يتغيّر — يحقق القرار 3 مباشرة بلا تعديل).
+- `AttachmentRule` (نموذج جديد، `apps/attachments/models.py`، migration `attachments/0003`) — `doc_type`/`min_amount_base`/`required_category`/`is_active`، لا قاعدة افتراضية مزروعة. الفحص مركزي في `apps.approvals.services.submit_for_approval` (نقطة العبور الوحيدة لكل مستند: فاتورة/قيد/سند/افتتاح) — لا نسخة ثانية للفحص في أي مسار آخر. API كامل CRUD `/api/attachment-rules/`.
+- الشاشات: تبويب «قائمة الإقفال» داخل شاشة «السنوات والفترات المالية» (بنود ملوَّنة BLOCK أحمر/WARN أصفر مع مراجع المستندات، مربع إقرار يظهر فقط عند وجود WARN، زر الإقفال معطَّل عند وجود BLOCK)؛ زر إلغاء الفاتورة يطلب سببًا تلقائيًا إن كانت مُسلَّمة ويعرض شارة «أُلغيت بعد التسليم»؛ الإعدادات ← **«قواعد المرفقات الإلزامية»** (شاشة جديدة كاملة).
+- إصلاح جانبي أثناء العمل: اختبارا 6.1/6.4 اللذان يستدعيان `close_period()` مباشرة (لا عبر الـview) توقَّفا بعد الترقية لأن فتراتهما الآن تحمل تحذيرات لم تكن موجودة في 6.1/6.4 (فترة إقرار ضريبي غير مُقدَّمة، افتتاح غير معتمد) — صُحِّحا بإضافة `acknowledge_warnings=True` صراحة؛ واختبار سيناريو "فترة CLOSED → SKIPPED" في 6.4 أُعيد ترتيبه (الفترة تُقفل *قبل* إنشاء الجدول الدوري بدل إقفالها تحتها) لأن BLOCK الجديد "أقساط مستحقة غير مولَّدة" يمنع الآن الوصول لتلك الحالة بالترتيب القديم — موثَّق في تعليق الاختبار نفسه كتفسير للسيناريو الأصح.
+
+### ما لم يكتمل / استثناءات موثَّقة
+- لا اختبار Playwright/E2E متصفح فعلي للشاشات الجديدة/المعدَّلة — `next build` + `tsc --noEmit` + مراجعة كود فقط (نفس قيد 6.3/6.4/6.6).
+- «مستندات POSTED بلا مرفق» تفحص JournalEntry/Invoice/Voucher — لا تفحص مستندات الافتتاح نفسها (خارج قائمة أنواع POSTED الفعلية؛ الافتتاح يظهر في بند «الافتتاح لكل كيان نشط» بدلًا من ذلك).
+
+### الاختبارات والفحوص
+- **429/429** اختبارًا (417 + 12 جديدة عبر `tests/test_period_checklist.py` (4)، `tests/test_invoice_void_guard.py` (4)، `tests/test_attachment_rules.py` (4) — كل سيناريوهات الكتلة المطلوبة: فاتورة مسودة BLOCK بمرجعها و`close`→400؛ قسط دوري مستحق BLOCK ثم توليده يزيله؛ بنك بفرق تسوية WARN و`close` بلا إقرار→400 وبإقرار→CLOSED مع التحذير في `close_snapshot`؛ VOID بفترة ضريبية FILED→409 دائمًا؛ VOID بعد تسليم بلا صلاحية→409 وبصلاحية+سبب→ينجح ويُعلَّم؛ VOID بفترة مالية مقفلة→قيد عكسي بتاريخ اليوم؛ سند 6,000 بلا مرفق→400، بمرفق→ينجح، سند 4,000 بلا مرفق→ينجح؛ عزل مستأجر في الثلاثة). ملاحظة: فشل عابر غير مرتبط في `test_rate_limiting.py` أثناء التشغيل الكامل (عدّاد Redis مشترك عبر التشغيلة الكاملة) — نجح 4/4 عند تشغيله منفردًا، غير ناتج عن أي تغيير في هذه الكتلة.
+- `ruff check .` نظيف، `manage.py check` نظيف، `makemigrations --check --dry-run` نظيف، `tsc --noEmit` نظيف، `next build` نظيف (50 مسارًا، شاملة شاشة قواعد المرفقات الجديدة)، `check-brand.sh`/`check-money.sh` ناجحان.
+- قبل تطبيق migrations هذه الكتلة (`access/0018`، `attachments/0003`، `sales/0021`): `scripts/backup.sh` نُفِّذ فعليًا (`cps-db-20260924-185547.sql.gz`) — صلاحية جديدة (Owner فقط)، جدول جديد فارغ بلا قاعدة افتراضية، وحقل بولياني جديد افتراضه False على كل فاتورة موجودة — لا تغيير سلوك على أي مستند قائم، فلا سؤال إلزاميًا وفق قاعدة §11.
+- `docker compose restart backend celery_worker frontend` + `make smoke` نُفِّذا فعليًا بعد آخر commit — نجحا (تسجيل دخول 200، ميزان مراجعة متوازن 52802.59 ريال على Fatma الحية).
