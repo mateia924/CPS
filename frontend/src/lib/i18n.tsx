@@ -333,6 +333,20 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     skippedStatus: "متخطّى",
     activeSchedule: "نشط",
 
+    // --- Sprint 6.6: financial statements + aging ---
+    incomeStatementNav: "قائمة الدخل",
+    balanceSheetNav: "الميزانية العمومية",
+    agingReportNav: "أعمار الذمم",
+    netIncome: "صافي الربح",
+    includeChildren: "شمول الفروع",
+    asOf: "كما في",
+    source: "المصدر",
+    byParty: "حسب العميل",
+    invoiceSource: "فاتورة",
+    openingBalanceSource: "افتتاحي",
+    bucket: "الشريحة",
+    agingTotal: "الإجمالي",
+
     fromCurrency: "من عملة",
     toCurrency: "إلى عملة",
     rateSource: "المصدر",
@@ -895,6 +909,20 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     generatedStatus: "Generated",
     skippedStatus: "Skipped",
     activeSchedule: "Active",
+
+    // --- Sprint 6.6: financial statements + aging ---
+    incomeStatementNav: "Income statement",
+    balanceSheetNav: "Balance sheet",
+    agingReportNav: "Customer aging",
+    netIncome: "Net income",
+    includeChildren: "Include branches",
+    asOf: "As of",
+    source: "Source",
+    byParty: "By customer",
+    invoiceSource: "Invoice",
+    openingBalanceSource: "Opening",
+    bucket: "Bucket",
+    agingTotal: "Total",
 
     fromCurrency: "From currency",
     toCurrency: "To currency",

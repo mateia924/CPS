@@ -826,6 +826,71 @@ export interface RecurringInstallmentPreviewRow {
   amount_base: string;
 }
 
+// Sprint 6.6 (3.16.1): financial statements — income statement, balance
+// sheet, customer aging. "بلا Drill-down" — a flat, already-rolled-up
+// shape, not the chart-of-accounts tree.
+export interface ReportLineItem {
+  account_id: string | null;
+  code: string;
+  name: string;
+  amount: string;
+}
+
+export interface IncomeStatementSection extends ReportLineItem {
+  lines: ReportLineItem[];
+}
+
+export interface IncomeStatementReport {
+  revenue: IncomeStatementSection[];
+  expense: IncomeStatementSection[];
+  total_revenue: string;
+  total_expense: string;
+  net_income: string;
+  generated_at: string;
+  prepared_by: string;
+  base_currency: string;
+}
+
+export interface BalanceSheetReport {
+  assets: ReportLineItem[];
+  liabilities: ReportLineItem[];
+  equity: ReportLineItem[];
+  total_assets: string;
+  total_liabilities: string;
+  total_equity: string;
+  as_of: string;
+  generated_at: string;
+  prepared_by: string;
+  base_currency: string;
+}
+
+export interface AgingRow {
+  party_id: string;
+  party_name: string;
+  source: "invoice" | "opening_balance";
+  reference: string;
+  due_date: string;
+  amount_base: string;
+  bucket: "0-30" | "31-60" | "61-90" | "90+";
+  is_opening: boolean;
+}
+
+export interface AgingPartyTotal {
+  party_id: string;
+  party_name: string;
+  amount_base: string;
+}
+
+export interface AgingReport {
+  rows: AgingRow[];
+  totals_by_party: AgingPartyTotal[];
+  total: string;
+  as_of: string;
+  generated_at: string;
+  prepared_by: string;
+  base_currency: string;
+}
+
 export interface ApprovalRule {
   id: string;
   doc_type: ApprovalDocType;
