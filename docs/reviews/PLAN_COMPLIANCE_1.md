@@ -276,3 +276,25 @@
 ---
 
 *لم يُعدَّل أي كود أو وثيقة أخرى لإنتاج هذا التقرير. المصدر: قراءة مباشرة لـ `CPS_MASTER_PLAN.md`، `BRAND.md`، `SYSTEM_ANALYSIS.md`، `sprint-6.md`، `modules.json`، `README.md`، `docs/sprints/*.md`، `docs/UAT_LOG.md`، وفحص فعلي للكود عبر `grep`/`git log`/قراءة ملفات.*
+
+---
+
+## المتابعة بعد 6.0.1 (24 سبتمبر 2026)
+
+الكتلة 6.0.1 (`docs/prompts/sprint-6.0.1.md` v1، commits `1f15f10` A و`a809bb3` B) أغلقت كل فجوة هندسية من القائمة أعلاه. الفجوتان الإداريتان (1، 3) تبقيان بانتظار المالك.
+
+| # | الفجوة | الحالة الآن | الدليل |
+|---|---|---|---|
+| 1 | لا UAT بشري حقيقي | ⏳ إداري — خارج نطاق 6.0.1 عمدًا | باسم المالك، بالتوازي (كما ورد في sprint-6.0.1.md نفسه) |
+| 2 | الهوية البصرية 0/8 | ✅ 8/8 | commit `1f15f10` — `tokens.css` منسوخ+مطابق، صفر ألوان حرفية، الشعار في الشريط الجانبي/الدخول/الطباعة، favicon، StatusBadge بألوان §2.5، `contrast-check.mjs` يمر 25/25 (شمل تصحيح `--success` بموافقة محلل النظم) |
+| 3 | لا ريبو GitHub | ⏳ إداري — خارج نطاق 6.0.1 (واجهة/تقارير/وثائق فقط، لا صلاحية شبكية) | باسم المالك |
+| 4 | formatMoney على 2/13 شاشة | ✅ 13/13 | commit `a809bb3` — `scripts/check-money.sh` يمر بصفر مخالفات، مضاف إلى `prebuild`/`make check` بشكل دائم |
+| 5 | كشف حساب غائب | ✅ | commit `a809bb3` — `/dashboard/reports/statement` + `/print/reports/statement`، مبنيان على `GET /api/parties/{id}/statement/` الموجود مسبقًا |
+| 6 | صندوق الاعتماد بلا شرط صلاحية | ✅ | commit `a809bb3` — `showApprovalInbox` في `dashboard/layout.tsx` يتحقق من صلاحيات الاعتماد الفعلية (`invoices.approve`/`vouchers.approve`/`accounting.manage`/`treasury.request_iban_change`) |
+| 7 | لوحة التحكم نقدية فقط | ✅ 3 من 4 بطاقات فعليًا (الرابعة `payables_open` قيمتها `null` بالتصميم — القاعدة 23، تنتظر سبرنت 8) | commit `a809bb3` — `GET /api/dashboard/summary/` |
+| 8 | `journal-entries/[id]` بلا AttachmentPanel | ✅ لم تكن فجوة فعلية — تحقّق مباشر من الكود وجده موجودًا مسبقًا (سبرنت 6.0 نفسه) | `frontend/src/app/dashboard/accounting/journal-entries/[id]/page.tsx` |
+| 9 | مصطلح "الكيان القانوني" | ✅ | commit `1f15f10`/`a809bb3` — المفتاح أصبح "الشركة / الفرع" في `i18n.tsx`، ونُقل لقسم «متقدم» مطوي في النماذج الثمانية الفعلية (التاسع، `settings/company`، مُستثنى عمدًا — منتقي كيان لا حقل مستند، موثَّق في ملخص الكتلة) بقيمة افتراضية = الكيان الأول للمستخدم |
+| 10 | ديون README/modules.json قديمة | ✅ | commit (هذا الـcommit C) — `README.md` (storage_mb، Celery، env_file مشطوبة بنمط `~~...~~ ✅`)، `modules.json` (`mobile_pwa`→`planned`، `credit_balances` notes محدَّثة) |
+
+**فجوات جديدة اكتُشفت أثناء 6.0.1 نفسها (موثَّقة، لا حاجة لمتابعة إضافية الآن):**
+- `docs/brand/tokens.css` v1.0 كان يحوي زوج ألوان (`--success`/`--success-bg`) لا يجتاز AA رغم ادّعاء BRAND.md عكس ذلك — صُحِّح بموافقة محلل النظم (`tokens-fix.zip`)، موثَّق في سجل القرارات §11 (2026-09-24).
