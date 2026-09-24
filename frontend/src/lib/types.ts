@@ -343,6 +343,8 @@ export interface LedgerLine {
 }
 
 // Sprint 6.0.1-B: GET /api/dashboard/summary/ (3.18 row 1's four cards).
+// Sprint 6.9 added current_period/due_recurring_installments/
+// fiscal_year_ending_soon/opening_not_approved.
 export interface DashboardSummary {
   cash: Record<string, string>;
   receivables_open: string;
@@ -350,6 +352,23 @@ export interface DashboardSummary {
   overdue_invoices: { count: number; amount: string };
   pending_approvals: number;
   payables_open: null;
+  current_period: { id: string; fiscal_year_name: string; seq: number; status: string } | null;
+  due_recurring_installments: number;
+  fiscal_year_ending_soon: { fiscal_year_name: string; days_left: number; next_year_created: boolean } | null;
+  opening_not_approved: string[];
+}
+
+// Sprint 6.9: GET /api/treasury/reconciliation-dashboard/.
+export interface ReconciliationDashboardRow {
+  bank_id: string;
+  bank_name: string;
+  currency: string;
+  last_statement_end: string | null;
+  reconciled_ratio: number;
+  unmatched_statement_items: number;
+  unmatched_book_lines: number;
+  difference: string;
+  has_statement: boolean;
 }
 
 export interface LedgerStatement {

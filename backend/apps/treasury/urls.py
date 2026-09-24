@@ -1,6 +1,8 @@
+from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    BankReconciliationDashboardView,
     BankStatementLineViewSet,
     BankStatementViewSet,
     BankViewSet,
@@ -21,4 +23,10 @@ router.register("bank-statements", BankStatementViewSet, basename="bank-statemen
 router.register("statement-lines", BankStatementLineViewSet, basename="statement-line")
 router.register("cash-counts", CashCountViewSet, basename="cash-count")
 
-urlpatterns = router.urls
+urlpatterns = router.urls + [
+    path(
+        "reconciliation-dashboard/",
+        BankReconciliationDashboardView.as_view(),
+        name="reconciliation-dashboard",
+    ),
+]

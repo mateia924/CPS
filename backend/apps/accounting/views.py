@@ -526,6 +526,48 @@ class DashboardSummaryView(APIView):
             or Decimal("0")
         ).quantize(cents)
 
+        # Sprint 6.9 ("لوحة التحكم: بطاقات..."): the current fiscal
+        # period + status, due recurring installments, a fiscal-year-
+        # ending-soon alert (same 30-day horizon
+        # create_next_fiscal_year_if_due already uses), and an
+        # opening-not-approved alert (same LegalEntity.opening_approved_at
+        # check period_close.py's own checklist item #7 already uses).
+        current_period = (
+            FiscalPeriod.objects.filter(
+                fiscal_year__tenant=tenant, start_date__lte=today, end_date__gte=today
+            )
+            .select_related("fiscal_year")
+            .first()
+        )
+
+        due_recurring_installments = RecurringInstallment.objects.filter(
+            entry__tenant=tenant, status=RecurringInstallment.Status.DUE, due_date__lte=today
+        ).count()
+
+        current_year = (
+            FiscalYear.objects.filter(tenant=tenant, status=FiscalYear.Status.OPEN, end_date__gte=today)
+            .order_by("start_date")
+            .first()
+        )
+        fiscal_year_ending_soon = None
+        if current_year is not None:
+            days_left = (current_year.end_date - today).days
+            if days_left <= 30:
+                next_year_exists = FiscalYear.objects.filter(
+                    tenant=tenant, start_date__gt=current_year.end_date
+                ).exists()
+                fiscal_year_ending_soon = {
+                    "fiscal_year_name": current_year.name,
+                    "days_left": days_left,
+                    "next_year_created": next_year_exists,
+                }
+
+        opening_not_approved = list(
+            LegalEntity.objects.filter(
+                tenant=tenant, is_active=True, opening_approved_at__isnull=True
+            ).values_list("name", flat=True)
+        )
+
         return Response(
             {
                 "cash": {currency: str(amount) for currency, amount in cash.items()},
@@ -534,6 +576,19 @@ class DashboardSummaryView(APIView):
                 "overdue_invoices": {"count": overdue.count(), "amount": str(overdue_amount)},
                 "pending_approvals": len(list_pending_approvals(request.user)),
                 "payables_open": None,
+                "current_period": (
+                    {
+                        "id": str(current_period.id),
+                        "fiscal_year_name": current_period.fiscal_year.name,
+                        "seq": current_period.seq,
+                        "status": current_period.status,
+                    }
+                    if current_period is not None
+                    else None
+                ),
+                "due_recurring_installments": due_recurring_installments,
+                "fiscal_year_ending_soon": fiscal_year_ending_soon,
+                "opening_not_approved": opening_not_approved,
             }
         )
 

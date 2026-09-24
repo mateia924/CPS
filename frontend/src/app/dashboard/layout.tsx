@@ -63,6 +63,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Sprint 3.5 (3.18): "المشتريات ... purchasing".
   const showPurchasing = !!me && me.features.purchasing;
   const showAccounting = !!me && me.permissions.includes("accounting.view");
+  // Sprint 6.9 (sprint-6.md §القائمة): "الوضع المبسّط يُخفي الدورية" —
+  // a single-branch tenant on the simplest plan never sees recurring
+  // entries at all, unlike every other accounting screen above it.
+  const showRecurring = showAccounting && !!me && !me.simplified_mode;
   const showApprovalRules = !!me && me.permissions.includes("approvals.view");
   const showDocumentNumbering = !!me && me.permissions.includes("numbering.view");
   const showAttachmentRules = !!me && me.permissions.includes("attachments.view");
@@ -164,6 +168,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </>
             )}
             <SidebarLink href="/dashboard/treasury/exchange-rates">{t("exchangeRatesNav")}</SidebarLink>
+            <SidebarLink href="/dashboard/treasury/reconciliation">{t("bankReconciliationDashboardNav")}</SidebarLink>
           </>
         )}
 
@@ -173,7 +178,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <SidebarLink href="/dashboard/accounting/chart-of-accounts">{t("chartOfAccounts")}</SidebarLink>
             <SidebarLink href="/dashboard/accounting/journal-entries">{t("manualJournalEntries")}</SidebarLink>
             <SidebarLink href="/dashboard/accounting/opening-balances">{t("openingBalancesNav")}</SidebarLink>
-            <SidebarLink href="/dashboard/accounting/recurring-entries">{t("recurringEntriesNav")}</SidebarLink>
+            {showRecurring && (
+              <SidebarLink href="/dashboard/accounting/recurring-entries">{t("recurringEntriesNav")}</SidebarLink>
+            )}
             <SidebarLink href="/dashboard/accounting/tax-codes">{t("taxCodesNav")}</SidebarLink>
             <SidebarLink href="/dashboard/accounting/tax-periods">{t("taxPeriodsNav")}</SidebarLink>
           </>

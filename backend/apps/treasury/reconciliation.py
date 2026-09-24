@@ -268,6 +268,40 @@ def reconciliation_report(tenant, bank, as_of=None):
     }
 
 
+def reconciliation_dashboard(tenant, as_of=None):
+    """Sprint 6.9 (sprint-6.md, "التسوية البنكية" — a debt from 5.5.2:
+    reconciliation_report() above already computes everything per bank,
+    but the only surface that ever called it was one bank's own detail
+    page — there was no single screen showing every bank's
+    reconciliation status at a glance. One row per active bank, same
+    numbers reconciliation_report already returns, just summarized."""
+    from .models import Bank, BankStatement
+
+    as_of = as_of or timezone.now().date()
+    rows = []
+    for bank in Bank.objects.filter(tenant=tenant, is_active=True).order_by("name"):
+        report = reconciliation_report(tenant, bank, as_of=as_of)
+        latest_statement = (
+            BankStatement.objects.filter(tenant=tenant, bank=bank, period_end__lte=as_of)
+            .order_by("-period_end")
+            .first()
+        )
+        rows.append(
+            {
+                "bank_id": str(bank.id),
+                "bank_name": bank.name,
+                "currency": report["currency"],
+                "last_statement_end": latest_statement.period_end if latest_statement else None,
+                "reconciled_ratio": report["reconciled_ratio"],
+                "unmatched_statement_items": len(report["unrecorded_credits"]) + len(report["unrecorded_debits"]),
+                "unmatched_book_lines": len(report["outstanding_deposits"]) + len(report["outstanding_payments"]),
+                "difference": report["difference"],
+                "has_statement": latest_statement is not None,
+            }
+        )
+    return rows
+
+
 @transaction.atomic
 def ignore_line(statement_line, reason, user, request=None):
     if statement_line.status != BankStatementLine.Status.UNMATCHED:

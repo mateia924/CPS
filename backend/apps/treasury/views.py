@@ -3,10 +3,13 @@ import datetime
 from django.core.exceptions import PermissionDenied, ValidationError
 from rest_framework import filters, mixins, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied as DRFPermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.access.permissions import HasModulePermission
+from apps.access.services import user_has_permission
 from apps.accounting.services import get_or_create_treasury_account, ledger_lines
 from apps.common.viewsets import (
     SoftDeleteViewSetMixin,
@@ -29,6 +32,7 @@ from .reconciliation import (
     find_candidates,
     ignore_line,
     manual_match,
+    reconciliation_dashboard,
     reconciliation_report,
     unmatch,
 )
@@ -118,6 +122,26 @@ class BankViewSet(_TreasuryMovementsMixin, SoftDeleteViewSetMixin, TenantScopedV
             request.user.tenant, bank, as_of=datetime.date.fromisoformat(as_of) if as_of else None
         )
         return Response(result)
+
+
+class BankReconciliationDashboardView(APIView):
+    """الخزينة ← "التسوية البنكية" (sprint 6.9, دَين 5.5): لوحة واحدة
+    بكل البنوك بدل فتح كل بنك على حدة — نفس أرقام
+    reconciliation_report() الحالية لكل بنك، مُلخَّصة صفًا واحدًا لكل
+    بنك. APIView عادية (لا ViewSet)، بلا نموذج خاص بها — فحص صلاحية
+    مباشر بدل HasModulePermission (لا view.action هنا) بنفس نمط
+    apps.reports.views (سبرنت 6.6)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not user_has_permission(request.user, "treasury.view"):
+            raise DRFPermissionDenied()
+        as_of = request.query_params.get("as_of")
+        rows = reconciliation_dashboard(
+            request.user.tenant, as_of=datetime.date.fromisoformat(as_of) if as_of else None
+        )
+        return Response(rows)
 
 
 class CashBoxViewSet(_TreasuryMovementsMixin, SoftDeleteViewSetMixin, TenantScopedViewSet):
