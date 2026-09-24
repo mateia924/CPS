@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
+import { Money } from "@/components/Money";
 import type { Product } from "@/lib/types";
 
 export default function ProductsPage() {
@@ -82,7 +83,7 @@ export default function ProductsPage() {
         columns={[
           { key: "sku", label: t("sku"), sortable: true },
           { key: "name", label: t("name"), sortable: true },
-          { key: "unit_price", label: t("unitPrice"), sortable: true },
+          { key: "unit_price", label: t("unitPrice"), sortable: true, render: (row) => <Money amount={row.unit_price} /> },
           { key: "tax_rate", label: t("taxRate") },
         ]}
       />

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Money } from "@/components/Money";
 import { useLocale } from "@/lib/i18n";
 import type { AccountTreeNode } from "@/lib/types";
 
@@ -25,7 +26,7 @@ function TreeNode({ node, onAddChild }: { node: AccountTreeNode; onAddChild: (pa
           {t("controlAccountBadge")}
         </span>
       )}{" "}
-      <span style={{ color: "var(--muted)" }}>{node.balance}</span>{" "}
+      <span style={{ color: "var(--muted)" }}><Money amount={node.balance} /></span>{" "}
       {!hasChildren && (
         <Link
           href={`/dashboard/reports/ledger?account=${node.id}`}

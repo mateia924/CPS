@@ -6,6 +6,7 @@ import Link from "next/link";
 import { api, generalError } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
 import { ChangeHistoryTab } from "@/components/ChangeHistoryTab";
+import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useLocale } from "@/lib/i18n";
 import type { Voucher } from "@/lib/types";
@@ -87,7 +88,7 @@ export default function VoucherDetailPage() {
         <p>{t("paymentMethod")}: {t(PAYMENT_METHOD_LABEL[voucher.payment_method] || voucher.payment_method)}</p>
         <p>{t("reference")}: {voucher.reference || "—"}</p>
         <p>{t("description")}: {voucher.description || "—"}</p>
-        <p>{t("grandTotal")}: {voucher.total_fc} {voucher.currency} ({voucher.total_base} {t("currency")})</p>
+        <p>{t("grandTotal")}: <Money amount={voucher.total_fc} currency={voucher.currency} /> (<Money amount={voucher.total_base} />)</p>
         {voucher.exchange_rate_overridden && <p style={{ color: "var(--muted)" }}>{t("exchangeRateLabel")}: {voucher.exchange_rate}</p>}
         {voucher.journal_entry_id ? (
           <p>
@@ -117,7 +118,7 @@ export default function VoucherDetailPage() {
                 <tr key={line.id}>
                   <td>{t(`${line.line_type === "invoice" ? "invoiceLineType" : line.line_type === "on_account" ? "onAccountLineType" : "accountLineType"}`)}</td>
                   <td>{line.description || "—"}</td>
-                  <td>{line.amount_fc}</td>
+                  <td><Money amount={line.amount_fc} /></td>
                 </tr>
               ))}
             </tbody>

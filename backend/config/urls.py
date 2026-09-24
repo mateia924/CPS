@@ -3,6 +3,7 @@ from django.http import JsonResponse
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
+from apps.accounting.views import DashboardSummaryView
 from apps.platform.views import TenantAuditLogViewSet
 
 
@@ -19,6 +20,7 @@ _tenant_router.register("audit-log", TenantAuditLogViewSet, basename="tenant-aud
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/health/", health, name="health"),
+    path("api/dashboard/summary/", DashboardSummaryView.as_view(), name="dashboard-summary"),
     path("api/", include(_tenant_router.urls)),
     path("api/auth/", include("apps.accounts.urls")),
     path("api/", include("apps.sales.urls")),

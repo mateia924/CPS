@@ -6,6 +6,7 @@ from rest_framework import filters, mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.access.permissions import HasModulePermission
 from apps.common.validators import future_date_warning
@@ -344,4 +345,72 @@ class TaxPeriodViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewset
         accessible_ids = get_accessible_entity_ids(self.request.user)
         return TaxPeriod.objects.filter(
             tenant=self.request.user.tenant, legal_entity_id__in=accessible_ids
+        )
+
+
+class DashboardSummaryView(APIView):
+    """لوحة التحكم (3.18 صف 1) — سبرنت 6.0.1-B، القرار 4 في sprint-6.0.1.md:
+    نقطة واحدة تجمع بطاقات اللوحة الأربع (نقدية/ذمم/مبيعات الشهر/تنبيهات)
+    بدل الاستعلامات المتفرقة التي كانت في الفرونت-إند. `payables_open`
+    يبقى `None` حرفيًا (لا رقم مختلق، القاعدة 23) — المشتريات سبرنت 8."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from django.db.models import F, Sum
+        from django.utils import timezone
+
+        from apps.approvals.services import list_pending_approvals
+        from apps.sales.models import Invoice
+        from apps.treasury.models import Bank, CashBox
+        from apps.treasury.services import treasury_balance
+
+        tenant = request.user.tenant
+        today = timezone.localdate()
+
+        # "cash (المنطق الحالي)" — same per-currency grouping the
+        # dashboard card already summed client-side, now server-side.
+        cash: dict[str, Decimal] = {}
+        for bank in Bank.objects.filter(tenant=tenant):
+            balance = treasury_balance(tenant, "bank", bank.id)
+            cash[bank.currency] = cash.get(bank.currency, Decimal("0")) + balance["fc"]
+        for cash_box in CashBox.objects.filter(tenant=tenant):
+            balance = treasury_balance(tenant, "cash_box", cash_box.id)
+            cash[cash_box.currency] = cash.get(cash_box.currency, Decimal("0")) + balance["fc"]
+
+        # "بسعر الفاتورة": balance_fc (foreign currency) times the
+        # invoice's own fixed exchange_rate — not a fresh re-conversion.
+        # Quantized to 2dp: the raw DB multiplication carries both
+        # operands' full scale (e.g. "24691.2500000000").
+        cents = Decimal("0.01")
+        open_invoices = Invoice.objects.filter(
+            tenant=tenant, status=Invoice.Status.ISSUED, balance_fc__gt=0
+        )
+        receivables_open = (
+            open_invoices.aggregate(total=Sum(F("balance_fc") * F("exchange_rate")))["total"]
+            or Decimal("0")
+        ).quantize(cents)
+
+        sales_month = Invoice.objects.filter(
+            tenant=tenant,
+            status__in=[Invoice.Status.ISSUED, Invoice.Status.PAID],
+            issue_date__year=today.year,
+            issue_date__month=today.month,
+        ).aggregate(total=Sum("base_total"))["total"] or Decimal("0")
+
+        overdue = open_invoices.filter(due_date__lt=today)
+        overdue_amount = (
+            overdue.aggregate(total=Sum(F("balance_fc") * F("exchange_rate")))["total"]
+            or Decimal("0")
+        ).quantize(cents)
+
+        return Response(
+            {
+                "cash": {currency: str(amount) for currency, amount in cash.items()},
+                "receivables_open": str(receivables_open),
+                "sales_month": str(sales_month),
+                "overdue_invoices": {"count": overdue.count(), "amount": str(overdue_amount)},
+                "pending_approvals": len(list_pending_approvals(request.user)),
+                "payables_open": None,
+            }
         )

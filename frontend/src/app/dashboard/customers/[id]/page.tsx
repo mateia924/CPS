@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { Money } from "@/components/Money";
 import { PartyStatementCard } from "@/components/PartyStatementCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useLocale } from "@/lib/i18n";
@@ -49,7 +50,7 @@ export default function CustomerDetailPage() {
         <p>{t("phone")}: {customer.phone || "—"}</p>
         <p>{t("email")}: {customer.email || "—"}</p>
         <p>{t("taxNumber")}: {customer.tax_number || "—"}</p>
-        <p>{t("creditLimit")}: {customer.credit_limit ?? "—"}</p>
+        <p>{t("creditLimit")}: {customer.credit_limit !== null && customer.credit_limit !== undefined ? <Money amount={customer.credit_limit} /> : "—"}</p>
         <p>{t("paymentTermsDays")}: {customer.payment_terms_days ?? "—"}</p>
       </div>
 
@@ -73,7 +74,7 @@ export default function CustomerDetailPage() {
                   <td>{invoice.number}</td>
                   <td>{t(invoice.status)}</td>
                   <td>{invoice.issue_date}</td>
-                  <td>{invoice.total}</td>
+                  <td><Money amount={invoice.total} currency={invoice.currency} /></td>
                 </tr>
               ))}
             </tbody>
@@ -100,7 +101,7 @@ export default function CustomerDetailPage() {
                 <tr key={voucher.id}>
                   <td>{voucher.number || `(${t("draft")})`}</td>
                   <td>{voucher.date}</td>
-                  <td>{voucher.total_fc} {voucher.currency}</td>
+                  <td><Money amount={voucher.total_fc} currency={voucher.currency} /></td>
                   <td><StatusBadge status={voucher.status} /></td>
                 </tr>
               ))}

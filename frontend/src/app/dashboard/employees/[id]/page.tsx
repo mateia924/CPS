@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { Money } from "@/components/Money";
 import { PartyStatementCard } from "@/components/PartyStatementCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useLocale } from "@/lib/i18n";
@@ -122,7 +123,7 @@ export default function EmployeeDetailPage() {
                 <tr key={voucher.id}>
                   <td>{voucher.number || `(${t("draft")})`}</td>
                   <td>{voucher.date}</td>
-                  <td>{voucher.total_fc} {voucher.currency}</td>
+                  <td><Money amount={voucher.total_fc} currency={voucher.currency} /></td>
                   <td><StatusBadge status={voucher.status} /></td>
                 </tr>
               ))}

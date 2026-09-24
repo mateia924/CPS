@@ -7,7 +7,9 @@ import { api, fieldErrors, generalError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
+import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
+import { formatMoney } from "@/lib/money";
 import { flattenLeafAccounts, type FlatAccountOption } from "@/lib/accounts";
 import type {
   AccountTreeNode, Bank, CashBox, CostCenter, Custody, Invoice, LegalEntity,
@@ -101,6 +103,8 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
       if (needsEntityPicker) {
         const entityData = await api.get<Paginated<LegalEntity>>("/legal-entities/");
         setEntities(entityData.results.filter((entity) => entity.entity_type !== "holding"));
+        // Sprint 6.0.1-B item 6: default to the user's own primary branch.
+        if (me?.legal_entity_ids[0]) setLegalEntityId((prev) => prev || me.legal_entity_ids[0]);
       }
       if (showCostCenterUI) {
         const ccData = await api.get<Paginated<CostCenter>>("/cost-centers/");
@@ -238,17 +242,6 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
         <h3>{t(isReceipt ? "createReceiptVoucher" : "createPaymentVoucher")}</h3>
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            {needsEntityPicker && (
-              <div className="form-field">
-                <label>{t("legalEntity")}</label>
-                <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
-                  <option value="" disabled>—</option>
-                  {entities.map((entity) => (
-                    <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
             <div className="form-field">
               <label>{t("voucherDate")}</label>
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
@@ -271,6 +264,21 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
               </select>
             </div>
           </div>
+
+          {needsEntityPicker && (
+            <details style={{ marginTop: "0.75rem" }}>
+              <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
+              <div className="form-field" style={{ marginTop: "0.75rem", maxWidth: "320px" }}>
+                <label>{t("legalEntity")}</label>
+                <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
+                  <option value="" disabled>—</option>
+                  {entities.map((entity) => (
+                    <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>
+                  ))}
+                </select>
+              </div>
+            </details>
+          )}
 
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
             <div className="form-field">
@@ -333,7 +341,7 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
                   <select value={line.invoice} onChange={(e) => updateLine(i, "invoice", e.target.value)} required>
                     <option value="" disabled>—</option>
                     {partyInvoices.map((inv) => (
-                      <option key={inv.id} value={inv.id}>{inv.number} ({t("balanceDue")}: {inv.balance_fc} {inv.currency})</option>
+                      <option key={inv.id} value={inv.id}>{inv.number} ({t("balanceDue")}: {formatMoney(inv.balance_fc, inv.currency)})</option>
                     ))}
                   </select>
                 </div>
@@ -430,7 +438,7 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
           { key: "voucherDate", label: t("voucherDate"), render: (row) => row.date, sortable: false },
           { key: "party_name", label: t("party"), render: (row) => row.party_name || row.payee_name },
           { key: "treasury_name", label: t("treasuryAccount") },
-          { key: "total_fc", label: t("amount"), render: (row) => `${row.total_fc} ${row.currency}` },
+          { key: "total_fc", label: t("amount"), render: (row) => <Money amount={row.total_fc} currency={row.currency} /> },
           { key: "status", label: t("status"), render: (row) => <StatusBadge status={row.status} /> },
         ]}
         renderExtraActions={(voucher, reload) => (

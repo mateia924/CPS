@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
+import { Money } from "@/components/Money";
 import { amountInWordsAr } from "@/lib/numberToWordsAr";
 import type { LegalEntity, Voucher } from "@/lib/types";
 
@@ -71,7 +72,7 @@ export default function VoucherPrintPage() {
         {voucher.reference && <p><strong>{t("reference")}:</strong> {voucher.reference}</p>}
 
         <p style={{ marginTop: "1rem", fontSize: "1.2rem" }}>
-          <strong>{t("grandTotal")}: {voucher.total_fc} {voucher.currency}</strong>
+          <strong>{t("grandTotal")}: <Money amount={voucher.total_fc} currency={voucher.currency} /></strong>
         </p>
         <p>{t("amountInWords")}: {amountInWordsAr(voucher.total_fc, voucher.currency)}</p>
 

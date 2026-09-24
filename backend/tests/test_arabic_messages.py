@@ -8,6 +8,7 @@ docs/SYSTEM_ANALYSIS.md §11). This file only proves the *forward*
 guarantee: nothing here ever mutates an already-posted entry.
 """
 
+import re
 from datetime import date
 from decimal import Decimal
 
@@ -136,3 +137,141 @@ def test_posted_voucher_entry_has_arabic_memo(tenant_a, client_a):
     # 6.0 changed the VoucherType msgids to "Receipt Voucher"/etc to
     # avoid colliding with Attachment.Category's own "Receipt" msgid.
     assert entry.memo.startswith("سند ")
+
+
+# ---------------------------------------------------------------------
+# Sprint 6.0.1-B item 7 (completes 6.0-5): a structural sweep — not a
+# handful of scenarios chosen ahead of time, but every financial
+# ViewSet's create action (empty payload → 400), a permission-less user
+# against one of them (→ 403), and a known state-conflict (→ 409) — all
+# asserted to carry only Arabic message text. No English message may
+# slip through a ViewSet nobody wrote a scenario test for.
+# ---------------------------------------------------------------------
+
+_ARABIC_RE = re.compile(r"[؀-ۿ]")
+# A value that is ALL of: ascii letters/digits/basic punctuation, no
+# Arabic — i.e. looks like an untranslated English sentence or an
+# internal code slipping into a user-facing message.
+_LOOKS_ENGLISH_RE = re.compile(r"^[A-Za-z0-9 .,'_()-]+$")
+
+# Explicit, reviewed exemptions only (3.15's own rule: "استثناءات
+# موثَّقة بقائمة صريحة فقط") — values that are correctly ASCII-only
+# because they're not prose at all (a bare field name echoed back, a
+# currency code, a UUID/pk fragment DRF itself generates).
+_EXEMPT_VALUES = {
+    "SAR",  # default currency code echoed in some validators, not prose
+}
+
+
+def _walk_message_strings(value):
+    """Yield every leaf string in a DRF error response body — dict KEYS
+    (field names) are deliberately not checked, only the message text
+    each key maps to (the rule's own "نصوص detail/الحقول لا أسماء
+    الحقول")."""
+    if isinstance(value, dict):
+        for v in value.values():
+            yield from _walk_message_strings(v)
+    elif isinstance(value, list):
+        for v in value:
+            yield from _walk_message_strings(v)
+    elif isinstance(value, str):
+        yield value
+
+
+def _assert_all_arabic(body, path):
+    for text in _walk_message_strings(body):
+        if text in _EXEMPT_VALUES:
+            continue
+        if _ARABIC_RE.search(text):
+            continue
+        if not _LOOKS_ENGLISH_RE.match(text):
+            # Contains non-ASCII, non-Arabic characters (e.g. a UUID) —
+            # not prose, nothing to translate.
+            continue
+        raise AssertionError(f"{path}: non-Arabic message text found: {text!r}")
+
+
+# Every financial ViewSet's create route — POST with an empty payload
+# must 400 with field-required messages, all in Arabic (DRF/Django's
+# own bundled ar translations cover "This field is required." etc.).
+_EMPTY_PAYLOAD_400_PATHS = [
+    "/api/invoices/",
+    "/api/customers/",
+    "/api/products/",
+    "/api/accounts/",
+    "/api/journal-entries/",
+    "/api/tax-codes/",
+    "/api/banks/",
+    "/api/cash-boxes/",
+    "/api/custodies/",
+    "/api/exchange-rates/",
+    "/api/iban-requests/",
+    "/api/bank-statements/import/",
+    "/api/cash-counts/",
+    "/api/parties/customers/",
+    "/api/parties/suppliers/",
+    "/api/parties/employees/",
+    "/api/parties/affiliates/",
+    "/api/vouchers/",
+    "/api/assets/",
+    "/api/legal-entities/",
+    "/api/cost-centers/",
+    "/api/roles/",
+    "/api/attachments/",
+    "/api/approval-rules/",
+    "/api/users/",
+]
+
+
+@pytest.mark.django_db
+def test_financial_endpoints_reject_with_arabic_only_messages(tenant_a, client_a):
+    assert len(_EMPTY_PAYLOAD_400_PATHS) >= 25
+
+    for path in _EMPTY_PAYLOAD_400_PATHS:
+        response = client_a.post(path, {}, format="json")
+        assert response.status_code == 400, f"{path}: expected 400, got {response.status_code}: {response.data}"
+        _assert_all_arabic(response.data, path)
+
+
+@pytest.mark.django_db
+def test_permission_denied_message_is_arabic(tenant_a):
+    from rest_framework.test import APIClient
+
+    # A real user with zero roles — HasModulePermission denies every
+    # permission_map-gated action for them (403), same as the 5.7 self-
+    # approval message this file's other tests already cover for 403.
+    powerless = UserFactory(tenant=tenant_a, email="powerless@arabic-sweep.test")
+    client = APIClient()
+    client.force_authenticate(user=powerless)
+
+    response = client.post("/api/invoices/", {}, format="json")
+    assert response.status_code == 403, response.data
+    _assert_all_arabic(response.data, "/api/invoices/ (403, no role)")
+
+
+@pytest.mark.django_db
+def test_state_conflict_message_is_arabic(tenant_a, client_a):
+    customer = PartyFactory(tenant=tenant_a)
+    product = ProductFactory(tenant=tenant_a)
+    tax_code = TaxCode.objects.get(tenant=tenant_a, code="Z")
+    invoice = client_a.post(
+        "/api/invoices/",
+        {
+            "customer": str(customer.id),
+            "lines": [{"product": str(product.id), "quantity": "1", "tax_code": str(tax_code.id)}],
+        },
+        format="json",
+    ).data
+    client_a.post(f"/api/invoices/{invoice['id']}/issue/")
+
+    # CFO_REVIEW_1 C3: patching an issued invoice is a 409 state
+    # conflict, not a 400 — already covered functionally by
+    # tests/test_invoice_edit_void.py; this only re-checks the message
+    # text is Arabic.
+    response = client_a.patch(
+        f"/api/invoices/{invoice['id']}/",
+        {"customer": str(customer.id), "lines": []},
+        format="json",
+    )
+    assert response.status_code == 409, response.data
+    _assert_all_arabic(response.data, "/api/invoices/{id}/ PATCH after issue (409)")

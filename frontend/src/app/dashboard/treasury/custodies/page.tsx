@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
@@ -10,6 +11,7 @@ import type { Custody, LegalEntity, Paginated, Party } from "@/lib/types";
 
 export default function CustodiesPage() {
   const { t } = useLocale();
+  const { me } = useAuth();
   const [entities, setEntities] = useState<LegalEntity[]>([]);
   const [employees, setEmployees] = useState<Party[]>([]);
   const [editing, setEditing] = useState<Custody | null>(null);
@@ -28,7 +30,10 @@ export default function CustodiesPage() {
     ]).then(([entityData, employeeData]) => {
       setEntities(entityData.results);
       setEmployees(employeeData.results);
+      // Sprint 6.0.1-B item 6: default to the user's own primary branch.
+      if (me?.legal_entity_ids[0]) setLegalEntityId((prev) => prev || me.legal_entity_ids[0]);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const startEdit = (custody: Custody) => {
@@ -84,19 +89,6 @@ export default function CustodiesPage() {
               <input value={name} onChange={(e) => setName(e.target.value)} required />
             </div>
             <div className="form-field">
-              <label>{t("legalEntity")}</label>
-              <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
-                <option value="" disabled>
-                  —
-                </option>
-                {entities.map((entity) => (
-                  <option key={entity.id} value={entity.id}>
-                    {entity.code} — {entity.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="form-field">
               <label>{t("custodyEmployee")}</label>
               <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} required>
                 <option value="" disabled>
@@ -114,6 +106,19 @@ export default function CustodiesPage() {
           <details style={{ marginTop: "0.75rem" }}>
             <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
+              <div className="form-field">
+                <label>{t("legalEntity")}</label>
+                <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
+                  <option value="" disabled>
+                    —
+                  </option>
+                  {entities.map((entity) => (
+                    <option key={entity.id} value={entity.id}>
+                      {entity.code} — {entity.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="form-field">
                 <label>{t("currency")}</label>
                 <input value={currency} onChange={(e) => setCurrency(e.target.value)} maxLength={3} />

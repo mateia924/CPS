@@ -6,6 +6,8 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
+import { Money } from "@/components/Money";
+import { formatMoney } from "@/lib/money";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
 import type { CostCenter, CustomerParty, Invoice, LegalEntity, Paginated, Product, TaxCode } from "@/lib/types";
@@ -62,6 +64,9 @@ export default function InvoicesPage() {
     if (needsEntityPicker) {
       const entityData = await api.get<Paginated<LegalEntity>>("/legal-entities/");
       setEntities(entityData.results.filter((entity) => entity.entity_type !== "holding"));
+      // Sprint 6.0.1-B item 6: default to the user's own primary branch
+      // instead of forcing an explicit pick every time.
+      if (me?.legal_entity_ids[0]) setLegalEntityId((prev) => prev || me.legal_entity_ids[0]);
     }
     if (showCostCenterUI) {
       const ccData = await api.get<Paginated<CostCenter>>("/cost-centers/");
@@ -209,8 +214,12 @@ export default function InvoicesPage() {
               {quickAddError && <p className="error-text">{quickAddError}</p>}
             </div>
 
-            {needsEntityPicker && (
-              <div className="form-field">
+          </div>
+
+          {needsEntityPicker && (
+            <details style={{ marginTop: "0.75rem" }}>
+              <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
+              <div className="form-field" style={{ marginTop: "0.75rem", maxWidth: "320px" }}>
                 <label>{t("legalEntity")}</label>
                 <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
                   <option value="" disabled>
@@ -223,8 +232,8 @@ export default function InvoicesPage() {
                   ))}
                 </select>
               </div>
-            )}
-          </div>
+            </details>
+          )}
 
           {!showFx ? (
             <button type="button" className="secondary" onClick={() => setShowFx(true)} style={{ marginBottom: "0.75rem" }}>
@@ -253,7 +262,7 @@ export default function InvoicesPage() {
                   </option>
                   {products.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name} ({p.unit_price})
+                      {p.name} ({formatMoney(p.unit_price)})
                     </option>
                   ))}
                 </select>
@@ -338,9 +347,9 @@ export default function InvoicesPage() {
           { key: "status", label: t("status"), render: (row) => <StatusBadge status={row.status} /> },
           { key: "issue_date", label: t("issueDate"), sortable: true },
           { key: "currency", label: t("currency") },
-          { key: "subtotal", label: t("subtotal") },
-          { key: "tax_total", label: t("taxTotal") },
-          { key: "total", label: t("total"), sortable: true },
+          { key: "subtotal", label: t("subtotal"), render: (row) => <Money amount={row.subtotal} /> },
+          { key: "tax_total", label: t("taxTotal"), render: (row) => <Money amount={row.tax_total} /> },
+          { key: "total", label: t("total"), sortable: true, render: (row) => <Money amount={row.total} /> },
         ]}
         renderExtraActions={(invoice, reload) => (
           <>

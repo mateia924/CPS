@@ -334,6 +334,16 @@ export interface LedgerLine {
   source_id: string | null;
 }
 
+// Sprint 6.0.1-B: GET /api/dashboard/summary/ (3.18 row 1's four cards).
+export interface DashboardSummary {
+  cash: Record<string, string>;
+  receivables_open: string;
+  sales_month: string;
+  overdue_invoices: { count: number; amount: string };
+  pending_approvals: number;
+  payables_open: null;
+}
+
 export interface LedgerStatement {
   opening_balance: string;
   opening_balance_fc: string;

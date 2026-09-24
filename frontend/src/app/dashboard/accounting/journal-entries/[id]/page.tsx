@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useLocale } from "@/lib/i18n";
 import type { JournalEntry } from "@/lib/types";
@@ -57,8 +58,8 @@ export default function JournalEntryDetailPage() {
               <tr key={line.id}>
                 <td>{line.account_code} — {line.account_name}</td>
                 <td>{line.description}</td>
-                <td>{line.debit_fc !== "0.00" ? line.debit_fc : ""}</td>
-                <td>{line.credit_fc !== "0.00" ? line.credit_fc : ""}</td>
+                <td>{line.debit_fc !== "0.00" ? <Money amount={line.debit_fc} /> : ""}</td>
+                <td>{line.credit_fc !== "0.00" ? <Money amount={line.credit_fc} /> : ""}</td>
               </tr>
             ))}
           </tbody>

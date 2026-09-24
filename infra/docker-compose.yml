@@ -135,7 +135,14 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     restart: unless-stopped
-    env_file: ../.env
+    # Sprint 6.0.1-B (README debt #13): frontend/src only ever reads
+    # NEXT_PUBLIC_* vars (verified: no other process.env.* usage) — it
+    # doesn't need DJANGO_SECRET_KEY/POSTGRES_PASSWORD/MinIO secrets
+    # that `env_file: ../.env` was handing it. No prod override needed:
+    # the production build bakes NEXT_PUBLIC_API_URL in at build time
+    # via the ARG above; this only matters for `next dev`.
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     depends_on:
       - backend
 

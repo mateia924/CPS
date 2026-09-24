@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { Money } from "@/components/Money";
 import { useLocale } from "@/lib/i18n";
 import type { PartyRoleType, PartyStatement } from "@/lib/types";
 
@@ -23,8 +24,8 @@ export function PartyStatementCard({ partyId, role }: { partyId: string; role: P
   return (
     <div className="card">
       <h3>{t("statementTab")}</h3>
-      <p>{t("openingBalance")}: {statement.opening_balance}</p>
-      <p>{t("closingBalance")}: {statement.closing_balance}</p>
+      <p>{t("openingBalance")}: <Money amount={statement.opening_balance} /></p>
+      <p>{t("closingBalance")}: <Money amount={statement.closing_balance} /></p>
 
       {statement.lines.length === 0 ? (
         <p style={{ color: "var(--muted)" }}>{t("noData")}</p>
@@ -44,9 +45,9 @@ export function PartyStatementCard({ partyId, role }: { partyId: string; role: P
               <tr key={`${line.entry_id}-${line.date}`}>
                 <td>{line.date}</td>
                 <td>{line.description}</td>
-                <td>{line.debit !== "0.00" ? line.debit : ""}</td>
-                <td>{line.credit !== "0.00" ? line.credit : ""}</td>
-                <td>{line.running_balance}</td>
+                <td>{line.debit !== "0.00" ? <Money amount={line.debit} /> : ""}</td>
+                <td>{line.credit !== "0.00" ? <Money amount={line.credit} /> : ""}</td>
+                <td><Money amount={line.running_balance} /></td>
               </tr>
             ))}
           </tbody>
@@ -70,8 +71,8 @@ export function PartyStatementCard({ partyId, role }: { partyId: string; role: P
                 <tr key={inv.id}>
                   <td>{inv.number}</td>
                   <td>{inv.due_date || "—"}</td>
-                  <td>{inv.total} {inv.currency}</td>
-                  <td>{inv.balance_fc} {inv.currency}</td>
+                  <td><Money amount={inv.total} currency={inv.currency} /></td>
+                  <td><Money amount={inv.balance_fc} currency={inv.currency} /></td>
                 </tr>
               ))}
             </tbody>

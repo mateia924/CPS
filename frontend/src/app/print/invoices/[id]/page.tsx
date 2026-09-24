@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
+import { Money } from "@/components/Money";
 import { amountInWordsAr } from "@/lib/numberToWordsAr";
 import type { Invoice, LegalEntity, TaxCode, Paginated } from "@/lib/types";
 
@@ -39,12 +40,13 @@ export default function InvoicePrintPage() {
     .filter(Boolean)
     .join("، ");
 
-  const taxSummary = new Map<string, { code: string; rate: string; base: string; tax: string }>();
+  // Accumulated as numbers, formatted only at render time via <Money>.
+  const taxSummary = new Map<string, { code: string; rate: string; base: number; tax: number }>();
   for (const line of invoice.lines) {
     const key = line.tax_code_display;
-    const existing = taxSummary.get(key) || { code: key, rate: line.tax_rate, base: "0", tax: "0" };
-    existing.base = (parseFloat(existing.base) + parseFloat(line.line_subtotal)).toFixed(2);
-    existing.tax = (parseFloat(existing.tax) + parseFloat(line.line_tax)).toFixed(2);
+    const existing = taxSummary.get(key) || { code: key, rate: line.tax_rate, base: 0, tax: 0 };
+    existing.base += parseFloat(line.line_subtotal);
+    existing.tax += parseFloat(line.line_tax);
     taxSummary.set(key, existing);
   }
 
@@ -95,11 +97,11 @@ export default function InvoicePrintPage() {
               <tr key={line.id}>
                 <td>{line.description}</td>
                 <td>{line.quantity}</td>
-                <td>{line.unit_price}</td>
+                <td><Money amount={line.unit_price} /></td>
                 <td>{line.tax_code_display}</td>
-                <td>{line.line_subtotal}</td>
-                <td>{line.line_tax}</td>
-                <td>{line.line_total}</td>
+                <td><Money amount={line.line_subtotal} /></td>
+                <td><Money amount={line.line_tax} /></td>
+                <td><Money amount={line.line_total} /></td>
               </tr>
             ))}
           </tbody>
@@ -117,14 +119,14 @@ export default function InvoicePrintPage() {
             {[...taxSummary.values()].map((row) => (
               <tr key={row.code}>
                 <td>{row.code} ({row.rate}%)</td>
-                <td>{row.base}</td>
-                <td>{row.tax}</td>
+                <td><Money amount={row.base} /></td>
+                <td><Money amount={row.tax} /></td>
               </tr>
             ))}
           </tbody>
         </table>
 
-        <p style={{ marginTop: "1rem", fontSize: "1.2rem" }}><strong>{t("total")}: {invoice.total} {invoice.currency}</strong></p>
+        <p style={{ marginTop: "1rem", fontSize: "1.2rem" }}><strong>{t("total")}: <Money amount={invoice.total} currency={invoice.currency} /></strong></p>
         <p>{t("amountInWords")}: {amountInWordsAr(invoice.total, invoice.currency)}</p>
 
         <div className="print-signatures">

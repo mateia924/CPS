@@ -6,6 +6,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
 import { CashCountCard } from "@/components/CashCountCard";
+import { Money } from "@/components/Money";
 import { TreasuryMovementsCard } from "@/components/TreasuryMovementsCard";
 import { useLocale } from "@/lib/i18n";
 import type { CashBox } from "@/lib/types";
@@ -32,7 +33,7 @@ export default function CashBoxDetailPage() {
 
       <div className="card">
         <p>{t("currency")}: {cashBox.currency}</p>
-        <p>{t("cashBoxMaxBalance")}: {cashBox.max_balance ?? "—"}</p>
+        <p>{t("cashBoxMaxBalance")}: {cashBox.max_balance ? <Money amount={cashBox.max_balance} /> : "—"}</p>
         <Link
           href={`/dashboard/treasury/vouchers/receipt?treasury_kind=cash_box&treasury_id=${cashBox.id}`}
           className="primary"

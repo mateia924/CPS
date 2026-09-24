@@ -51,6 +51,8 @@ export default function JournalEntriesPage() {
         api.get<AccountTreeNode[]>("/accounts/tree/"),
       ]);
       setEntities(entityData.results.filter((entity) => entity.entity_type !== "holding"));
+      // Sprint 6.0.1-B item 6: default to the user's own primary branch.
+      if (me?.legal_entity_ids[0]) setLegalEntityId((prev) => prev || me.legal_entity_ids[0]);
       setAccounts(flattenLeafAccounts(tree));
       if (showCostCenterUI) {
         const ccData = await api.get<Paginated<CostCenter>>("/cost-centers/");
@@ -134,6 +136,18 @@ export default function JournalEntriesPage() {
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
             <div className="form-field">
+              <label>{t("date")}</label>
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+            </div>
+            <div className="form-field" style={{ flex: 1, minWidth: "220px" }}>
+              <label>{t("memo")}</label>
+              <input value={memo} onChange={(e) => setMemo(e.target.value)} />
+            </div>
+          </div>
+
+          <details style={{ marginTop: "0.75rem" }}>
+            <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
+            <div className="form-field" style={{ marginTop: "0.75rem", maxWidth: "320px" }}>
               <label>{t("legalEntity")}</label>
               <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
                 <option value="" disabled>
@@ -146,15 +160,7 @@ export default function JournalEntriesPage() {
                 ))}
               </select>
             </div>
-            <div className="form-field">
-              <label>{t("date")}</label>
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
-            </div>
-            <div className="form-field" style={{ flex: 1, minWidth: "220px" }}>
-              <label>{t("memo")}</label>
-              <input value={memo} onChange={(e) => setMemo(e.target.value)} />
-            </div>
-          </div>
+          </details>
 
           {!showFx ? (
             <button type="button" className="secondary" onClick={() => setShowFx(true)} style={{ marginBottom: "0.75rem" }}>

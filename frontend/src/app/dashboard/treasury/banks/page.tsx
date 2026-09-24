@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
@@ -10,6 +11,7 @@ import type { Bank, LegalEntity, Paginated } from "@/lib/types";
 
 export default function BanksPage() {
   const { t } = useLocale();
+  const { me } = useAuth();
   const [entities, setEntities] = useState<LegalEntity[]>([]);
   const [editing, setEditing] = useState<Bank | null>(null);
   const [legalEntityId, setLegalEntityId] = useState("");
@@ -23,7 +25,12 @@ export default function BanksPage() {
   const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
-    api.get<Paginated<LegalEntity>>("/legal-entities/").then((data) => setEntities(data.results));
+    api.get<Paginated<LegalEntity>>("/legal-entities/").then((data) => {
+      setEntities(data.results);
+      // Sprint 6.0.1-B item 6: default to the user's own primary branch.
+      if (me?.legal_entity_ids[0]) setLegalEntityId((prev) => prev || me.legal_entity_ids[0]);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const startEdit = (bank: Bank) => {
@@ -87,24 +94,24 @@ export default function BanksPage() {
               <label>{t("name")}</label>
               <input value={name} onChange={(e) => setName(e.target.value)} required />
             </div>
-            <div className="form-field">
-              <label>{t("legalEntity")}</label>
-              <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
-                <option value="" disabled>
-                  —
-                </option>
-                {entities.map((entity) => (
-                  <option key={entity.id} value={entity.id}>
-                    {entity.code} — {entity.name}
-                  </option>
-                ))}
-              </select>
-            </div>
           </div>
 
           <details style={{ marginTop: "0.75rem" }}>
             <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
+              <div className="form-field">
+                <label>{t("legalEntity")}</label>
+                <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
+                  <option value="" disabled>
+                    —
+                  </option>
+                  {entities.map((entity) => (
+                    <option key={entity.id} value={entity.id}>
+                      {entity.code} — {entity.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="form-field">
                 <label>{t("bankName")}</label>
                 <input value={bankName} onChange={(e) => setBankName(e.target.value)} />

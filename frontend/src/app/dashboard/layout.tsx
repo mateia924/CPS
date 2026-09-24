@@ -65,6 +65,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const showAccounting = !!me && me.permissions.includes("accounting.view");
   const showApprovalRules = !!me && me.permissions.includes("approvals.view");
   const showDocumentNumbering = !!me && me.permissions.includes("numbering.view");
+  // Sprint 6.0.1-B: the inbox aggregates every approvable doc_type
+  // (apps.approvals.views.PendingApprovalsView) — no single RBAC
+  // permission covers all of them, so this reuses the same permission
+  // codes those doc types' own "approve" actions already require
+  // (apps.sales/vouchers/accounting/treasury.views permission_map) —
+  // "does this user hold an approval permission for anything at all".
+  const showApprovalInbox =
+    !!me &&
+    (me.permissions.includes("invoices.approve") ||
+      me.permissions.includes("vouchers.approve") ||
+      me.permissions.includes("accounting.manage") ||
+      me.permissions.includes("treasury.request_iban_change"));
 
   return (
     <div className="app-shell">
@@ -99,6 +111,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </button>
           </div>
         )}
+        {showApprovalInbox && (
         <div className="topbar" style={{ marginBottom: "0.5rem" }}>
           <Link href="/dashboard/approvals" style={{ color: "var(--sidebar-text)" }}>
             {t("approvalInbox")}
@@ -118,6 +131,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )}
           </Link>
         </div>
+        )}
         <SidebarLink href="/dashboard">{t("dashboard")}</SidebarLink>
 
         <div className="sidebar-section-label">{t("salesSection")}</div>
@@ -164,6 +178,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="sidebar-section-label">{t("reportsSection")}</div>
             <SidebarLink href="/dashboard/reports/trial-balance">{t("trialBalanceNav")}</SidebarLink>
             <SidebarLink href="/dashboard/reports/ledger">{t("ledgerNav")}</SidebarLink>
+            <SidebarLink href="/dashboard/reports/statement">{t("statementReportNav")}</SidebarLink>
           </>
         )}
 

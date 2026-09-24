@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
@@ -19,6 +20,7 @@ const CATEGORY_LABEL_KEY: Record<AssetCategory, string> = {
 
 export default function AssetsPage() {
   const { t } = useLocale();
+  const { me } = useAuth();
   const [entities, setEntities] = useState<LegalEntity[]>([]);
   const [employees, setEmployees] = useState<Party[]>([]);
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
@@ -48,7 +50,10 @@ export default function AssetsPage() {
       setEntities(entityData.results);
       setEmployees(employeeData.results);
       setCostCenters(ccData.results);
+      // Sprint 6.0.1-B item 6: default to the user's own primary branch.
+      if (me?.legal_entity_ids[0]) setLegalEntityId((prev) => prev || me.legal_entity_ids[0]);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const startEdit = (asset: Asset) => {
@@ -141,19 +146,6 @@ export default function AssetsPage() {
               </select>
             </div>
             <div className="form-field">
-              <label>{t("legalEntity")}</label>
-              <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
-                <option value="" disabled>
-                  —
-                </option>
-                {entities.map((entity) => (
-                  <option key={entity.id} value={entity.id}>
-                    {entity.code} — {entity.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="form-field">
               <label>{t("purchaseDate")}</label>
               <input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} required />
             </div>
@@ -183,6 +175,19 @@ export default function AssetsPage() {
           <details style={{ marginTop: "0.75rem" }}>
             <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
+              <div className="form-field">
+                <label>{t("legalEntity")}</label>
+                <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
+                  <option value="" disabled>
+                    —
+                  </option>
+                  {entities.map((entity) => (
+                    <option key={entity.id} value={entity.id}>
+                      {entity.code} — {entity.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="form-field">
                 <label>{t("currency")}</label>
                 <input value={currency} onChange={(e) => setCurrency(e.target.value)} maxLength={3} />

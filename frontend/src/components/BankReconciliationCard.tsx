@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api, ApiError, generalError } from "@/lib/api";
+import { Money } from "@/components/Money";
 import { useLocale } from "@/lib/i18n";
 import type {
   BankStatement,
@@ -282,7 +283,7 @@ function StatementLinesPanel({
               <tr key={line.id}>
                 <td>{line.date}</td>
                 <td>{line.description}</td>
-                <td>{line.amount}</td>
+                <td><Money amount={line.amount} /></td>
                 <td>{line.status} {line.matched_by ? `(${line.matched_by})` : ""}</td>
                 <td>
                   {line.status === "unmatched" && (
@@ -318,7 +319,7 @@ function StatementLinesPanel({
                                 )
                               }
                             />
-                            {c.date} — {c.entry_number} — {c.description} — {c.debit_fc}/{c.credit_fc}
+                            {c.date} — {c.entry_number} — {c.description} — <Money amount={c.debit_fc} />/<Money amount={c.credit_fc} />
                           </label>
                         </li>
                       ))}
