@@ -130,10 +130,12 @@ def submit_recurring_entry(entry, user, request=None):
 
 
 @transaction.atomic
-def approve_recurring_entry(entry, user, request=None):
+def approve_recurring_entry(entry, user, request=None, emergency_reason=""):
     from apps.approvals.services import approve as approvals_approve
 
-    approvals_approve(entry, user, DOC_TYPE, entry.total_amount_base, request=request)
+    approvals_approve(
+        entry, user, DOC_TYPE, entry.total_amount_base, request=request, emergency_reason=emergency_reason
+    )
     _activate_recurring_entry(entry)
     return entry
 

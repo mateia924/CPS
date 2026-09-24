@@ -269,6 +269,16 @@ class InvoiceCreateSerializer(serializers.Serializer):
                     raise serializers.ValidationError(
                         {"lines": [_("Cost center not found.")]}
                     )
+            # Sprint 6.8 (D5, decision 19): every invoice line posts to
+            # a revenue account by construction — no per-line account
+            # type check needed, unlike the manual-JV/voucher case.
+            # TenantFeatures may not exist yet (only RegisterSerializer
+            # creates it) — treat that the same as "not enabled".
+            features = getattr(tenant, "features", None)
+            if cost_center is None and features is not None and features.cost_center_required:
+                raise serializers.ValidationError(
+                    {"lines": [_("سطر الفاتورة يتطلب مركز تكلفة.")]}
+                )
             try:
                 tax_code = TaxCode.objects.get(tenant=tenant, id=line["tax_code"], is_active=True)
             except TaxCode.DoesNotExist:

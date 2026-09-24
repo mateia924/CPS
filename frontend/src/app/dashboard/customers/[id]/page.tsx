@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { ChangeHistoryTab } from "@/components/ChangeHistoryTab";
 import { Money } from "@/components/Money";
 import { PartyStatementCard } from "@/components/PartyStatementCard";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -13,7 +14,9 @@ import type { CustomerParty, Invoice, Paginated, Voucher } from "@/lib/types";
 // 3.18 rule 2: every list screen leads to a detail screen with the
 // record's data and its relations — for a customer, that's its
 // invoices. AttachmentPanel (sprint 5.2) below; the record's own audit
-// log (F10, CFO_REVIEW_1) is sprint 5.7.
+// log (F10, CFO_REVIEW_1) is sprint 6.8 (log_master_data_change on
+// TenantScopedViewSet — target_type "parties.party", same underlying
+// model for every party-role screen).
 export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -113,6 +116,7 @@ export default function CustomerDetailPage() {
       <PartyStatementCard partyId={customer.id} role="customer" />
 
       <AttachmentPanel targetType="party" targetId={customer.id} />
+      <ChangeHistoryTab targetType="parties.party" targetId={customer.id} />
     </div>
   );
 }

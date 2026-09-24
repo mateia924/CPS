@@ -392,6 +392,9 @@ def _build_posting_specs(tenant, voucher):
             )
 
         elif line.line_type == VoucherLine.LineType.ACCOUNT:
+            from apps.accounting.services import check_cost_center_required
+
+            check_cost_center_required(tenant, line.account, line.cost_center)
             net, tax, _gross = _account_line_tax_split(line.amount_fc, line.tax_code, line.amount_includes_tax)
             tax_account = _voucher_tax_account(tenant, line.tax_code, is_receipt) if line.tax_code and tax != 0 else None
             main_amount_fc = net if tax_account is not None or not line.tax_code else net + tax
@@ -719,7 +722,7 @@ def _recompute_invoice_payment_fields(invoices):
 
 
 @transaction.atomic
-def approve_voucher(voucher, user, request=None):
+def approve_voucher(voucher, user, request=None, emergency_reason=""):
     # CFO_REVIEW_1 C4: wrapping the whole call (not just approvals_approve
     # internally) keeps the row lock held from the status check through
     # _actually_post — otherwise the lock would release the instant
@@ -727,7 +730,10 @@ def approve_voucher(voucher, user, request=None):
     # committed, reopening the same race this is meant to close.
     from apps.approvals.services import approve as approvals_approve
 
-    approvals_approve(voucher, user, f"voucher_{voucher.voucher_type}", voucher.total_base, request=request)
+    approvals_approve(
+        voucher, user, f"voucher_{voucher.voucher_type}", voucher.total_base, request=request,
+        emergency_reason=emergency_reason,
+    )
     _actually_post(voucher, user, request=request)
     return voucher
 

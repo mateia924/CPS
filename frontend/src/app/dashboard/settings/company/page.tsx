@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { api, fieldErrors, generalError } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
 import { useLocale } from "@/lib/i18n";
-import type { LegalEntity, Paginated } from "@/lib/types";
+import type { LegalEntity, Paginated, TenantFeaturesSettings } from "@/lib/types";
 
 const FIELD_KEYS = [
   "commercial_registration", "building_number", "street", "district",
@@ -141,6 +141,78 @@ export default function CompanySettingsPage() {
       </div>
 
       <AttachmentPanel targetType="legal_entity" targetId={selected.id} />
+
+      <TenantPolicyCard />
+    </div>
+  );
+}
+
+// Sprint 6.8 (decisions 16/19): tenant-wide policy switches — not tied to
+// any single legal entity, so this is its own card with its own
+// load/save cycle against /tenant-features/ rather than reusing the
+// legal-entity form above it.
+function TenantPolicyCard() {
+  const { t } = useLocale();
+  const [features, setFeatures] = useState<TenantFeaturesSettings | null>(null);
+  const [creditLimitMode, setCreditLimitMode] = useState<"warn" | "block">("warn");
+  const [costCenterRequired, setCostCenterRequired] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    api.get<TenantFeaturesSettings>("/tenant-features/").then((data) => {
+      setFeatures(data);
+      setCreditLimitMode(data.credit_limit_mode);
+      setCostCenterRequired(data.cost_center_required);
+    });
+  }, []);
+
+  if (!features) return null;
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSaved(false);
+    try {
+      const updated = await api.patch<TenantFeaturesSettings>("/tenant-features/", {
+        credit_limit_mode: creditLimitMode,
+        cost_center_required: costCenterRequired,
+      });
+      setFeatures(updated);
+      setSaved(true);
+    } catch (err) {
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
+    }
+  };
+
+  return (
+    <div className="card">
+      <h3>{t("tenantPolicySettings")}</h3>
+      <form onSubmit={onSubmit}>
+        <div className="form-field" style={{ maxWidth: "320px" }}>
+          <label>{t("creditLimitMode")}</label>
+          <select value={creditLimitMode} onChange={(e) => setCreditLimitMode(e.target.value as "warn" | "block")}>
+            <option value="warn">{t("creditLimitModeWarn")}</option>
+            <option value="block">{t("creditLimitModeBlock")}</option>
+          </select>
+        </div>
+
+        <div className="form-field" style={{ marginTop: "0.5rem" }}>
+          <label>
+            <input
+              type="checkbox"
+              checked={costCenterRequired}
+              onChange={(e) => setCostCenterRequired(e.target.checked)}
+            />{" "}
+            {t("costCenterRequired")}
+          </label>
+        </div>
+
+        <br />
+        {error && <p className="error-text">{error}</p>}
+        {saved && <p style={{ color: "var(--success)" }}>✓</p>}
+        <button className="primary" type="submit">{t("saveChanges")}</button>
+      </form>
     </div>
   );
 }

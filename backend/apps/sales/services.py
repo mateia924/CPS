@@ -168,6 +168,35 @@ def _actually_issue(invoice):
     return invoice
 
 
+def credit_limit_check(tenant, party, additional_amount_base):
+    """Sprint 6.8 (F8, decision 16): the customer's sub-ledger balance
+    (as of today, REPORTABLE_STATUSES basis — same as every other
+    balance in this project) plus this invoice's own total, against
+    PartyRole.credit_limit. Returns a warning message (str) if that
+    would exceed the limit, else None. A customer with no credit_limit
+    set is unlimited — never checked at all. Callers decide whether the
+    message is just a warning (always, at create) or also a 400 (at
+    issue, only in BLOCK mode) — see decision 16's own two call sites."""
+    from django.utils import timezone
+
+    from apps.accounting.services import get_or_create_party_role_account, ledger_lines
+
+    customer_role = party.roles.filter(role=PartyRole.Role.CUSTOMER, is_active=True).first()
+    if customer_role is None or customer_role.credit_limit is None:
+        return None
+    account = get_or_create_party_role_account(party, PartyRole.Role.CUSTOMER)
+    if account is None:
+        return None
+    balance = ledger_lines(tenant, account, date_to=timezone.localdate())["closing_balance"]
+    projected = balance + additional_amount_base
+    if projected <= customer_role.credit_limit:
+        return None
+    return str(
+        _("العميل «%(name)s» يتجاوز حد الائتمان (%(limit)s) — الرصيد المتوقَّع %(projected)s.")
+        % {"name": party.name, "limit": customer_role.credit_limit, "projected": projected}
+    )
+
+
 @transaction.atomic
 def issue_invoice(invoice, user, request=None):
     """Sprint 4.5 (3.15.1): "الفاتورة بلا قاعدة مطابقة تُعتمد تلقائيًا
@@ -203,12 +232,14 @@ def issue_invoice(invoice, user, request=None):
 
 
 @transaction.atomic
-def approve_invoice(invoice, user, request=None):
+def approve_invoice(invoice, user, request=None, emergency_reason=""):
     # CFO_REVIEW_1 C4 — see apps.vouchers.services.approve_voucher's
     # identical comment for why this must wrap _actually_issue too.
     from apps.approvals.services import approve as approvals_approve
 
-    approvals_approve(invoice, user, "invoice", invoice.base_total, request=request)
+    approvals_approve(
+        invoice, user, "invoice", invoice.base_total, request=request, emergency_reason=emergency_reason
+    )
     return _actually_issue(invoice)
 
 

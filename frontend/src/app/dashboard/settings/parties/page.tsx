@@ -4,7 +4,8 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
-import type { Party, PartyRoleType } from "@/lib/types";
+import { EMPTY_STRUCTURED_ADDRESS, StructuredAddressFieldset } from "@/components/StructuredAddressFieldset";
+import type { Party, PartyRoleType, StructuredAddressFields } from "@/lib/types";
 
 const ROLES: PartyRoleType[] = ["customer", "supplier", "employee", "affiliate", "bank"];
 const ROLE_LABEL_KEY: Record<PartyRoleType, string> = {
@@ -31,6 +32,7 @@ export default function PartiesPage() {
   const [notes, setNotes] = useState("");
   const [role, setRole] = useState<PartyRoleType>("customer");
   const [createLinkedCostCenter, setCreateLinkedCostCenter] = useState(false);
+  const [structuredAddress, setStructuredAddress] = useState<StructuredAddressFields>(EMPTY_STRUCTURED_ADDRESS);
   const [error, setError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
 
@@ -49,6 +51,10 @@ export default function PartiesPage() {
     setNationalIdOrCr(party.national_id_or_cr);
     setDefaultCurrency(party.default_currency);
     setNotes(party.notes);
+    setStructuredAddress({
+      building_number: party.building_number, street: party.street, district: party.district,
+      city: party.city, postal_code: party.postal_code, short_address: party.short_address,
+    });
     setError(null);
   };
 
@@ -65,6 +71,7 @@ export default function PartiesPage() {
     setNotes("");
     setRole("customer");
     setCreateLinkedCostCenter(false);
+    setStructuredAddress(EMPTY_STRUCTURED_ADDRESS);
     setError(null);
   };
 
@@ -81,6 +88,7 @@ export default function PartiesPage() {
       national_id_or_cr: nationalIdOrCr,
       default_currency: defaultCurrency,
       notes,
+      ...structuredAddress,
     };
     try {
       if (editing) {
@@ -193,6 +201,8 @@ export default function PartiesPage() {
               </div>
             </div>
           </details>
+
+          <StructuredAddressFieldset value={structuredAddress} onChange={setStructuredAddress} />
 
           {error && <p className="error-text">{error}</p>}
           <button className="primary" type="submit" style={{ marginTop: "0.75rem" }}>

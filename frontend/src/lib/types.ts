@@ -189,7 +189,7 @@ export interface MeResponse {
     status: "trial" | "active" | "past_due" | "suspended" | "archived";
     past_due_since: string | null;
   };
-  user: { id: string; email: string; first_name: string; last_name: string };
+  user: { id: string; email: string; first_name: string; last_name: string; notify_approvals_email: boolean };
   roles: string[];
   permissions: string[];
   legal_entity_ids: string[];
@@ -270,7 +270,7 @@ export interface PartyRole {
 
 export type PartyType = "individual" | "organization";
 
-export interface Party {
+export interface Party extends StructuredAddressFields {
   id: string;
   code: string;
   name: string;
@@ -489,7 +489,19 @@ export interface Asset {
 // back for the duplicate-confirm dialog only, never as an editable
 // field on these screens).
 
-export interface CustomerParty {
+// Sprint 6.8 (F8, decision 20): StructuredAddressMixin fields, shared by
+// every party type below — a collapsed "العنوان المهيكل" section,
+// separate from the free-text `address` field.
+export interface StructuredAddressFields {
+  building_number: string;
+  street: string;
+  district: string;
+  city: string;
+  postal_code: string;
+  short_address: string;
+}
+
+export interface CustomerParty extends StructuredAddressFields {
   id: string;
   code: string;
   name: string;
@@ -510,7 +522,7 @@ export interface CustomerParty {
   sales_rep: string | null;
 }
 
-export interface SupplierParty {
+export interface SupplierParty extends StructuredAddressFields {
   id: string;
   code: string;
   name: string;
@@ -530,7 +542,7 @@ export interface SupplierParty {
   iban: string | null;
 }
 
-export interface EmployeeParty {
+export interface EmployeeParty extends StructuredAddressFields {
   id: string;
   code: string;
   name: string;
@@ -554,7 +566,7 @@ export interface EmployeeParty {
   create_linked_cost_center?: boolean;
 }
 
-export interface AffiliateParty {
+export interface AffiliateParty extends StructuredAddressFields {
   id: string;
   code: string;
   name: string;
@@ -767,6 +779,21 @@ export interface PeriodChecklistItem extends ReadinessItem {
 // Sprint 6.7 (3.17 rule 4, decision 15).
 export type AttachmentRuleDocType =
   | "invoice" | "journal_entry" | "voucher_payment" | "voucher_receipt" | "voucher_settlement" | "opening_balance";
+
+// Sprint 6.8 (decisions 16/19): الإعدادات ← الشركة.
+export type CreditLimitMode = "warn" | "block";
+
+export interface TenantFeaturesSettings {
+  organization: boolean;
+  cost_centers: boolean;
+  inventory: boolean;
+  purchasing: boolean;
+  hr: boolean;
+  treasury: boolean;
+  assets: boolean;
+  credit_limit_mode: CreditLimitMode;
+  cost_center_required: boolean;
+}
 
 export interface AttachmentRule {
   id: string;

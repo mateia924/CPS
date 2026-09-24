@@ -6,6 +6,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
 import { BankReconciliationCard } from "@/components/BankReconciliationCard";
+import { ChangeHistoryTab } from "@/components/ChangeHistoryTab";
 import { TreasuryMovementsCard } from "@/components/TreasuryMovementsCard";
 import { useLocale } from "@/lib/i18n";
 import type { Bank } from "@/lib/types";
@@ -55,6 +56,7 @@ export default function BankDetailPage() {
       <BankReconciliationCard bankId={bank.id} />
 
       <AttachmentPanel targetType="bank" targetId={bank.id} />
+      <ChangeHistoryTab targetType="treasury.bank" targetId={bank.id} />
     </div>
   );
 }

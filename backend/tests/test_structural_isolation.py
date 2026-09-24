@@ -32,6 +32,8 @@ TENANT_FILTER_EXEMPTIONS = {
     "apps.accounting.views.FiscalPeriodViewSet": "FiscalPeriod has no direct tenant FK (child of FiscalYear, same pattern as JournalLine under JournalEntry) — get_queryset() filters by fiscal_year__tenant by hand, sprint 6.1",
     "apps.sales.views.InvoiceViewSet": "get_queryset() filters by tenant + get_accessible_entity_ids() by hand",
     "apps.approvals.views.PendingApprovalsView": "plain APIView aggregating two already-tenant-scoped queries (JournalEntry/Invoice, both explicitly filtered by request.user.tenant) — not a ModelViewSet, so TenantScopedViewSet inheritance doesn't apply structurally",
+    "apps.approvals.views.EmergencyApprovalsView": "plain APIView reading AuditLog, filtered by tenant_id=request.user.tenant_id by hand (AuditLog is not a TenantScopedModel — a plain tenant_id UUID) — not a ModelViewSet, sprint 6.8, same pattern as PendingApprovalsView",
+    "apps.tenants.views.TenantFeaturesView": "plain APIView, singleton scoped by tenant_id=request.user.tenant_id by hand — not a ModelViewSet, sprint 6.8",
     "apps.accounting.views.DashboardSummaryView": "plain APIView aggregating read-only totals (banks/cash boxes/invoices/pending approvals), every query explicitly filtered by request.user.tenant — not a ModelViewSet, sprint 6.0.1-B, same pattern as PendingApprovalsView",
     "apps.reports.views.IncomeStatementView": "plain APIView, account_balances()/income_statement() scoped by request.user.tenant throughout — not a ModelViewSet, sprint 6.6, same pattern as DashboardSummaryView",
     "apps.reports.views.BalanceSheetView": "plain APIView, account_balances()/balance_sheet() scoped by request.user.tenant throughout — not a ModelViewSet, sprint 6.6, same pattern as DashboardSummaryView",

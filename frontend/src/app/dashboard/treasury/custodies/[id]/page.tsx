@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { ChangeHistoryTab } from "@/components/ChangeHistoryTab";
 import { TreasuryMovementsCard } from "@/components/TreasuryMovementsCard";
 import { useLocale } from "@/lib/i18n";
 import type { Custody } from "@/lib/types";
@@ -65,6 +66,7 @@ export default function CustodyDetailPage() {
       <TreasuryMovementsCard kind="custody" id={custody.id} />
 
       <AttachmentPanel targetType="custody" targetId={custody.id} />
+      <ChangeHistoryTab targetType="treasury.custody" targetId={custody.id} />
     </div>
   );
 }

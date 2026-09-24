@@ -7,6 +7,7 @@ from apps.access.services import seed_default_roles
 from apps.accounting.periods import seed_fiscal_year_for_tenant
 from apps.accounting.services import seed_chart_of_accounts, seed_tax_codes_for_country
 from apps.organization.services import create_default_legal_entities
+from apps.tenants.models import TenantFeatures
 
 from .factories import TenantFactory, UserFactory
 
@@ -56,6 +57,17 @@ def tenant_a(db):
     # open fiscal year covers all of it, same as a real tenant gets at
     # registration (TenantFactory bypasses RegisterSerializer entirely).
     seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
+    # Sprint 6.8: TenantFeatures (credit_limit_mode/cost_center_required)
+    # is otherwise only ever created by RegisterSerializer — same
+    # registration-bypass gap as the chart/fiscal-year seeding above.
+    # `tenant_id=` (not `tenant=`) deliberately — constructing via the
+    # live `tenant` instance auto-populates Django's reverse o2o cache
+    # on it (ForwardManyToOneDescriptor.__set__ does this for any
+    # OneToOneField), so a *later* update via a fresh query (e.g.
+    # apply_plan_to_tenant, which never touches `tenant.features`)
+    # would silently become invisible to any code still holding this
+    # same `tenant` object — exactly the bug this caused before the fix.
+    TenantFeatures.objects.create(tenant_id=tenant.id)
     return tenant
 
 
@@ -66,6 +78,7 @@ def tenant_b(db):
     seed_chart_of_accounts(tenant)
     seed_tax_codes_for_country(tenant, "SA")
     seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
+    TenantFeatures.objects.create(tenant_id=tenant.id)
     return tenant
 
 

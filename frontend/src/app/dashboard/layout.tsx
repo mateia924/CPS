@@ -233,6 +233,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
 
         <div style={{ marginTop: "auto", paddingTop: "1rem" }}>
+          <SidebarLink href="/dashboard/profile">{t("profileNav")}</SidebarLink>
           <LocaleSwitcher />
           <button
             className="secondary"

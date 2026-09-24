@@ -260,6 +260,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.accounting.tasks.generate_due_recurring_installments",
         "schedule": crontab(hour=1, minute=0),
     },
+    # Sprint 6.8 (decision 17): "beat يوميًا 05:00 UTC".
+    "send-pending-approvals-digest": {
+        "task": "apps.approvals.tasks.send_pending_approvals_digest",
+        "schedule": crontab(hour=5, minute=0),
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -311,3 +316,26 @@ if env("CPS_ENVIRONMENT", default="") == "production" and not ATTACHMENT_SCAN_EN
         "ATTACHMENT_SCAN_ENABLED=false is not allowed in production — "
         "every uploaded file must be virus-scanned before it's served."
     )
+
+# ---------------------------------------------------------------------------
+# Email (sprint 6.8, decision 17): the daily pending-approvals digest —
+# console backend (prints to the backend/celery_worker container log,
+# never a real send) unless EMAIL_HOST is set, same "no env var means
+# dev" convention as ATTACHMENT_SCAN_ENABLED above. docker-compose.prod
+# .yml is the only place EMAIL_HOST etc. are ever set.
+# ---------------------------------------------------------------------------
+
+EMAIL_HOST = env("EMAIL_HOST", default="")
+if EMAIL_HOST:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+    EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+    EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+    EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@cps-erp.com")
+# The link inside the digest email — points at the frontend, not this
+# API. Dev default matches this host's own frontend port (README
+# "Reserved ports"); the prod host sets it to the real domain.
+FRONTEND_BASE_URL = env("FRONTEND_BASE_URL", default="http://localhost:3000")

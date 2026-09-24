@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { ChangeHistoryTab } from "@/components/ChangeHistoryTab";
 import { Money } from "@/components/Money";
 import { PartyStatementCard } from "@/components/PartyStatementCard";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -135,6 +136,7 @@ export default function EmployeeDetailPage() {
       <PartyStatementCard partyId={employee.id} role="employee" />
 
       <AttachmentPanel targetType="party" targetId={employee.id} />
+      <ChangeHistoryTab targetType="parties.party" targetId={employee.id} />
     </div>
   );
 }

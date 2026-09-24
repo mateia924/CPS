@@ -26,6 +26,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_active = models.BooleanField(_("active"), default=True)
     is_staff = models.BooleanField(_("staff status"), default=False)
     date_joined = models.DateTimeField(_("date joined"), auto_now_add=True)
+    # Sprint 6.8 (decision 17): default True — the daily digest opts
+    # every user in; this is the per-user off switch.
+    notify_approvals_email = models.BooleanField(_("notify approvals by email"), default=True)
 
     # RBAC (sprint 1, docs/SYSTEM_ANALYSIS.md 3.14). Independent of the
     # legacy `role` field above (kept as-is from Sprint 0 for is_staff/

@@ -8,7 +8,12 @@ from rest_framework.response import Response
 
 from apps.access.permissions import HasModulePermission
 from apps.accounting.services import get_or_create_treasury_account, ledger_lines
-from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
+from apps.common.viewsets import (
+    SoftDeleteViewSetMixin,
+    TenantScopedViewSet,
+    log_master_data_change,
+    model_field_snapshot,
+)
 
 from .models import (
     Bank,
@@ -169,7 +174,8 @@ class ExchangeRateViewSet(TenantScopedViewSet):
     }
 
     def perform_create(self, serializer):
-        serializer.save(tenant=self.request.user.tenant, created_by=self.request.user)
+        instance = serializer.save(tenant=self.request.user.tenant, created_by=self.request.user)
+        log_master_data_change(self.request, instance, "created", after=model_field_snapshot(instance))
 
 
 class IbanChangeRequestViewSet(
@@ -230,7 +236,10 @@ class IbanChangeRequestViewSet(
     def approve(self, request, pk=None):
         iban_request = self.get_object()
         try:
-            approve_iban_change_request(iban_request, request.user, request=request)
+            approve_iban_change_request(
+                iban_request, request.user, request=request,
+                emergency_reason=request.data.get("emergency_reason", ""),
+            )
         except ValidationError as exc:
             detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
             return Response(detail, status=400)

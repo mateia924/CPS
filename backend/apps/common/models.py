@@ -47,3 +47,22 @@ class DocumentStateMixin(models.Model):
 
     class Meta:
         abstract = True
+
+
+class StructuredAddressMixin(models.Model):
+    """Sprint 5.6 (block 5.6): the Saudi-format structured address
+    (building number, street, district, city, postal code, short
+    address) — first built directly on LegalEntity, extracted here in
+    sprint 6.8 (F17, decision 20) so Party can share the exact same
+    fields instead of a second, drifting copy. All optional — a legacy
+    free-text `address` field (Party's own) is untouched by this."""
+
+    building_number = models.CharField(_("building number"), max_length=20, blank=True)
+    street = models.CharField(_("street"), max_length=255, blank=True)
+    district = models.CharField(_("district"), max_length=255, blank=True)
+    city = models.CharField(_("city"), max_length=255, blank=True)
+    postal_code = models.CharField(_("postal code"), max_length=10, blank=True)
+    short_address = models.CharField(_("short address"), max_length=10, blank=True)
+
+    class Meta:
+        abstract = True

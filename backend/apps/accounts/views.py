@@ -134,3 +134,14 @@ class MeView(APIView):
                 "simplified_mode": is_simplified_mode(tenant),
             }
         )
+
+    def patch(self, request):
+        # Sprint 6.8 (decision 17): "ملف المستخدم" — self-service, one
+        # field only (notify_approvals_email); no admin-editable-other-
+        # user path exists yet (UserViewSet is still read-only + create),
+        # so this stays a narrow PATCH on the caller's own row rather
+        # than a general user-update endpoint.
+        if "notify_approvals_email" in request.data:
+            request.user.notify_approvals_email = bool(request.data["notify_approvals_email"])
+            request.user.save(update_fields=["notify_approvals_email"])
+        return self.get(request)

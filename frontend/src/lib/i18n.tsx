@@ -525,6 +525,22 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     inheritedFromParent: "(موروث من الكيان الأعلى)",
     ownValue: "قيمة هذا الكيان",
 
+    // --- Sprint 6.8: سياسات المستأجر (حد الائتمان، مركز التكلفة) ---
+    profileNav: "ملفي الشخصي",
+    tenantPolicySettings: "سياسات النظام",
+    creditLimitMode: "وضع حد الائتمان",
+    creditLimitModeWarn: "تنبيه فقط",
+    creditLimitModeBlock: "منع تجاوز الحد",
+    costCenterRequired: "إلزام مركز التكلفة في أسطر الإيراد والمصروف",
+    creditLimitExceededWarning: "تحذير: تجاوز حد الائتمان",
+    notifyApprovalsEmail: "إشعار بريدي بطلبات الاعتماد المعلّقة",
+    structuredAddressSection: "العنوان المهيكل — للفاتورة الإلكترونية",
+    emergencyApproval: "اعتماد اضطراري",
+    emergencyApprovalReason: "سبب الاعتماد الاضطراري",
+    emergencyApprovalRequired: "الاعتماد الاضطراري يشترط سببًا إلزاميًا",
+    emergencyApprovalsNav: "الاعتمادات الاضطرارية",
+    emergencyApprovalBadge: "اضطراري",
+
     // --- Sprint 5.6: الطباعة ---
     printButton: "طباعة",
     taxInvoiceTitle: "فاتورة ضريبية",
@@ -1105,6 +1121,22 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     shortAddress: "Short address",
     inheritedFromParent: "(inherited from the parent entity)",
     ownValue: "This entity's own value",
+
+    // --- Sprint 6.8: tenant policy settings (credit limit, cost center) ---
+    profileNav: "My profile",
+    tenantPolicySettings: "System policies",
+    creditLimitMode: "Credit limit mode",
+    creditLimitModeWarn: "Warn only",
+    creditLimitModeBlock: "Block over limit",
+    costCenterRequired: "Require cost center on revenue/expense lines",
+    creditLimitExceededWarning: "Warning: credit limit exceeded",
+    notifyApprovalsEmail: "Email me about pending approvals",
+    structuredAddressSection: "Structured address — for e-invoicing",
+    emergencyApproval: "Emergency approval",
+    emergencyApprovalReason: "Emergency approval reason",
+    emergencyApprovalRequired: "Emergency approval requires a reason",
+    emergencyApprovalsNav: "Emergency approvals",
+    emergencyApprovalBadge: "Emergency",
 
     // --- Sprint 5.6: printing ---
     printButton: "Print",

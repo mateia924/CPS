@@ -39,7 +39,7 @@ class TenantSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ("id", "email", "first_name", "last_name", "role", "date_joined")
+        fields = ("id", "email", "first_name", "last_name", "role", "date_joined", "notify_approvals_email")
         read_only_fields = fields
 
 

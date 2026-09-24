@@ -7,7 +7,8 @@ import { checkPartyDuplicate } from "@/lib/duplicateCheck";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
-import type { EmployeeParty, LegalEntity, Paginated } from "@/lib/types";
+import { EMPTY_STRUCTURED_ADDRESS, StructuredAddressFieldset } from "@/components/StructuredAddressFieldset";
+import type { EmployeeParty, LegalEntity, Paginated, StructuredAddressFields } from "@/lib/types";
 
 const ROLE_LABEL_KEY: Record<string, string> = {
   customer: "customerRole",
@@ -31,6 +32,7 @@ export default function EmployeesPage() {
   const [branchId, setBranchId] = useState("");
   const [salaryCurrency, setSalaryCurrency] = useState("SAR");
   const [createLinkedCostCenter, setCreateLinkedCostCenter] = useState(false);
+  const [structuredAddress, setStructuredAddress] = useState<StructuredAddressFields>(EMPTY_STRUCTURED_ADDRESS);
   const [error, setError] = useState<string | null>(null);
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
@@ -56,6 +58,10 @@ export default function EmployeesPage() {
     setDirectManager(party.direct_manager || "");
     setBranchId(party.branch || "");
     setSalaryCurrency(party.salary_currency || "SAR");
+    setStructuredAddress({
+      building_number: party.building_number, street: party.street, district: party.district,
+      city: party.city, postal_code: party.postal_code, short_address: party.short_address,
+    });
     setError(null);
   };
 
@@ -70,6 +76,7 @@ export default function EmployeesPage() {
     setBranchId("");
     setSalaryCurrency("SAR");
     setCreateLinkedCostCenter(false);
+    setStructuredAddress(EMPTY_STRUCTURED_ADDRESS);
     setError(null);
   };
 
@@ -83,6 +90,7 @@ export default function EmployeesPage() {
     branch: branchId || null,
     salary_currency: salaryCurrency,
     ...(editing ? {} : { create_linked_cost_center: createLinkedCostCenter }),
+    ...structuredAddress,
   });
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -190,6 +198,8 @@ export default function EmployeesPage() {
               </div>
             </div>
           </details>
+
+          <StructuredAddressFieldset value={structuredAddress} onChange={setStructuredAddress} />
 
           {error && <p className="error-text">{error}</p>}
           <button className="primary" type="submit" style={{ marginTop: "0.75rem" }} disabled={checkingDuplicate}>

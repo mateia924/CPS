@@ -19,13 +19,33 @@ services:
   # compose.dev.yml never sets this, so it's unset (falsy) there,
   # matching every other "prod-only" behavior in this project (no env
   # var means dev).
+  # Sprint 6.8 (decision 17): the daily pending-approvals digest email
+  # (apps.approvals.tasks.send_pending_approvals_digest, celery_worker's
+  # beat) — EMAIL_HOST unset means Django's console backend (dev), so
+  # this overlay is the only place real SMTP is ever configured. Set
+  # EMAIL_HOST/EMAIL_PORT/EMAIL_HOST_USER/EMAIL_HOST_PASSWORD/
+  # EMAIL_USE_TLS/DEFAULT_FROM_EMAIL in the prod host's .env — see
+  # README "البريد الإلكتروني".
   backend:
     environment:
       CPS_ENVIRONMENT: production
+      EMAIL_HOST: ${EMAIL_HOST}
+      EMAIL_PORT: ${EMAIL_PORT}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL}
 
   celery_worker:
     environment:
       CPS_ENVIRONMENT: production
+      EMAIL_HOST: ${EMAIL_HOST}
+      EMAIL_PORT: ${EMAIL_PORT}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL}
 
   nginx:
     ports:

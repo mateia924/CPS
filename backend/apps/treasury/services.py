@@ -259,10 +259,12 @@ def _has_active_attachment(iban_request):
 
 
 @transaction.atomic
-def approve_iban_change_request(iban_request, user, request=None):
+def approve_iban_change_request(iban_request, user, request=None, emergency_reason=""):
     from apps.approvals.services import approve as approvals_approve
 
-    approvals_approve(iban_request, user, IBAN_CHANGE_DOC_TYPE, Decimal("0"), request=request)
+    approvals_approve(
+        iban_request, user, IBAN_CHANGE_DOC_TYPE, Decimal("0"), request=request, emergency_reason=emergency_reason
+    )
     _apply_iban_change(iban_request, user, request=request)
     return iban_request
 

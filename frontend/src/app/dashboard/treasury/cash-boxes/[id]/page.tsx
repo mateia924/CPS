@@ -6,6 +6,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
 import { CashCountCard } from "@/components/CashCountCard";
+import { ChangeHistoryTab } from "@/components/ChangeHistoryTab";
 import { Money } from "@/components/Money";
 import { TreasuryMovementsCard } from "@/components/TreasuryMovementsCard";
 import { useLocale } from "@/lib/i18n";
@@ -55,6 +56,7 @@ export default function CashBoxDetailPage() {
       <CashCountCard cashBoxId={cashBox.id} />
 
       <AttachmentPanel targetType="cash_box" targetId={cashBox.id} />
+      <ChangeHistoryTab targetType="treasury.cashbox" targetId={cashBox.id} />
     </div>
   );
 }

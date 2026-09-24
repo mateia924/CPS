@@ -141,7 +141,10 @@ class VoucherViewSet(
     def approve(self, request, pk=None):
         voucher = self.get_object()
         try:
-            approve_voucher(voucher, request.user, request=request)
+            approve_voucher(
+                voucher, request.user, request=request,
+                emergency_reason=request.data.get("emergency_reason", ""),
+            )
         except (VoucherValidationError, ValidationError, ValueError) as exc:
             detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
             return Response(detail, status=400)

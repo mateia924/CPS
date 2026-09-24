@@ -281,6 +281,28 @@ def get_or_create_treasury_account(instance, system_key):
     return account
 
 
+def check_cost_center_required(tenant, account, cost_center):
+    """Sprint 6.8 (D5, decision 19): TenantFeatures.cost_center_required
+    — off by default, no effect on any other tenant. Checked at each
+    input-validation point that takes a free-form account choice
+    (manual JV lines, voucher direct account lines) — never inside the
+    shared posting machinery (build_journal_lines_with_fx_rounding),
+    since invoice lines resolve their account later, at posting time,
+    from a value already validated at invoice-creation time instead."""
+    if cost_center is not None or account.type not in (Account.Type.REVENUE, Account.Type.EXPENSE):
+        return
+    # TenantFeatures is only ever created by RegisterSerializer — a
+    # tenant built any other way (TenantFactory in tests, an old script)
+    # legitimately has none yet; treat that the same as "not enabled"
+    # rather than crashing every posting path.
+    features = getattr(tenant, "features", None)
+    if features is None or not features.cost_center_required:
+        return
+    raise ValidationError(
+        _("سطر على حساب إيراد أو مصروف (%(code)s) يتطلب مركز تكلفة.") % {"code": account.code}
+    )
+
+
 def build_journal_lines_with_fx_rounding(tenant, entry, line_specs, exchange_rate):
     """Sprint 4.2 (3.15.3), extended in 4.3 with the posting guard (3.4:
     "لا ترحيل على حساب له أبناء") and JournalLine.party auto-fill (3.4:
@@ -572,6 +594,9 @@ def create_manual_journal_entry(
 
     assert_open_period(tenant, date)
 
+    for spec in line_specs:
+        check_cost_center_required(tenant, spec["account"], spec.get("cost_center"))
+
     control_lines = [spec for spec in line_specs if not spec["account"].allow_manual_posting]
     if control_lines:
         if not override_reason:
@@ -672,10 +697,13 @@ def submit_journal_entry_for_approval(entry, user, request=None):
     return entry
 
 
-def approve_journal_entry(entry, user, request=None):
+def approve_journal_entry(entry, user, request=None, emergency_reason=""):
     from apps.approvals.services import approve as approvals_approve
 
-    approvals_approve(entry, user, "journal_entry", _journal_entry_amount_base(entry), request=request)
+    approvals_approve(
+        entry, user, "journal_entry", _journal_entry_amount_base(entry), request=request,
+        emergency_reason=emergency_reason,
+    )
     return entry
 
 

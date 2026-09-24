@@ -4,10 +4,10 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-from apps.common.models import TenantScopedModel
+from apps.common.models import StructuredAddressMixin, TenantScopedModel
 
 
-class LegalEntity(TenantScopedModel):
+class LegalEntity(TenantScopedModel, StructuredAddressMixin):
     """A node in the legal tree (docs/SYSTEM_ANALYSIS.md 3.1): holding /
     sibling company / branch, unlimited depth via `parent`. Distinct from
     CostCenter below — this tree has financial ownership, a tax number
@@ -44,12 +44,9 @@ class LegalEntity(TenantScopedModel):
     # (organization.services.effective_company_profile) بدل تكرار
     # القيم على كل فرع.
     commercial_registration = models.CharField(_("commercial registration"), max_length=20, blank=True)
-    building_number = models.CharField(_("building number"), max_length=20, blank=True)
-    street = models.CharField(_("street"), max_length=255, blank=True)
-    district = models.CharField(_("district"), max_length=255, blank=True)
-    city = models.CharField(_("city"), max_length=255, blank=True)
-    postal_code = models.CharField(_("postal code"), max_length=10, blank=True)
-    short_address = models.CharField(_("short address"), max_length=10, blank=True)
+    # building_number/street/district/city/postal_code/short_address:
+    # StructuredAddressMixin (extracted in 6.8, decision 20 — Party now
+    # shares the exact same fields).
     phone = models.CharField(_("phone"), max_length=30, blank=True)
     email = models.EmailField(_("email"), blank=True)
     is_active = models.BooleanField(_("active"), default=True)

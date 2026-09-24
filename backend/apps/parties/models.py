@@ -3,10 +3,11 @@ import uuid
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-from apps.common.models import TenantScopedModel
+from apps.common.constants import MONEY_DECIMAL_PLACES, MONEY_MAX_DIGITS
+from apps.common.models import StructuredAddressMixin, TenantScopedModel
 
 
-class Party(TenantScopedModel):
+class Party(TenantScopedModel, StructuredAddressMixin):
     """docs/SYSTEM_ANALYSIS.md 3.3: unified "طرف" — one record per real
     counterparty, carrying any number of PartyRole rows (customer,
     supplier, employee, affiliate, bank) instead of a separate table per
@@ -31,6 +32,9 @@ class Party(TenantScopedModel):
     phone = models.CharField(_("phone"), max_length=50, blank=True)
     email = models.EmailField(_("email"), blank=True)
     address = models.JSONField(_("address"), default=dict, blank=True)
+    # Sprint 6.8 (F17, decision 20): StructuredAddressMixin (building_
+    # number/street/district/city/postal_code/short_address) — for
+    # e-invoicing later; the free-text `address` above is untouched.
     country_code = models.CharField(_("country code"), max_length=2, default="SA")
     default_currency = models.CharField(_("currency"), max_length=3, default="SAR")
     notes = models.TextField(_("notes"), blank=True)
@@ -92,6 +96,14 @@ class PartyRole(models.Model):
     # per role per field, since each role's fields never overlap and a
     # dedicated column set would mostly be NULL for any given row.
     details = models.JSONField(_("role details"), default=dict, blank=True)
+    # Sprint 6.8 (F8, decision 16): promoted out of `details["credit_limit"]`
+    # into a real column, same "IBAN precedent" as Party.iban (5.5.0) —
+    # `details["credit_limit"]` stays a dead historical key, never read
+    # again after the backfill migration. Meaningful for CUSTOMER only;
+    # null = unlimited (no check performed at all).
+    credit_limit = models.DecimalField(
+        _("credit limit"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, null=True, blank=True
+    )
     # AFFILIATE (3.3: "للشقيقة legal_entity FK للكيان المقابل في الشجرة
     # القانونية") — a real relation, not JSON, since it's an FK. Sprint
     # 3.5 (v1.4 3.3 field table) reuses this same nullable column for

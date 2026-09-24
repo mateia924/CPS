@@ -39,7 +39,7 @@ def list_pending_approvals(user):
 
     from django.db.models import Sum
 
-    from apps.accounting.models import JournalEntry
+    from apps.accounting.models import JournalEntry, OpeningBalanceEntry, RecurringEntry
     from apps.sales.models import Invoice
     from apps.treasury.models import IbanChangeRequest
     from apps.vouchers.models import Voucher
@@ -115,6 +115,45 @@ def list_pending_approvals(user):
                     "description": f"{iban_request.old_iban or '—'} -> {iban_request.new_iban}",
                     "amount_base": "0",
                     "created_by": str(iban_request.created_by_id),
+                }
+            )
+
+    # Sprint 6.8 (real gap found while wiring the digest, decision 17):
+    # opening balances (6.3) and recurring entries (6.4) both added
+    # their own PENDING_APPROVAL doc types but were never added here —
+    # neither the inbox screen nor the dashboard's pending count ever
+    # showed either. Fixed here, the one shared eligibility function
+    # both already read from.
+    for entry in OpeningBalanceEntry.objects.filter(tenant=tenant, status="pending_approval").select_related(
+        "legal_entity"
+    ):
+        amount = entry.lines.aggregate(total=Sum("debit_base"))["total"] or Decimal("0")
+        rule = get_matching_rule(tenant, "opening_balance", amount)
+        if rule is not None and rule.required_role_id in user_role_ids:
+            results.append(
+                {
+                    "doc_type": "opening_balance",
+                    "id": str(entry.id),
+                    "number": None,
+                    "date": entry.opening_date,
+                    "description": entry.legal_entity.name,
+                    "amount_base": str(amount),
+                    "created_by": str(entry.created_by_id) if entry.created_by_id else None,
+                }
+            )
+
+    for schedule in RecurringEntry.objects.filter(tenant=tenant, status="pending_approval"):
+        rule = get_matching_rule(tenant, "recurring_entry", schedule.total_amount_base)
+        if rule is not None and rule.required_role_id in user_role_ids:
+            results.append(
+                {
+                    "doc_type": "recurring_entry",
+                    "id": str(schedule.id),
+                    "number": schedule.number,
+                    "date": schedule.created_at.date(),
+                    "description": schedule.description,
+                    "amount_base": str(schedule.total_amount_base),
+                    "created_by": str(schedule.created_by_id) if schedule.created_by_id else None,
                 }
             )
 
@@ -220,32 +259,55 @@ def can_approve(document, user, doc_type, amount_base):
     return document.tenant_id == user.tenant_id and user.roles.filter(id=rule.required_role_id).exists()
 
 
+def _other_active_user_holds_role(tenant, role_id, exclude_user_id):
+    from apps.accounts.models import User
+
+    return User.objects.filter(tenant=tenant, is_active=True, roles__id=role_id).exclude(id=exclude_user_id).exists()
+
+
 @transaction.atomic
-def approve(document, user, doc_type, amount_base, request=None):
+def approve(document, user, doc_type, amount_base, request=None, emergency_reason=""):
     """3.15.9 segregation of duties: the creator can never approve
     their own document — except in a single-active-user tenant
     ("الوضع المبسّط"), where there is nobody else who could; that
     exemption is itself logged (3.15.1: "يُعفى تلقائيًا مع تسجيل
-    ذلك")."""
+    ذلك"). Sprint 6.8 (decision 18, D4): a *multi*-user tenant where no
+    OTHER active user currently holds the required role (checked right
+    now, not cached) is a genuine deadlock otherwise — an Owner may
+    break it with a mandatory `emergency_reason`, logged as
+    `is_emergency_approval=True` in this same AuditLog entry (no
+    permanent permission is ever granted)."""
+    from apps.access.services import user_is_owner
+
     _lock(document)
     if document.status != STATUS_PENDING_APPROVAL:
         raise ValidationError(_("Only a pending-approval document can be approved."))
 
     rule = get_matching_rule(document.tenant, doc_type, amount_base)
     exempted = rule is not None and _is_single_active_user_tenant(document.tenant)
+    is_emergency = False
     if rule is not None and not exempted:
-        if document.created_by_id == user.id:
-            raise PermissionDenied(_("You cannot approve a document you created yourself."))
-        if not user.roles.filter(id=rule.required_role_id).exists():
-            raise PermissionDenied(_("You do not have the required role to approve this document."))
+        blocked = document.created_by_id == user.id or not user.roles.filter(id=rule.required_role_id).exists()
+        if blocked:
+            can_use_emergency = user_is_owner(user) and not _other_active_user_holds_role(
+                document.tenant, rule.required_role_id, user.id
+            )
+            if not can_use_emergency:
+                if document.created_by_id == user.id:
+                    raise PermissionDenied(_("You cannot approve a document you created yourself."))
+                raise PermissionDenied(_("You do not have the required role to approve this document."))
+            if not emergency_reason:
+                raise ValidationError(_("الاعتماد الاضطراري يشترط سببًا إلزاميًا."))
+            is_emergency = True
 
     document.status = STATUS_APPROVED
     document.save(update_fields=["status"])
-    _log(
-        document, doc_type, user, "approved",
-        after={"single_user_tenant_exemption": exempted} if exempted else None,
-        request=request,
-    )
+    after = None
+    if exempted:
+        after = {"single_user_tenant_exemption": True}
+    elif is_emergency:
+        after = {"is_emergency_approval": True, "emergency_reason": emergency_reason}
+    _log(document, doc_type, user, "approved", after=after, request=request)
     return document
 
 

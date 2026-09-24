@@ -326,7 +326,17 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
-        return self._run_transition(approve_journal_entry, request)
+        entry = self.get_object()
+        try:
+            approve_journal_entry(
+                entry, request.user, request=request,
+                emergency_reason=request.data.get("emergency_reason", ""),
+            )
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        except PermissionDenied as exc:
+            return Response({"detail": str(exc)}, status=403)
+        return Response(JournalEntrySerializer(entry).data)
 
     @action(detail=True, methods=["post"])
     def reject(self, request, pk=None):
@@ -891,7 +901,10 @@ class RecurringEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vi
     def approve(self, request, pk=None):
         entry = self.get_object()
         try:
-            _approve_recurring_entry(entry, request.user, request=request)
+            _approve_recurring_entry(
+                entry, request.user, request=request,
+                emergency_reason=request.data.get("emergency_reason", ""),
+            )
         except (ValidationError, ValueError) as exc:
             return Response({"detail": str(exc)}, status=400)
         except PermissionDenied as exc:

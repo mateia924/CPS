@@ -5,7 +5,8 @@ import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
-import type { AffiliateParty, LegalEntity, Paginated } from "@/lib/types";
+import { EMPTY_STRUCTURED_ADDRESS, StructuredAddressFieldset } from "@/components/StructuredAddressFieldset";
+import type { AffiliateParty, LegalEntity, Paginated, StructuredAddressFields } from "@/lib/types";
 
 export default function AffiliatesPage() {
   const { t } = useLocale();
@@ -15,6 +16,7 @@ export default function AffiliatesPage() {
   const [legalEntityId, setLegalEntityId] = useState("");
   const [taxNumber, setTaxNumber] = useState("");
   const [defaultCurrency, setDefaultCurrency] = useState("SAR");
+  const [structuredAddress, setStructuredAddress] = useState<StructuredAddressFields>(EMPTY_STRUCTURED_ADDRESS);
   const [error, setError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
 
@@ -28,6 +30,10 @@ export default function AffiliatesPage() {
     setLegalEntityId(party.legal_entity || "");
     setTaxNumber(party.tax_number);
     setDefaultCurrency(party.default_currency);
+    setStructuredAddress({
+      building_number: party.building_number, street: party.street, district: party.district,
+      city: party.city, postal_code: party.postal_code, short_address: party.short_address,
+    });
     setError(null);
   };
 
@@ -37,6 +43,7 @@ export default function AffiliatesPage() {
     setLegalEntityId("");
     setTaxNumber("");
     setDefaultCurrency("SAR");
+    setStructuredAddress(EMPTY_STRUCTURED_ADDRESS);
     setError(null);
   };
 
@@ -48,6 +55,7 @@ export default function AffiliatesPage() {
       legal_entity: legalEntityId,
       tax_number: taxNumber,
       default_currency: defaultCurrency,
+      ...structuredAddress,
     };
     try {
       if (editing) {
@@ -102,6 +110,8 @@ export default function AffiliatesPage() {
               </div>
             </div>
           </details>
+
+          <StructuredAddressFieldset value={structuredAddress} onChange={setStructuredAddress} />
 
           {error && <p className="error-text">{error}</p>}
           <button className="primary" type="submit" style={{ marginTop: "0.75rem" }}>

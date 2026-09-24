@@ -251,10 +251,15 @@ def test_creator_cannot_approve_their_own_manual_entry(db):
     entity = LegalEntityFactory(tenant=tenant)
     roles = seed_default_roles(tenant)
     # A second active user must exist for segregation of duties to
-    # apply at all (single-user tenants are exempted, 3.15.1).
+    # apply at all (single-user tenants are exempted, 3.15.1). A second
+    # Owner specifically (not just any second user) — otherwise this
+    # would qualify for 6.8's emergency-approval path (decision 18,
+    # D4: no *other* active Owner at all) instead of the flat denial
+    # this test means to check; that scenario has its own test below.
     creator = UserFactory(tenant=tenant, email="creator@jv-sod.test")
     creator.roles.add(roles["Owner"])
     UserFactory(tenant=tenant, email="other@jv-sod.test").roles.add(roles["Accountant"])
+    UserFactory(tenant=tenant, email="other-owner@jv-sod.test").roles.add(roles["Owner"])
     _require_approval_for_every_jv(tenant, roles["Owner"])
     cash, sales = _leaf_pair(tenant)
 

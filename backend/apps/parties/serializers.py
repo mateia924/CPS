@@ -75,6 +75,10 @@ _PARTY_BASE_FIELDS = (
     "id", "code", "name", "name_en", "party_type", "tax_number",
     "national_id_or_cr", "phone", "email", "address", "country_code",
     "default_currency", "notes", "is_active", "roles", "created_at",
+    # Sprint 6.8 (F8, decision 20): StructuredAddressMixin — collapsed
+    # "العنوان المهيكل" section in every party form, separate from the
+    # free-text `address` field above (saving these never touches it).
+    "building_number", "street", "district", "city", "postal_code", "short_address",
 )
 _PARTY_BASE_READ_ONLY = ("id", "code", "roles", "created_at")
 
@@ -135,6 +139,8 @@ class PartySerializer(_SaudiFormatValidationMixin, serializers.ModelSerializer):
             "national_id_or_cr", "phone", "email", "address", "country_code",
             "default_currency", "notes", "is_active", "iban", "roles", "role",
             "role_details", "role_legal_entity", "role_create_linked_cost_center", "created_at",
+            # Sprint 6.8 (F8, decision 20).
+            "building_number", "street", "district", "city", "postal_code", "short_address",
         )
         read_only_fields = ("id", "code", "roles", "created_at")
 
@@ -260,9 +266,13 @@ class CustomerPartySerializer(_SaudiFormatValidationMixin, _RoleDetailsMixin, se
     as simply "العملاء", no role concept visible at all."""
 
     role_const = PartyRole.Role.CUSTOMER
-    detail_field_names = ("credit_limit", "payment_terms_days", "sales_rep")
+    detail_field_names = ("payment_terms_days", "sales_rep")
 
     roles = PartyRoleSerializer(many=True, read_only=True)
+    # Sprint 6.8 (F8, decision 16): a real PartyRole.credit_limit column
+    # now, not details["credit_limit"] — handled by hand below (create/
+    # update/to_representation) instead of through _RoleDetailsMixin's
+    # JSON-bag plumbing, since it's a real FK-adjacent model field.
     credit_limit = serializers.DecimalField(
         max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES,
         required=False, allow_null=True, write_only=True,
@@ -274,6 +284,28 @@ class CustomerPartySerializer(_SaudiFormatValidationMixin, _RoleDetailsMixin, se
         model = Party
         fields = _PARTY_BASE_FIELDS + ("credit_limit", "payment_terms_days", "sales_rep")
         read_only_fields = _PARTY_BASE_READ_ONLY
+
+    @transaction.atomic
+    def create(self, validated_data):
+        credit_limit = validated_data.pop("credit_limit", None)
+        party = super().create(validated_data)
+        party.roles.filter(role=self.role_const).update(credit_limit=credit_limit)
+        return party
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        credit_limit_provided = "credit_limit" in validated_data
+        credit_limit = validated_data.pop("credit_limit", None)
+        instance = super().update(instance, validated_data)
+        if credit_limit_provided:
+            instance.roles.filter(role=self.role_const).update(credit_limit=credit_limit)
+        return instance
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        role = instance.roles.filter(role=self.role_const).first()
+        rep["credit_limit"] = str(role.credit_limit) if role and role.credit_limit is not None else None
+        return rep
 
 
 class SupplierPartySerializer(_SaudiFormatValidationMixin, _RoleDetailsMixin, serializers.ModelSerializer):

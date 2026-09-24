@@ -80,6 +80,19 @@ class TenantFeatures(models.Model):
     treasury = models.BooleanField(_("treasury"), default=False)
     assets = models.BooleanField(_("fixed assets"), default=False)
 
+    class CreditLimitMode(models.TextChoices):
+        WARN = "warn", _("Warn")
+        BLOCK = "block", _("Block")
+
+    # Sprint 6.8 (F8, decision 16): default WARN — issuing over the
+    # customer's credit_limit only warns until a tenant opts into BLOCK.
+    credit_limit_mode = models.CharField(
+        _("credit limit mode"), max_length=10, choices=CreditLimitMode.choices, default=CreditLimitMode.WARN
+    )
+    # Sprint 6.8 (D5, decision 19): off by default — no effect on any
+    # other tenant until explicitly turned on.
+    cost_center_required = models.BooleanField(_("cost center required"), default=False)
+
     class Meta:
         verbose_name = _("tenant features")
         verbose_name_plural = _("tenant features")

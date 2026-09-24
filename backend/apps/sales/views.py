@@ -22,6 +22,7 @@ from .serializers import (
 from .services import (
     VoidRejected,
     approve_invoice,
+    credit_limit_check,
     issue_invoice,
     reject_invoice,
     void_invoice,
@@ -117,7 +118,13 @@ class InvoiceViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         invoice = serializer.save()
         payload = InvoiceSerializer(invoice).data
-        payload["warnings"] = future_date_warning(invoice.issue_date) + getattr(serializer, "rate_warnings", [])
+        # Decision 16: always a warning at create time, regardless of
+        # credit_limit_mode — BLOCK only ever applies at issue().
+        credit_warning = credit_limit_check(invoice.tenant, invoice.party, invoice.base_total)
+        payload["warnings"] = (
+            future_date_warning(invoice.issue_date) + getattr(serializer, "rate_warnings", [])
+            + ([credit_warning] if credit_warning else [])
+        )
         return Response(payload, status=201)
 
     def partial_update(self, request, *args, **kwargs):
@@ -141,17 +148,26 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def issue(self, request, pk=None):
         invoice = self.get_object()
+        credit_warning = credit_limit_check(invoice.tenant, invoice.party, invoice.base_total)
+        features = getattr(invoice.tenant, "features", None)
+        if credit_warning and features is not None and features.credit_limit_mode == "block":
+            return Response({"detail": credit_warning}, status=400)
         try:
             invoice = issue_invoice(invoice, request.user, request=request)
         except (ValidationError, ValueError) as exc:
             return Response({"detail": str(exc)}, status=400)
-        return Response(InvoiceSerializer(invoice).data)
+        payload = InvoiceSerializer(invoice).data
+        payload["warnings"] = [credit_warning] if credit_warning else []
+        return Response(payload)
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
         invoice = self.get_object()
         try:
-            invoice = approve_invoice(invoice, request.user, request=request)
+            invoice = approve_invoice(
+                invoice, request.user, request=request,
+                emergency_reason=request.data.get("emergency_reason", ""),
+            )
         except (ValidationError, ValueError) as exc:
             return Response({"detail": str(exc)}, status=400)
         except PermissionDenied as exc:

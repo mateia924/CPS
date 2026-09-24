@@ -74,3 +74,34 @@ class PendingApprovalsView(APIView):
         from .services import list_pending_approvals
 
         return Response(list_pending_approvals(request.user))
+
+
+class EmergencyApprovalsView(APIView):
+    """Sprint 6.8 (decision 18, D4): `GET /api/approvals/emergency/` —
+    every emergency approval on record, for review. Read from AuditLog
+    directly (`after__is_emergency_approval=True`) rather than a new
+    column on every approvable document model — apps.approvals.services
+    .approve() already logs this fact there for every doc type
+    uniformly, so this is the one place that needs to know about it."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.platform.models import AuditLog
+
+        logs = AuditLog.objects.filter(
+            tenant_id=request.user.tenant_id, action__endswith=".approved", after__is_emergency_approval=True,
+        ).order_by("-created_at")
+        return Response(
+            [
+                {
+                    "id": str(log.id),
+                    "doc_type": log.action.rsplit(".", 1)[0],
+                    "target_id": str(log.target_id) if log.target_id else None,
+                    "approved_by": str(log.actor_id) if log.actor_id else None,
+                    "emergency_reason": (log.after or {}).get("emergency_reason", ""),
+                    "created_at": log.created_at,
+                }
+                for log in logs
+            ]
+        )

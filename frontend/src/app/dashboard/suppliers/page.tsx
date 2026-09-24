@@ -6,7 +6,8 @@ import { checkPartyDuplicate } from "@/lib/duplicateCheck";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
-import type { SupplierParty } from "@/lib/types";
+import { EMPTY_STRUCTURED_ADDRESS, StructuredAddressFieldset } from "@/components/StructuredAddressFieldset";
+import type { StructuredAddressFields, SupplierParty } from "@/lib/types";
 
 const ROLE_LABEL_KEY: Record<string, string> = {
   customer: "customerRole",
@@ -29,6 +30,7 @@ export default function SuppliersPage() {
   const [paymentTermsDays, setPaymentTermsDays] = useState("");
   const [iban, setIban] = useState("");
   const [notes, setNotes] = useState("");
+  const [structuredAddress, setStructuredAddress] = useState<StructuredAddressFields>(EMPTY_STRUCTURED_ADDRESS);
   const [error, setError] = useState<string | null>(null);
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
@@ -45,6 +47,10 @@ export default function SuppliersPage() {
     setPaymentTermsDays(party.payment_terms_days?.toString() || "");
     setIban(party.iban || "");
     setNotes(party.notes);
+    setStructuredAddress({
+      building_number: party.building_number, street: party.street, district: party.district,
+      city: party.city, postal_code: party.postal_code, short_address: party.short_address,
+    });
     setError(null);
   };
 
@@ -60,6 +66,7 @@ export default function SuppliersPage() {
     setPaymentTermsDays("");
     setIban("");
     setNotes("");
+    setStructuredAddress(EMPTY_STRUCTURED_ADDRESS);
     setError(null);
   };
 
@@ -74,6 +81,7 @@ export default function SuppliersPage() {
     payment_terms_days: paymentTermsDays ? Number(paymentTermsDays) : null,
     iban,
     notes,
+    ...structuredAddress,
   });
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -172,6 +180,8 @@ export default function SuppliersPage() {
               </div>
             </div>
           </details>
+
+          <StructuredAddressFieldset value={structuredAddress} onChange={setStructuredAddress} />
 
           {error && <p className="error-text">{error}</p>}
           <button className="primary" type="submit" style={{ marginTop: "0.75rem" }} disabled={checkingDuplicate}>
