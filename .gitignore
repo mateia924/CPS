@@ -1,5 +1,7 @@
 # Environment
 .env
+.env.*
+!.env.example
 .env.local
 
 # Python
@@ -27,3 +29,13 @@ frontend/tsconfig.tsbuildinfo
 
 # Docker
 infra/*.log
+
+# Backups / dumps / secrets — never committed, regardless of location
+backups/
+*.sql
+*.sql.gz
+*.dump
+*.bak
+media/
+node_modules/
+.next/
