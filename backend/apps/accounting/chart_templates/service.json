@@ -4,6 +4,8 @@
     {"code": "1110", "name": "البنوك", "type": "asset", "system_key": "BANKS"},
     {"code": "1200", "name": "العملاء", "type": "asset", "system_key": "CUSTOMERS"},
     {"code": "1300", "name": "عُهد الموظفين", "type": "asset", "system_key": "CUSTODIES"},
+    {"code": "1700", "name": "الأصول الثابتة", "type": "asset", "system_key": "FIXED_ASSETS"},
+    {"code": "1750", "name": "مجمع إهلاك الأصول الثابتة", "type": "asset", "system_key": "ACCUM_DEPRECIATION"},
     {"code": "1900", "name": "أصول أخرى", "type": "asset"}
   ]},
   {"code": "2000", "name": "الالتزامات", "type": "liability", "children": [
@@ -17,10 +19,12 @@
     {"code": "3900", "name": "الأرصدة الافتتاحية", "type": "equity", "system_key": "OPENING_BALANCE"}
   ]},
   {"code": "4000", "name": "الإيرادات", "type": "revenue", "children": [
-    {"code": "4100", "name": "إيرادات المبيعات", "type": "revenue", "system_key": "SALES"}
+    {"code": "4100", "name": "إيرادات المبيعات", "type": "revenue", "system_key": "SALES"},
+    {"code": "4900", "name": "أرباح/خسائر استبعاد الأصول", "type": "revenue", "system_key": "DISPOSAL_GAIN_LOSS"}
   ]},
   {"code": "5000", "name": "المصروفات", "type": "expense", "children": [
     {"code": "5100", "name": "مصروفات عمومية وإدارية", "type": "expense"},
+    {"code": "5150", "name": "مصروف إهلاك الأصول الثابتة", "type": "expense", "system_key": "DEPRECIATION_EXPENSE"},
     {"code": "5900", "name": "فروق تقريب العملة", "type": "expense", "system_key": "ROUNDING"},
     {"code": "5910", "name": "فروق عملة محققة", "type": "expense", "system_key": "FX_REALIZED"},
     {"code": "5930", "name": "فروق جرد الصندوق", "type": "expense", "system_key": "CASH_COUNT_VARIANCE"}

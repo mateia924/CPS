@@ -51,6 +51,11 @@ CONTROL_SYSTEM_KEYS = {
     # system-managed variance account touched only through the cash
     # count -> variance voucher flow, never a free-form manual JV.
     "CASH_COUNT_VARIANCE",
+    # Sprint 6.5.0 (decision 2): fixed-asset accounts — every posting
+    # to them goes through apps.assets.depreciation (start/addition/
+    # disposal), never a free-form manual JV without an override
+    # reason, same as any other system-managed account here.
+    "FIXED_ASSETS", "ACCUM_DEPRECIATION", "DEPRECIATION_EXPENSE", "DISPOSAL_GAIN_LOSS",
 }
 
 # Sprint 3.3/3.4: which system_key parent a given PartyRole.Role's

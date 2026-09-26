@@ -93,6 +93,12 @@ DEFAULT_PERMISSIONS = [
     # ("حتى إشعارات الدائن في سبرنت 9 حيث تُلغى الصلاحية") — Owner-only
     # by default, never granted to Accountant.
     ("sales.void_delivered_invoice", _("Void an invoice that has already been delivered to the customer")),
+    # Sprint 6.5 (decision 15): starting/adding to/disposing of a
+    # depreciation schedule (assets.depreciate) is separate authority
+    # from assets.manage (editing the plain registry row); a transfer
+    # has no financial posting at all, hence its own narrower code.
+    ("assets.depreciate", _("Start, add to, or dispose of an asset's depreciation schedule")),
+    ("assets.transfer", _("Transfer an asset between branches or cost centers")),
 ]
 
 # Reasonable, editable defaults per system role — not specified in full
@@ -129,6 +135,8 @@ SYSTEM_ROLES = {
         "treasury.count_cash",
         "accounting.close_period",
         "accounting.post",
+        "assets.depreciate",
+        "assets.transfer",
     ],
     "Sales": [
         "customers.view",
