@@ -15,6 +15,7 @@ deferred schedule.
 """
 
 from datetime import timedelta
+from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -100,8 +101,13 @@ def start_depreciation(asset, user, request=None):
         raise ValidationError(str(_("هذا الأصل لا يُهلك.")))
     if not asset.useful_life_months:
         raise ValidationError(str(_("العمر الإنتاجي مطلوب لبدء الإهلاك.")))
-    if asset.depreciation_method == Asset.DepreciationMethod.DECLINING_BALANCE:
-        raise ValidationError(str(_("طريقة القسط المتناقص غير مدعومة بعد — سبرنت 6.5.2.")))
+    is_declining = asset.depreciation_method == Asset.DepreciationMethod.DECLINING_BALANCE
+    if is_declining:
+        rate = asset.declining_balance_rate
+        if rate is None or not (Decimal("0") < rate < Decimal("100")):
+            raise ValidationError(
+                str(_("معدّل الإهلاك المتناقص يجب أن يكون بين 0 و100."))
+            )
 
     in_service_date = asset.in_service_date or asset.purchase_date
     warnings = []
@@ -146,23 +152,93 @@ def start_depreciation(asset, user, request=None):
 
     auto_approved = submit_for_approval(entry, user, DOC_TYPE, entry.total_amount_base, request=request)
     if auto_approved:
-        _activate_straight_line_schedule(entry)
+        _activate_schedule(entry)
     return entry, warnings
 
 
-def _activate_straight_line_schedule(entry):
-    """Decision 5's straight-line generator — same equal-split-with-
-    remainder-on-last shape as apps.accounting.recurring._activate_
-    recurring_entry, but kept independent per that decision's own
-    instruction not to touch that function."""
-    amounts = _split_amount(entry.total_amount_base, entry.installments_count)
-    periods = _consecutive_periods(entry.tenant, entry.first_period, entry.installments_count, create=True)
+def _activate_schedule(entry):
+    """Decision 5: dispatches to the straight-line or declining-balance
+    generator based on the asset's own depreciation_method — the one
+    place this module looks a schedule's owning Asset back up
+    (Asset.depreciation_entry's related_name="+" only disables the
+    convenience reverse manager, not filtering by the FK itself).
+    Independent of apps.accounting.recurring._activate_recurring_entry
+    per decision 5's own instruction not to touch that function."""
+    asset = Asset.objects.get(depreciation_entry=entry)
+    if asset.depreciation_method == Asset.DepreciationMethod.DECLINING_BALANCE:
+        periods, amounts = _declining_balance_amounts(
+            entry, asset.cost_base - asset.opening_accumulated_depreciation, asset.salvage_base,
+            asset.declining_balance_rate,
+        )
+    else:
+        periods = _consecutive_periods(entry.tenant, entry.first_period, entry.installments_count, create=True)
+        amounts = _split_amount(entry.total_amount_base, entry.installments_count)
+
     RecurringInstallment.objects.bulk_create(
         [
             RecurringInstallment(entry=entry, seq=i, period=period, due_date=period.end_date, amount_base=amount)
             for i, (period, amount) in enumerate(zip(periods, amounts), start=1)
         ]
     )
+    if len(amounts) != entry.installments_count:
+        # Decision 5's explicit floor check drove the schedule to end
+        # earlier than the nominal useful-life count — keep the field
+        # truthful so entry.installments.count() == entry.
+        # installments_count still holds (recurring._generate_one's own
+        # "seq == installments_count -> COMPLETED" check relies on it).
+        entry.installments_count = len(amounts)
+        entry.save(update_fields=["installments_count"])
+
+
+def _declining_balance_amounts(entry, opening_book_value, salvage_base, annual_rate):
+    """Decision 5 (متناقص): the year's charge = rate × book value at
+    the start of that *fiscal* year; the monthly installment is always
+    that charge ÷ 12 — a partial first (or last) year in the schedule
+    simply uses fewer of those 12 equal monthly shares, never a charge
+    ÷ (months actually in the schedule) — matching "السنة الأولى
+    الجزئية بنفس القسط الشهري؛ فرق تقريب السنة على آخر قسط فيها". The
+    schedule's own absolute final installment is then overridden to
+    absorb whatever book value remains above salvage_base exactly,
+    since pure declining-balance math asymptotes toward salvage_base
+    but never reaches it in finite time. Returns (periods, amounts) —
+    shorter than entry.installments_count only if an earlier
+    installment's regular share would have driven the book value below
+    salvage_base first (decision 5's explicit floor check)."""
+    periods = _consecutive_periods(entry.tenant, entry.first_period, entry.installments_count, create=True)
+    rate_fraction = annual_rate / Decimal("100")
+
+    year_groups = []
+    for period in periods:
+        if year_groups and year_groups[-1][0] == period.fiscal_year_id:
+            year_groups[-1][1].append(period)
+        else:
+            year_groups.append([period.fiscal_year_id, [period]])
+
+    amounts = []
+    book_value = opening_book_value
+    floored = False
+    for _fiscal_year_id, year_periods in year_groups:
+        if book_value <= salvage_base:
+            floored = True
+            break
+        annual_charge = (rate_fraction * book_value).quantize(CENTS)
+        full_year_split = _split_amount(annual_charge, 12)
+        for amount in full_year_split[: len(year_periods)]:
+            if amount >= book_value - salvage_base:
+                amounts.append(book_value - salvage_base)
+                book_value = salvage_base
+                floored = True
+                break
+            amounts.append(amount)
+            book_value -= amount
+        if floored:
+            break
+
+    if not floored and amounts:
+        book_value_before_last = opening_book_value - sum(amounts[:-1], Decimal("0"))
+        amounts[-1] = book_value_before_last - salvage_base
+
+    return periods[: len(amounts)], amounts
 
 
 @transaction.atomic
@@ -172,7 +248,7 @@ def approve_depreciation_schedule(entry, user, request=None, emergency_reason=""
     approvals_approve(
         entry, user, DOC_TYPE, entry.total_amount_base, request=request, emergency_reason=emergency_reason
     )
-    _activate_straight_line_schedule(entry)
+    _activate_schedule(entry)
     return entry
 
 

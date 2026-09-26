@@ -18,7 +18,6 @@ from apps.accounting.period_close import period_checklist
 from apps.accounting.periods import close_period
 from apps.accounting.recurring import generate_due_installments
 from apps.approvals.models import ApprovalRule
-from apps.assets.models import Asset
 from apps.reports.services import balance_sheet
 from apps.treasury.models import ExchangeRate
 
@@ -151,17 +150,6 @@ def test_usd_asset_freezes_cost_base_at_purchase_rate(tenant_a, owner_client):
     assert response.status_code == 201, response.data
     asset.refresh_from_db()
     assert asset.cost_base == Decimal("3750.00")
-
-
-def test_declining_balance_not_supported_yet_returns_400(tenant_a, owner_client):
-    entity = _entity(tenant_a)
-    asset = AssetFactory(
-        tenant=tenant_a, legal_entity=entity, purchase_date="2026-01-01", purchase_cost="10000.00",
-        useful_life_months=12, depreciation_method=Asset.DepreciationMethod.DECLINING_BALANCE,
-        declining_balance_rate="40",
-    )
-    response = _start(owner_client, asset.id)
-    assert response.status_code == 400, response.data
 
 
 def test_second_start_call_on_active_schedule_returns_409(tenant_a, owner_client):

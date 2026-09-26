@@ -213,7 +213,22 @@ export default function AssetDetailPage() {
               </div>
               <div className="form-field">
                 <label>{t("depreciationMethod")}</label>
-                <select value={method} onChange={(e) => setMethod(e.target.value as AssetDepreciationMethod)}>
+                <select
+                  value={method}
+                  onChange={(e) => {
+                    const nextMethod = e.target.value as AssetDepreciationMethod;
+                    setMethod(nextMethod);
+                    // Decision 5: "تُقترح تلقائيًا في الفورم بقيمة
+                    // المضاعف = 200 ÷ (العمر بالسنوات) بحد أقصى 99" —
+                    // only fills an empty field, never overwrites a
+                    // rate the accountant already typed.
+                    if (nextMethod === "declining_balance" && !decliningRate && asset.useful_life_months) {
+                      const years = asset.useful_life_months / 12;
+                      const suggested = Math.min(99, 200 / years);
+                      setDecliningRate(suggested.toFixed(2));
+                    }
+                  }}
+                >
                   <option value="straight_line">{t("straightLine")}</option>
                   <option value="declining_balance">{t("decliningBalance")}</option>
                 </select>
