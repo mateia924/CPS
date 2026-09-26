@@ -264,6 +264,16 @@ export default function AssetsPage() {
           { key: "category", label: t("category"), render: (row) => t(CATEGORY_LABEL_KEY[row.category]) },
           { key: "status", label: t("assetStatus"), render: (row) => t(row.status === "under_maintenance" ? "underMaintenance" : row.status === "disposed" ? "disposed" : "active") },
           {
+            key: "disposed_fraction",
+            label: "",
+            render: (row) => {
+              const fraction = Number(row.disposed_fraction);
+              if (row.status === "disposed" || fraction >= 1) return t("fullyDisposedBadge");
+              if (fraction > 0) return t("partiallyDisposedBadge");
+              return "";
+            },
+          },
+          {
             key: "id",
             label: "",
             render: (row) => <Link href={`/dashboard/assets/${row.id}`}>{t("viewDetails")}</Link>,

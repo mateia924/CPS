@@ -1,4 +1,5 @@
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.utils.translation import gettext_lazy as _
 from rest_framework import filters, mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -15,8 +16,18 @@ from .depreciation import approve_depreciation_schedule as _approve_depreciation
 from .depreciation import reject_depreciation_schedule as _reject_depreciation_schedule
 from .depreciation import start_depreciation as _start_depreciation
 from .depreciation import withdraw_depreciation_schedule as _withdraw_depreciation_schedule
-from .models import Asset
-from .serializers import AssetAdditionCreateSerializer, AssetAdditionSerializer, AssetSerializer
+from .disposal import approve_disposal as _approve_disposal
+from .disposal import dispose_asset as _dispose_asset
+from .disposal import reject_disposal as _reject_disposal
+from .disposal import withdraw_disposal as _withdraw_disposal
+from .models import Asset, AssetDisposal
+from .serializers import (
+    AssetAdditionCreateSerializer,
+    AssetAdditionSerializer,
+    AssetDisposalSerializer,
+    AssetDisposeCreateSerializer,
+    AssetSerializer,
+)
 
 
 class AssetViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
@@ -40,6 +51,7 @@ class AssetViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         # the plain registry row (assets.manage).
         "start_depreciation": "assets.depreciate",
         "additions": "assets.depreciate",
+        "dispose": "assets.depreciate",
     }
 
     def get_queryset(self):
@@ -82,6 +94,30 @@ class AssetViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         except (ValidationError, ValueError) as exc:
             return Response({"detail": str(exc)}, status=400)
         return Response(AssetAdditionSerializer(addition).data, status=201)
+
+    @action(detail=True, methods=["post"])
+    def dispose(self, request, pk=None):
+        asset = self.get_object()
+        serializer = AssetDisposeCreateSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            disposal = _dispose_asset(
+                asset, request.user, date=data["date"], fraction=data["fraction"],
+                proceeds_base=data["proceeds_base"], proceeds_account=data["proceeds_account"],
+                proceeds_party=data["proceeds_party"], proceeds_party_role=data["proceeds_party_role"],
+                reason=data["reason"], request=request,
+            )
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        payload = AssetDisposalSerializer(disposal).data
+        if disposal.proceeds_base > 0:
+            payload["warnings"] = [
+                str(
+                    _("بيع الأصل يستوجب فاتورة ضريبية للمشتري — أصدرها يدويًا حتى سبرنت 9.")
+                )
+            ]
+        return Response(payload, status=201)
 
 
 class DepreciationScheduleViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
@@ -142,3 +178,59 @@ class DepreciationScheduleViewSet(mixins.RetrieveModelMixin, viewsets.GenericVie
         except PermissionDenied as exc:
             return Response({"detail": str(exc)}, status=403)
         return Response(RecurringEntrySerializer(entry).data)
+
+
+class AssetDisposalViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    """Sprint 6.5.4 (decision 11): the ASSET_DISPOSAL approval
+    channel's own endpoint — same generic-inbox dispatch pattern as
+    DepreciationScheduleViewSet above, but the underlying document is
+    its own AssetDisposal model (unlike start/addition, a disposal is
+    never itself a RecurringEntry)."""
+
+    serializer_class = AssetDisposalSerializer
+    permission_classes = [IsAuthenticated, HasModulePermission]
+    permission_map = {
+        "retrieve": "assets.view",
+        "approve": "assets.depreciate",
+        "reject": "assets.depreciate",
+        "withdraw": "assets.depreciate",
+    }
+
+    def get_queryset(self):
+        return AssetDisposal.objects.filter(tenant=self.request.user.tenant).select_related("asset")
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        disposal = self.get_object()
+        try:
+            _approve_disposal(
+                disposal, request.user, request=request, emergency_reason=request.data.get("emergency_reason", ""),
+            )
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        except PermissionDenied as exc:
+            return Response({"detail": str(exc)}, status=403)
+        disposal.refresh_from_db()
+        return Response(AssetDisposalSerializer(disposal).data)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        disposal = self.get_object()
+        serializer = OpeningBalanceReasonSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            _reject_disposal(disposal, request.user, serializer.validated_data["reason"], request=request)
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        return Response(AssetDisposalSerializer(disposal).data)
+
+    @action(detail=True, methods=["post"])
+    def withdraw(self, request, pk=None):
+        disposal = self.get_object()
+        try:
+            _withdraw_disposal(disposal, request.user, request=request)
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        except PermissionDenied as exc:
+            return Response({"detail": str(exc)}, status=403)
+        return Response(AssetDisposalSerializer(disposal).data)

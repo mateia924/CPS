@@ -3,11 +3,18 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api, generalError } from "@/lib/api";
+import { flattenLeafAccounts, type FlatAccountOption } from "@/lib/accounts";
 import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
 import { WarningsBanner } from "@/components/WarningsBanner";
 import { useLocale } from "@/lib/i18n";
-import type { Asset, AssetDepreciationMethod, RecurringEntry, RecurringInstallmentStatus } from "@/lib/types";
+import type {
+  Asset,
+  AssetDepreciationMethod,
+  AccountTreeNode,
+  RecurringEntry,
+  RecurringInstallmentStatus,
+} from "@/lib/types";
 
 const INSTALLMENT_STATUS_LABEL: Record<RecurringInstallmentStatus, string> = {
   due: "dueStatus",
@@ -37,6 +44,18 @@ export default function AssetDetailPage() {
   const [additionDescription, setAdditionDescription] = useState("");
   const [extendLifeMonths, setExtendLifeMonths] = useState("0");
   const [showAddAddition, setShowAddAddition] = useState(false);
+
+  const [accounts, setAccounts] = useState<FlatAccountOption[]>([]);
+  const [disposalDate, setDisposalDate] = useState("");
+  const [disposalFraction, setDisposalFraction] = useState("1");
+  const [disposalProceeds, setDisposalProceeds] = useState("0");
+  const [disposalAccountId, setDisposalAccountId] = useState("");
+  const [disposalReason, setDisposalReason] = useState("");
+  const [showDispose, setShowDispose] = useState(false);
+
+  useEffect(() => {
+    api.get<AccountTreeNode[]>("/accounts/tree/").then((tree) => setAccounts(flattenLeafAccounts(tree)));
+  }, []);
 
   const load = async () => {
     const loadedAsset = await api.get<Asset>(`/assets/${id}/`);
@@ -113,6 +132,31 @@ export default function AssetDetailPage() {
     }
   };
 
+  const disposeAsset = async () => {
+    setError(null);
+    try {
+      const result = await api.post<{ warnings?: string[] }>(`/assets/${id}/dispose/`, {
+        date: disposalDate,
+        fraction: disposalFraction,
+        proceeds_base: disposalProceeds,
+        proceeds_account: disposalAccountId || null,
+        reason: disposalReason,
+      });
+      setWarnings(result.warnings || []);
+      setShowDispose(false);
+      setDisposalDate("");
+      setDisposalFraction("1");
+      setDisposalProceeds("0");
+      setDisposalAccountId("");
+      setDisposalReason("");
+      load();
+    } catch (err) {
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
+    }
+  };
+
+  const disposedFraction = Number(asset.disposed_fraction);
+
   return (
     <div>
       <button className="secondary" onClick={() => router.push("/dashboard/assets")}>
@@ -123,7 +167,26 @@ export default function AssetDetailPage() {
         {asset.code} — {asset.name}{" "}
         <span style={{ fontSize: "0.9rem", color: "var(--muted)" }}>
           {t(asset.status === "under_maintenance" ? "underMaintenance" : asset.status === "disposed" ? "disposed" : "active")}
-        </span>
+        </span>{" "}
+        {asset.status === "disposed" || disposedFraction >= 1 ? (
+          <span
+            style={{
+              fontSize: "0.8rem", color: "var(--danger)", background: "var(--danger-bg)",
+              borderRadius: "var(--radius-pill)", padding: "0.1rem 0.5rem",
+            }}
+          >
+            {t("fullyDisposedBadge")}
+          </span>
+        ) : disposedFraction > 0 ? (
+          <span
+            style={{
+              fontSize: "0.8rem", color: "var(--warning)", background: "var(--warning-bg)",
+              borderRadius: "var(--radius-pill)", padding: "0.1rem 0.5rem",
+            }}
+          >
+            {t("partiallyDisposedBadge")}
+          </span>
+        ) : null}
       </h1>
 
       <WarningsBanner warnings={warnings} />
@@ -337,6 +400,81 @@ export default function AssetDetailPage() {
           </>
         )}
       </div>
+
+      {asset.status !== "disposed" && disposedFraction < 1 && (
+        <div className="card">
+          <h3>{t("disposalsTab")}</h3>
+          <button className="secondary" onClick={() => setShowDispose((v) => !v)}>
+            {t("disposeAsset")}
+          </button>
+          {showDispose && (
+            <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+              <div className="form-field">
+                <label>{t("disposalDate")}</label>
+                <input type="date" value={disposalDate} onChange={(e) => setDisposalDate(e.target.value)} />
+              </div>
+              <div className="form-field">
+                <label>{t("disposalFraction")}</label>
+                <input
+                  type="number" step="0.0001" min="0" max="1" value={disposalFraction}
+                  onChange={(e) => setDisposalFraction(e.target.value)}
+                />
+              </div>
+              <div className="form-field">
+                <label>{t("disposalProceeds")}</label>
+                <input
+                  type="number" step="0.01" value={disposalProceeds}
+                  onChange={(e) => setDisposalProceeds(e.target.value)}
+                />
+              </div>
+              {Number(disposalProceeds) > 0 && (
+                <div className="form-field">
+                  <label>{t("disposalProceedsAccount")}</label>
+                  <select value={disposalAccountId} onChange={(e) => setDisposalAccountId(e.target.value)}>
+                    <option value="">—</option>
+                    {accounts.map((account) => (
+                      <option key={account.id} value={account.id}>{account.label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div className="form-field">
+                <label>{t("disposalReason")}</label>
+                <input value={disposalReason} onChange={(e) => setDisposalReason(e.target.value)} />
+              </div>
+              <button className="primary" onClick={disposeAsset}>{t("save")}</button>
+            </div>
+          )}
+
+          <h4 style={{ marginTop: "0.75rem" }}>{t("disposalsHistory")}</h4>
+          {asset.disposals.length === 0 ? (
+            <p>{t("noDisposalsYet")}</p>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>{t("disposalDate")}</th>
+                  <th>{t("disposalFraction")}</th>
+                  <th>{t("disposalProceeds")}</th>
+                  <th>{t("gainLoss")}</th>
+                  <th>{t("status")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {asset.disposals.map((disposal) => (
+                  <tr key={disposal.id}>
+                    <td>{disposal.date}</td>
+                    <td>{disposal.fraction}</td>
+                    <td><Money amount={disposal.proceeds_base} /></td>
+                    <td><Money amount={disposal.gain_loss} /></td>
+                    <td>{disposal.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
     </div>
   );
 }

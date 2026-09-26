@@ -52,6 +52,7 @@ TENANT_FILTER_EXEMPTIONS = {
     "apps.treasury.views.CashCountViewSet": "get_queryset() filters CashCount.objects.filter(tenant=request.user.tenant) by hand, same pattern as VoucherViewSet (sprint 5.5 block 5.5.3)",
     "apps.platform.views.TenantAuditLogViewSet": "AuditLog is not a TenantScopedModel (a plain tenant_id UUID, not a FK — shared with the platform-side AuditLogViewSet) — get_queryset() filters AuditLog.objects.filter(tenant_id=request.user.tenant_id) by hand",
     "apps.assets.views.DepreciationScheduleViewSet": "get_queryset() filters RecurringEntry.objects.filter(tenant=request.user.tenant, kind=DEPRECIATION) by hand, same pattern as RecurringEntryViewSet above, sprint 6.5.1",
+    "apps.assets.views.AssetDisposalViewSet": "get_queryset() filters AssetDisposal.objects.filter(tenant=request.user.tenant) by hand, sprint 6.5.4",
 }
 
 # Views that are correctly not tenant-scoped at all: public auth entry

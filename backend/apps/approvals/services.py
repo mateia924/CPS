@@ -173,6 +173,23 @@ def list_pending_approvals(user):
                 }
             )
 
+    from apps.assets.models import AssetDisposal
+
+    for disposal in AssetDisposal.objects.filter(tenant=tenant, status="pending_approval").select_related("asset"):
+        rule = get_matching_rule(tenant, "asset_disposal", disposal.cost_share)
+        if rule is not None and (exempted or rule.required_role_id in user_role_ids):
+            results.append(
+                {
+                    "doc_type": "asset_disposal",
+                    "id": str(disposal.id),
+                    "number": None,
+                    "date": disposal.date,
+                    "description": f"{disposal.asset.code} — {disposal.asset.name}",
+                    "amount_base": str(disposal.cost_share),
+                    "created_by": str(disposal.created_by_id) if disposal.created_by_id else None,
+                }
+            )
+
     return results
 
 

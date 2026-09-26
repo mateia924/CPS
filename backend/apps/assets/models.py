@@ -144,3 +144,63 @@ class AssetAddition(TenantScopedModel):
 
     def __str__(self):
         return f"{self.asset.code} +{self.amount_base}"
+
+
+class AssetDisposal(TenantScopedModel):
+    """Sprint 6.5 (decision 7): a full or partial disposal — cumulative
+    `fraction` of the *original* asset (Σ across every AssetDisposal on
+    this asset ≤ 1); cost/accumulated-depreciation shares taken at that
+    same fraction; a single POSTED JournalEntry at approval time whose
+    gain/loss on DISPOSAL_GAIN_LOSS is computed here (cost_share,
+    accum_share, gain_loss), never entered by the user. Goes through
+    the same generic apps.approvals engine as RecurringEntry (status/
+    tenant/created_by_id is the whole contract it needs) — a REJECTED
+    disposal just returns to DRAFT, same as apps.accounting.recurring's
+    own RecurringEntry (no special terminal REJECTED status the way
+    OpeningBalanceEntry has one)."""
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", _("Draft")
+        PENDING_APPROVAL = "pending_approval", _("Pending approval")
+        APPROVED = "approved", _("Approved")
+
+    asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name="disposals")
+    date = models.DateField(_("date"))
+    # Cumulative fraction of the *original* asset this one disposal
+    # covers (0 < fraction ≤ 1) — decision 7.
+    fraction = models.DecimalField(_("fraction"), max_digits=5, decimal_places=4)
+    proceeds_base = models.DecimalField(
+        _("proceeds (base currency)"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
+    )
+    # Decision 7: "سطر العائد يُحدَّد بمحلّل «حساب أو طرف+دور» نفسه من
+    # 6.3" — apps.accounting.opening_balances._resolve_line_account
+    # resolves whichever of these two the caller gave into the actual
+    # postable account, storing both here for the record.
+    proceeds_account = models.ForeignKey(
+        "accounting.Account", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    proceeds_party = models.ForeignKey(
+        "parties.Party", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    proceeds_party_role = models.CharField(_("proceeds party role"), max_length=20, blank=True)
+    reason = models.CharField(_("reason"), max_length=255, blank=True)
+    # Computed by apps.assets.disposal.dispose_asset — never entered.
+    cost_share = models.DecimalField(_("cost share"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES)
+    accum_share = models.DecimalField(
+        _("accumulated depreciation share"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES
+    )
+    gain_loss = models.DecimalField(_("gain/loss"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES)
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    status = models.CharField(_("status"), max_length=20, choices=Status.choices, default=Status.DRAFT)
+    created_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.asset.code} -{self.fraction}"

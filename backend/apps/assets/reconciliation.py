@@ -4,11 +4,10 @@ reconciliation computation — used by the period-close checklist
 two screens can never silently disagree about whether the subsidiary
 register (apps.assets.models.Asset) matches the chart of accounts.
 
-Written to need no changes when additions (6.5.3) or disposal (6.5.4)
-land: `Asset.cost_base` is already updated in place by an addition,
-and a disposal's `disposed_fraction` already scales both cost and
-accumulated depreciation down by the same fraction the ledger's own
-disposal entry credits/debits — see decision 7.
+Needed no changes for additions (6.5.3): `Asset.cost_base` is already
+updated in place by add_to_asset. Disposal (6.5.4) needed one: see
+register_totals's own docstring for why accumulated depreciation is
+not re-scaled by `disposed_fraction` the same way cost is.
 """
 
 from decimal import Decimal
@@ -26,9 +25,30 @@ CENTS = Decimal("0.01")
 
 
 def register_totals(tenant, as_of=None, legal_entity=None, include_children=True):
-    """The subsidiary register's own totals, net of `disposed_fraction`."""
+    """The subsidiary register's own totals.
+
+    Cost is scaled by `remaining_fraction` (1 − disposed_fraction) —
+    valid because `cost_base` is never mutated by a disposal, so
+    disposal fractions telescope cleanly against it (decision 7:
+    cost_share_i = fraction_i × the one constant cost_base, so Σ
+    cost_share = disposed_fraction × cost_base exactly).
+
+    Accumulated depreciation is *not* re-scaled the same way: decisions
+    6/7 (apps.assets.depreciation._reschedule_remaining) lock in each
+    now-cancelled entry's own generated total into `opening_
+    accumulated_depreciation` at reschedule time — net of a disposal's
+    own accum_share, since that's exactly what the ledger's disposal
+    entry debits out of ACCUM_DEPRECIATION too — so
+    `opening_accumulated_depreciation + the current entry's own
+    generated total` is already the correct absolute remaining figure,
+    with no further scaling needed (and re-scaling it would double-
+    count the effect of a disposal that already happened once).
+    A fully DISPOSED asset contributes nothing at all.
+    """
     as_of = as_of or timezone.localdate()
-    assets = Asset.objects.filter(tenant=tenant, is_active=True, purchase_date__lte=as_of)
+    assets = Asset.objects.filter(tenant=tenant, is_active=True, purchase_date__lte=as_of).exclude(
+        status=Asset.Status.DISPOSED
+    )
     if legal_entity is not None:
         assets = assets.filter(legal_entity__in=_entities_in_scope(legal_entity, include_children))
 
@@ -49,7 +69,7 @@ def register_totals(tenant, as_of=None, legal_entity=None, include_children=True
             )
             accum += generated
         total_cost += cost * remaining_fraction
-        total_accum += accum * remaining_fraction
+        total_accum += accum
     return {
         "cost": total_cost.quantize(CENTS),
         "accumulated_depreciation": total_accum.quantize(CENTS),

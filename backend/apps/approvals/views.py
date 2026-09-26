@@ -88,6 +88,7 @@ def _describe_emergency_document(doc_type, target_id):
     from django.db.models import Sum
 
     from apps.accounting.models import JournalEntry, OpeningBalanceEntry, RecurringEntry
+    from apps.assets.models import AssetDisposal
     from apps.sales.models import Invoice
     from apps.treasury.models import IbanChangeRequest
     from apps.vouchers.models import Voucher
@@ -121,9 +122,16 @@ def _describe_emergency_document(doc_type, target_id):
                 "number": schedule.number, "description": schedule.description,
                 "amount_base": str(schedule.total_amount_base),
             }
+        if doc_type == "asset_disposal":
+            disposal = AssetDisposal.objects.select_related("asset").get(id=target_id)
+            return {
+                "number": None, "description": f"{disposal.asset.code} — {disposal.asset.name}",
+                "amount_base": str(disposal.cost_share),
+            }
     except (
         JournalEntry.DoesNotExist, Invoice.DoesNotExist, Voucher.DoesNotExist,
         IbanChangeRequest.DoesNotExist, OpeningBalanceEntry.DoesNotExist, RecurringEntry.DoesNotExist,
+        AssetDisposal.DoesNotExist,
     ):
         pass
     return {"number": None, "description": None, "amount_base": None}

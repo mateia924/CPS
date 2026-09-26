@@ -53,6 +53,9 @@ class ApprovalRule(TenantScopedModel):
         # channel — separate authority from starting the schedule in
         # the first place, same default-rule/editable treatment.
         ASSET_ADDITION = "asset_addition", _("Asset Addition")
+        # Sprint 6.5 (decision 11): full/partial disposal's own
+        # approval channel, same default-rule/editable treatment.
+        ASSET_DISPOSAL = "asset_disposal", _("Asset Disposal")
 
     doc_type = models.CharField(_("document type"), max_length=30, choices=DocType.choices)
     min_amount = models.DecimalField(

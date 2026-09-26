@@ -57,6 +57,71 @@ class NoActiveDepreciationSchedule(Exception):
     schedule to cancel and recompute — the view maps this to 409."""
 
 
+def current_book_value(asset):
+    """Decision 6/7: the single formula every recompute (an addition,
+    a partial disposal, the AssetSerializer's own display fields) reads
+    from — entry.total_amount_base is always "book value at that
+    entry's own start − salvage_base" by construction (true whether
+    the entry came from start_depreciation or from an earlier
+    addition), so this needs no separate accumulated-to-date tracking
+    back to the asset's original opening_accumulated_depreciation."""
+    if asset.cost_base is None:
+        return asset.purchase_cost
+    entry = asset.depreciation_entry
+    if entry is None:
+        return asset.cost_base - asset.opening_accumulated_depreciation
+    generated = entry.installments.filter(
+        status=RecurringInstallment.Status.GENERATED
+    ).aggregate(total=Sum("amount_base"))["total"] or Decimal("0")
+    return entry.total_amount_base + asset.salvage_base - generated
+
+
+def _reschedule_remaining(asset, old_entry, new_total, new_count, date, user, request=None):
+    """Shared by add_to_asset (6.5.3) and a partial disposal's own
+    recompute (6.5.4): cancels old_entry's remaining (DUE) installments
+    and creates a fresh schedule over (new_total, new_count) starting
+    at the period containing `date` (or the next one, if that period's
+    own old installment already generated — decision 6's "يبدأ من فترة
+    الإضافة إن لم يُولَّد قسطها وإلا التالية"). Returns the new
+    RecurringEntry, or None if there's nothing left to schedule."""
+    period = assert_open_period(asset.tenant, date)
+    this_period_installment = old_entry.installments.filter(period=period).first()
+    if this_period_installment is not None and this_period_installment.status == RecurringInstallment.Status.GENERATED:
+        first_period, _elapsed = _first_schedule_period(asset.tenant, period.end_date + timedelta(days=1))
+    else:
+        first_period = period
+
+    # Lock in whatever old_entry generated before it's replaced —
+    # current_book_value's own "no active entry" fallback (cost_base −
+    # opening_accumulated_depreciation) and apps.assets.reconciliation.
+    # register_totals both read opening_accumulated_depreciation +
+    # the CURRENT entry's own generated installments only, so a
+    # cancelled-and-replaced entry's history would otherwise vanish
+    # the moment it stops being "current".
+    generated_on_old_entry = old_entry.installments.filter(
+        status=RecurringInstallment.Status.GENERATED
+    ).aggregate(total=Sum("amount_base"))["total"] or Decimal("0")
+    asset.opening_accumulated_depreciation += generated_on_old_entry
+    asset.save(update_fields=["opening_accumulated_depreciation"])
+
+    from apps.accounting.recurring import cancel_recurring_entry
+
+    cancel_recurring_entry(old_entry, user, request=request)
+
+    if new_count <= 0 or new_total <= 0:
+        return None
+
+    accum_account = get_system_account(asset.tenant, "ACCUM_DEPRECIATION")
+    expense_account = get_system_account(asset.tenant, "DEPRECIATION_EXPENSE")
+    return RecurringEntry.objects.create(
+        tenant=asset.tenant, legal_entity=asset.legal_entity, cost_center=asset.cost_center,
+        description=str(_("إهلاك %(code)s — %(name)s") % {"code": asset.code, "name": asset.name}),
+        kind=RecurringEntry.Kind.DEPRECIATION, from_account=accum_account, to_account=expense_account,
+        total_amount_base=new_total, installments_count=new_count, first_period=first_period,
+        created_by=user,
+    )
+
+
 def doc_type_for_entry(entry):
     """Decision 11: the SAME RecurringEntry model backs three separate
     approval authorities (starting a schedule, an addition, and — from
@@ -308,51 +373,19 @@ def add_to_asset(asset, user, date, amount_base, description="", extend_life_mon
     if old_entry is None or old_entry.status != RecurringEntry.Status.APPROVED:
         raise NoActiveDepreciationSchedule(str(_("لا يوجد جدول إهلاك نشط لهذا الأصل.")))
 
-    period = assert_open_period(asset.tenant, date)
-
-    generated_so_far = old_entry.installments.filter(
-        status=RecurringInstallment.Status.GENERATED
-    ).aggregate(total=Sum("amount_base"))["total"] or Decimal("0")
-    # old_entry.total_amount_base is always "book value at old_entry's
-    # own start − salvage_base" by construction (true whether old_entry
-    # came from start_depreciation or from an earlier addition) — so
-    # this reads correctly however many additions have already
-    # happened, with no need to separately track cumulative
-    # depreciation back to the asset's original opening_accumulated_
-    # depreciation.
-    book_value = old_entry.total_amount_base + asset.salvage_base - generated_so_far
+    book_value = current_book_value(asset)
     new_total = book_value + amount_base - asset.salvage_base
     old_due_count = old_entry.installments.filter(status=RecurringInstallment.Status.DUE).count()
     new_count = old_due_count + extend_life_months
     if new_count <= 0:
         raise ValidationError(str(_("لا توجد أقساط متبقية بعد هذه الإضافة.")))
 
-    this_period_installment = old_entry.installments.filter(period=period).first()
-    if this_period_installment is not None and this_period_installment.status == RecurringInstallment.Status.GENERATED:
-        # Decision 6: "يبدأ من فترة الإضافة إن لم يُولَّد قسطها وإلا
-        # التالية" — this period's own installment already posted, so
-        # the new schedule picks up starting the next one, same
-        # elapsed-walk _first_schedule_period already does for a
-        # fresh start (the immediately-following period is open by
-        # construction here, since `period` itself just passed
-        # assert_open_period above).
-        first_period, _elapsed = _first_schedule_period(asset.tenant, period.end_date + timedelta(days=1))
-    else:
-        first_period = period
-
-    from apps.accounting.recurring import cancel_recurring_entry
-
-    cancel_recurring_entry(old_entry, user, request=request)
-
-    accum_account = get_system_account(asset.tenant, "ACCUM_DEPRECIATION")
-    expense_account = get_system_account(asset.tenant, "DEPRECIATION_EXPENSE")
-    new_entry = RecurringEntry.objects.create(
-        tenant=asset.tenant, legal_entity=asset.legal_entity, cost_center=asset.cost_center,
-        description=str(_("إهلاك %(code)s — %(name)s (بعد إضافة)") % {"code": asset.code, "name": asset.name}),
-        kind=RecurringEntry.Kind.DEPRECIATION, from_account=accum_account, to_account=expense_account,
-        total_amount_base=new_total, installments_count=new_count, first_period=first_period,
-        created_by=user,
-    )
+    new_entry = _reschedule_remaining(asset, old_entry, new_total, new_count, date, user, request=request)
+    # new_count/new_total were already checked positive above, so
+    # _reschedule_remaining always returns a real entry here — the
+    # None case is only for a partial disposal's own leaner remainder.
+    new_entry.description = str(_("إهلاك %(code)s — %(name)s (بعد إضافة)") % {"code": asset.code, "name": asset.name})
+    new_entry.save(update_fields=["description"])
 
     addition = AssetAddition.objects.create(
         tenant=asset.tenant, asset=asset, date=date, amount_base=amount_base, description=description,

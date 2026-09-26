@@ -518,6 +518,7 @@ export interface Asset {
   additions: AssetAddition[];
   accumulated_depreciation: string | null;
   book_value: string | null;
+  disposals: AssetDisposal[];
 }
 
 // Sprint 6.5.3 (decision 6): a capital addition to an asset.
@@ -529,6 +530,27 @@ export interface AssetAddition {
   extend_life_months: number;
   old_entry: string;
   new_entry: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+// Sprint 6.5.4 (decision 7): a full or partial disposal.
+export type AssetDisposalStatus = "draft" | "pending_approval" | "approved";
+
+export interface AssetDisposal {
+  id: string;
+  date: string;
+  fraction: string;
+  proceeds_base: string;
+  proceeds_account: string | null;
+  proceeds_party: string | null;
+  proceeds_party_role: string;
+  reason: string;
+  cost_share: string;
+  accum_share: string;
+  gain_loss: string;
+  journal_entry: string | null;
+  status: AssetDisposalStatus;
   created_by: string | null;
   created_at: string;
 }
@@ -793,7 +815,7 @@ export type ApprovalDocType =
   | "voucher_receipt" | "voucher_payment" | "voucher_settlement"
   | "iban_change" | "opening_balance"
   // Sprint 6.5 (decision 11).
-  | "asset_depreciation" | "asset_addition";
+  | "asset_depreciation" | "asset_addition" | "asset_disposal";
 
 // Sprint 6.3 (3.10/3.16.3): opening balances.
 export type OpeningBalanceKind = "initial" | "adjustment";

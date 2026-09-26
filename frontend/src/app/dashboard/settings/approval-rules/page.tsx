@@ -24,6 +24,7 @@ const DOC_TYPE_LABEL: Record<ApprovalDocType, string> = {
   opening_balance: "openingBalanceDocType",
   asset_depreciation: "assetDepreciationDocType",
   asset_addition: "assetAdditionDocType",
+  asset_disposal: "assetDisposalDocType",
 };
 
 export default function ApprovalRulesPage() {

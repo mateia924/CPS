@@ -1,15 +1,15 @@
 from decimal import Decimal
 
-from django.db.models import Sum
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
+from apps.accounting.models import Account
 from apps.common.constants import MONEY_DECIMAL_PLACES, MONEY_MAX_DIGITS
 from apps.organization.models import CostCenter, LegalEntity
 from apps.organization.services import get_or_create_linked_cost_center
 from apps.parties.models import Party, PartyRole
 
-from .models import Asset, AssetAddition
+from .models import Asset, AssetAddition, AssetDisposal
 
 
 class AssetAdditionSerializer(serializers.ModelSerializer):
@@ -32,11 +32,50 @@ class AssetAdditionCreateSerializer(serializers.Serializer):
     extend_life_months = serializers.IntegerField(required=False, default=0, min_value=0)
 
 
+class AssetDisposalSerializer(serializers.ModelSerializer):
+    """Sprint 6.5 (decision 7): read shape for both the create response
+    and the disposal-history list nested on AssetSerializer below."""
+
+    class Meta:
+        model = AssetDisposal
+        fields = (
+            "id", "date", "fraction", "proceeds_base", "proceeds_account", "proceeds_party",
+            "proceeds_party_role", "reason", "cost_share", "accum_share", "gain_loss", "journal_entry",
+            "status", "created_by", "created_at",
+        )
+        read_only_fields = fields
+
+
+class AssetDisposeCreateSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    fraction = serializers.DecimalField(max_digits=5, decimal_places=4, min_value=Decimal("0.0001"))
+    proceeds_base = serializers.DecimalField(
+        max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, required=False, default=Decimal("0")
+    )
+    proceeds_account = serializers.PrimaryKeyRelatedField(
+        queryset=Account.objects.all(), required=False, allow_null=True, default=None
+    )
+    proceeds_party = serializers.PrimaryKeyRelatedField(
+        queryset=Party.objects.all(), required=False, allow_null=True, default=None
+    )
+    proceeds_party_role = serializers.CharField(required=False, allow_blank=True, default="")
+    reason = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request is not None and request.user.is_authenticated:
+            tenant = request.user.tenant
+            self.fields["proceeds_account"].queryset = Account.objects.filter(tenant=tenant)
+            self.fields["proceeds_party"].queryset = Party.objects.filter(tenant=tenant)
+
+
 class AssetSerializer(serializers.ModelSerializer):
     # Write-only (3.3 section 4): "افتراضيًا مفعّل للسيارات" — only
     # meaningful when category == VEHICLE; ignored otherwise.
     create_linked_cost_center = serializers.BooleanField(required=False, default=True, write_only=True)
     additions = AssetAdditionSerializer(many=True, read_only=True)
+    disposals = AssetDisposalSerializer(many=True, read_only=True)
     # Sprint 6.5.3: computed the same way apps.assets.depreciation.
     # add_to_asset itself derives book value — entry.total_amount_base
     # is always "book value at that entry's own start − salvage_base"
@@ -61,28 +100,24 @@ class AssetSerializer(serializers.ModelSerializer):
             # Sprint 6.5.3 (decision 6): addition history — "سجل
             # الإضافات" on the asset detail screen.
             "additions", "accumulated_depreciation", "book_value",
+            # Sprint 6.5.4 (decision 7): disposal history.
+            "disposals",
         )
         read_only_fields = (
             "id", "created_at", "cost_base", "salvage_base", "disposed_fraction", "depreciation_entry", "additions",
-            "accumulated_depreciation", "book_value",
+            "accumulated_depreciation", "book_value", "disposals",
         )
 
-    def _book_value(self, asset):
-        if asset.cost_base is None:
-            return None
-        entry = asset.depreciation_entry
-        if entry is None:
-            return asset.cost_base - asset.opening_accumulated_depreciation
-        generated = entry.installments.filter(status="generated").aggregate(total=Sum("amount_base"))["total"] or Decimal("0")
-        return entry.total_amount_base + asset.salvage_base - generated
-
     def get_book_value(self, asset):
-        value = self._book_value(asset)
-        return str(value) if value is not None else None
+        from .depreciation import current_book_value
+
+        return str(current_book_value(asset))
 
     def get_accumulated_depreciation(self, asset):
-        value = self._book_value(asset)
-        return str(asset.cost_base - value) if value is not None else None
+        from .depreciation import current_book_value
+
+        cost = asset.cost_base if asset.cost_base is not None else asset.purchase_cost
+        return str(cost - current_book_value(asset))
 
     def validate(self, attrs):
         # Sprint 6.5 (decision text under 6.5.0): "salvage_value <

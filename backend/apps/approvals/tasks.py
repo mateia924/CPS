@@ -18,6 +18,8 @@ DOC_TYPE_LABEL = {
     "opening_balance": _("رصيد افتتاحي"),
     "recurring_entry": _("قيد دوري"),
     "asset_depreciation": _("جدول إهلاك أصل"),
+    "asset_addition": _("إضافة على أصل"),
+    "asset_disposal": _("استبعاد أصل"),
 }
 
 DOC_TYPE_PATH = {
