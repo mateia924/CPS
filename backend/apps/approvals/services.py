@@ -150,9 +150,15 @@ def list_pending_approvals(user):
 
     for schedule in RecurringEntry.objects.filter(tenant=tenant, status="pending_approval"):
         # Sprint 6.5 (decision 11): a DEPRECIATION-kind schedule is
-        # approved through its own doc_type/rule, never "recurring_
-        # entry" — the two authorities are configured independently.
-        doc_type = "asset_depreciation" if schedule.kind == RecurringEntry.Kind.DEPRECIATION else "recurring_entry"
+        # approved through its own doc_type/rule ("asset_depreciation"
+        # or "asset_addition", never "recurring_entry") — the
+        # authorities are configured independently.
+        if schedule.kind == RecurringEntry.Kind.DEPRECIATION:
+            from apps.assets.depreciation import doc_type_for_entry
+
+            doc_type = doc_type_for_entry(schedule)
+        else:
+            doc_type = "recurring_entry"
         rule = get_matching_rule(tenant, doc_type, schedule.total_amount_base)
         if rule is not None and (exempted or rule.required_role_id in user_role_ids):
             results.append(

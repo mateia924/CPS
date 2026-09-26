@@ -515,6 +515,22 @@ export interface Asset {
   declining_balance_rate: string | null;
   disposed_fraction: string;
   depreciation_entry: string | null;
+  additions: AssetAddition[];
+  accumulated_depreciation: string | null;
+  book_value: string | null;
+}
+
+// Sprint 6.5.3 (decision 6): a capital addition to an asset.
+export interface AssetAddition {
+  id: string;
+  date: string;
+  amount_base: string;
+  description: string;
+  extend_life_months: number;
+  old_entry: string;
+  new_entry: string;
+  created_by: string | null;
+  created_at: string;
 }
 
 // --- Sprint 3.5 (docs/SYSTEM_ANALYSIS.md 3.3 v1.4): dedicated,
@@ -777,7 +793,7 @@ export type ApprovalDocType =
   | "voucher_receipt" | "voucher_payment" | "voucher_settlement"
   | "iban_change" | "opening_balance"
   // Sprint 6.5 (decision 11).
-  | "asset_depreciation";
+  | "asset_depreciation" | "asset_addition";
 
 // Sprint 6.3 (3.10/3.16.3): opening balances.
 export type OpeningBalanceKind = "initial" | "adjustment";

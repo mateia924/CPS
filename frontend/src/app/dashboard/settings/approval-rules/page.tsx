@@ -23,6 +23,7 @@ const DOC_TYPE_LABEL: Record<ApprovalDocType, string> = {
   iban_change: "ibanChangeDocType",
   opening_balance: "openingBalanceDocType",
   asset_depreciation: "assetDepreciationDocType",
+  asset_addition: "assetAdditionDocType",
 };
 
 export default function ApprovalRulesPage() {

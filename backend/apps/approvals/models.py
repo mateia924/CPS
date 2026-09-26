@@ -49,6 +49,10 @@ class ApprovalRule(TenantScopedModel):
         # approver/threshold for starting a depreciation schedule than
         # for an ordinary prepaid/deferred one.
         ASSET_DEPRECIATION = "asset_depreciation", _("Asset Depreciation")
+        # Sprint 6.5 (decision 11): a capital addition's own approval
+        # channel — separate authority from starting the schedule in
+        # the first place, same default-rule/editable treatment.
+        ASSET_ADDITION = "asset_addition", _("Asset Addition")
 
     doc_type = models.CharField(_("document type"), max_length=30, choices=DocType.choices)
     min_amount = models.DecimalField(

@@ -1,19 +1,49 @@
 from decimal import Decimal
 
+from django.db.models import Sum
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
+from apps.common.constants import MONEY_DECIMAL_PLACES, MONEY_MAX_DIGITS
 from apps.organization.models import CostCenter, LegalEntity
 from apps.organization.services import get_or_create_linked_cost_center
 from apps.parties.models import Party, PartyRole
 
-from .models import Asset
+from .models import Asset, AssetAddition
+
+
+class AssetAdditionSerializer(serializers.ModelSerializer):
+    """Sprint 6.5 (decision 6): read shape for both the create response
+    and the addition-history list nested on AssetSerializer below."""
+
+    class Meta:
+        model = AssetAddition
+        fields = (
+            "id", "date", "amount_base", "description", "extend_life_months",
+            "old_entry", "new_entry", "created_by", "created_at",
+        )
+        read_only_fields = fields
+
+
+class AssetAdditionCreateSerializer(serializers.Serializer):
+    date = serializers.DateField()
+    amount_base = serializers.DecimalField(max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES)
+    description = serializers.CharField(required=False, allow_blank=True, default="")
+    extend_life_months = serializers.IntegerField(required=False, default=0, min_value=0)
 
 
 class AssetSerializer(serializers.ModelSerializer):
     # Write-only (3.3 section 4): "افتراضيًا مفعّل للسيارات" — only
     # meaningful when category == VEHICLE; ignored otherwise.
     create_linked_cost_center = serializers.BooleanField(required=False, default=True, write_only=True)
+    additions = AssetAdditionSerializer(many=True, read_only=True)
+    # Sprint 6.5.3: computed the same way apps.assets.depreciation.
+    # add_to_asset itself derives book value — entry.total_amount_base
+    # is always "book value at that entry's own start − salvage_base"
+    # by construction, so this stays correct across any number of
+    # additions without needing to walk old_entry/new_entry history.
+    accumulated_depreciation = serializers.SerializerMethodField()
+    book_value = serializers.SerializerMethodField()
 
     class Meta:
         model = Asset
@@ -28,8 +58,31 @@ class AssetSerializer(serializers.ModelSerializer):
             # Sprint 6.5: read-only — frozen/computed by
             # apps.assets.depreciation, never set directly here.
             "cost_base", "salvage_base", "disposed_fraction", "depreciation_entry",
+            # Sprint 6.5.3 (decision 6): addition history — "سجل
+            # الإضافات" on the asset detail screen.
+            "additions", "accumulated_depreciation", "book_value",
         )
-        read_only_fields = ("id", "created_at", "cost_base", "salvage_base", "disposed_fraction", "depreciation_entry")
+        read_only_fields = (
+            "id", "created_at", "cost_base", "salvage_base", "disposed_fraction", "depreciation_entry", "additions",
+            "accumulated_depreciation", "book_value",
+        )
+
+    def _book_value(self, asset):
+        if asset.cost_base is None:
+            return None
+        entry = asset.depreciation_entry
+        if entry is None:
+            return asset.cost_base - asset.opening_accumulated_depreciation
+        generated = entry.installments.filter(status="generated").aggregate(total=Sum("amount_base"))["total"] or Decimal("0")
+        return entry.total_amount_base + asset.salvage_base - generated
+
+    def get_book_value(self, asset):
+        value = self._book_value(asset)
+        return str(value) if value is not None else None
+
+    def get_accumulated_depreciation(self, asset):
+        value = self._book_value(asset)
+        return str(asset.cost_base - value) if value is not None else None
 
     def validate(self, attrs):
         # Sprint 6.5 (decision text under 6.5.0): "salvage_value <

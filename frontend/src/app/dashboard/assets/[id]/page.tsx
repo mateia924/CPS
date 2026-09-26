@@ -32,6 +32,12 @@ export default function AssetDetailPage() {
   const [decliningRate, setDecliningRate] = useState("");
   const [openingAccum, setOpeningAccum] = useState("0");
 
+  const [additionDate, setAdditionDate] = useState("");
+  const [additionAmount, setAdditionAmount] = useState("");
+  const [additionDescription, setAdditionDescription] = useState("");
+  const [extendLifeMonths, setExtendLifeMonths] = useState("0");
+  const [showAddAddition, setShowAddAddition] = useState(false);
+
   const load = async () => {
     const loadedAsset = await api.get<Asset>(`/assets/${id}/`);
     setAsset(loadedAsset);
@@ -83,12 +89,29 @@ export default function AssetDetailPage() {
   };
 
   const cost = Number(asset.cost_base ?? asset.purchase_cost);
-  const generatedTotal = (schedule?.installments || [])
-    .filter((i) => i.status === "generated")
-    .reduce((sum, i) => sum + Number(i.amount_base), 0);
-  const accumulatedDepreciation = Number(asset.opening_accumulated_depreciation) + generatedTotal;
-  const bookValue = cost - accumulatedDepreciation;
+  const accumulatedDepreciation = Number(asset.accumulated_depreciation ?? 0);
+  const bookValue = Number(asset.book_value ?? cost);
   const remainingInstallments = (schedule?.installments || []).filter((i) => i.status === "due").length;
+
+  const addAddition = async () => {
+    setError(null);
+    try {
+      await api.post(`/assets/${id}/additions/`, {
+        date: additionDate,
+        amount_base: additionAmount,
+        description: additionDescription,
+        extend_life_months: Number(extendLifeMonths) || 0,
+      });
+      setShowAddAddition(false);
+      setAdditionDate("");
+      setAdditionAmount("");
+      setAdditionDescription("");
+      setExtendLifeMonths("0");
+      load();
+    } catch (err) {
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
+    }
+  };
 
   return (
     <div>
@@ -202,6 +225,64 @@ export default function AssetDetailPage() {
                 ))}
               </tbody>
             </table>
+
+            <h3 style={{ marginTop: "1rem" }}>{t("additionsTab")}</h3>
+            <button className="secondary" onClick={() => setShowAddAddition((v) => !v)}>
+              {t("addAddition")}
+            </button>
+            {showAddAddition && (
+              <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+                <div className="form-field">
+                  <label>{t("additionDate")}</label>
+                  <input type="date" value={additionDate} onChange={(e) => setAdditionDate(e.target.value)} />
+                </div>
+                <div className="form-field">
+                  <label>{t("additionAmount")}</label>
+                  <input
+                    type="number" step="0.01" value={additionAmount}
+                    onChange={(e) => setAdditionAmount(e.target.value)}
+                  />
+                </div>
+                <div className="form-field">
+                  <label>{t("extendLifeMonths")}</label>
+                  <input
+                    type="number" value={extendLifeMonths}
+                    onChange={(e) => setExtendLifeMonths(e.target.value)}
+                  />
+                </div>
+                <div className="form-field">
+                  <label>{t("description")}</label>
+                  <input value={additionDescription} onChange={(e) => setAdditionDescription(e.target.value)} />
+                </div>
+                <button className="primary" onClick={addAddition}>{t("save")}</button>
+              </div>
+            )}
+
+            <h4 style={{ marginTop: "0.75rem" }}>{t("additionsHistory")}</h4>
+            {asset.additions.length === 0 ? (
+              <p>{t("noAdditionsYet")}</p>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>{t("additionDate")}</th>
+                    <th>{t("additionAmount")}</th>
+                    <th>{t("extendLifeMonths")}</th>
+                    <th>{t("description")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {asset.additions.map((addition) => (
+                    <tr key={addition.id}>
+                      <td>{addition.date}</td>
+                      <td><Money amount={addition.amount_base} /></td>
+                      <td>{addition.extend_life_months}</td>
+                      <td>{addition.description}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </>
         ) : (
           <>
@@ -225,7 +306,7 @@ export default function AssetDetailPage() {
                     if (nextMethod === "declining_balance" && !decliningRate && asset.useful_life_months) {
                       const years = asset.useful_life_months / 12;
                       const suggested = Math.min(99, 200 / years);
-                      setDecliningRate(suggested.toFixed(2));
+                      setDecliningRate(suggested.toFixed(2)); // money-ok: a percentage rate, not a money amount
                     }
                   }}
                 >

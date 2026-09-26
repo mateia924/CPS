@@ -113,3 +113,34 @@ class Asset(TenantScopedModel):
 
     def __str__(self):
         return f"{self.code} {self.name}"
+
+
+class AssetAddition(TenantScopedModel):
+    """Sprint 6.5 (decision 6): a capital addition to an existing
+    asset — cancels the remaining (DUE) installments of the current
+    depreciation schedule and starts a fresh one over (current book
+    value + this addition − salvage_base), spread across (remaining
+    installments + extend_life_months). Never posts a journal entry
+    itself — the purchase is a manual JV/voucher on FIXED_ASSETS like
+    any other capital expenditure (decision 1); this row only records
+    the schedule recompute apps.assets.depreciation.add_to_asset did."""
+
+    asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name="additions")
+    date = models.DateField(_("date"))
+    amount_base = models.DecimalField(
+        _("amount (base currency)"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES
+    )
+    description = models.CharField(_("description"), max_length=255, blank=True)
+    extend_life_months = models.PositiveIntegerField(_("extend life (months)"), default=0)
+    old_entry = models.ForeignKey("accounting.RecurringEntry", on_delete=models.PROTECT, related_name="+")
+    new_entry = models.ForeignKey("accounting.RecurringEntry", on_delete=models.PROTECT, related_name="+")
+    created_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.asset.code} +{self.amount_base}"

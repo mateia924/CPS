@@ -19,19 +19,21 @@ from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Sum
 from django.utils.translation import gettext_lazy as _
 
 from apps.accounting.models import FiscalPeriod, FiscalYear, RecurringEntry, RecurringInstallment
-from apps.accounting.periods import create_next_fiscal_year_for_tenant
+from apps.accounting.periods import assert_open_period, create_next_fiscal_year_for_tenant
 from apps.accounting.recurring import _consecutive_periods, _split_amount
 from apps.accounting.services import CENTS, get_system_account
 from apps.platform.models import AuditLog
 from apps.platform.services import log_action
 from apps.treasury.services import ExchangeRateNotFound, get_rate_with_warnings
 
-from .models import Asset
+from .models import Asset, AssetAddition
 
 DOC_TYPE = "asset_depreciation"
+ADDITION_DOC_TYPE = "asset_addition"
 
 # Decision 9: any of these means the asset already has a schedule that
 # hasn't been withdrawn/rejected back out of existence — a second
@@ -48,6 +50,24 @@ class DepreciationAlreadyActive(Exception):
     """The asset already has a schedule in one of _ACTIVE_SCHEDULE_
     STATUSES — the view maps this to 409, distinct from the ordinary
     400 a plain validation failure gets."""
+
+
+class NoActiveDepreciationSchedule(Exception):
+    """Decision 6: an addition needs a currently-running (APPROVED)
+    schedule to cancel and recompute — the view maps this to 409."""
+
+
+def doc_type_for_entry(entry):
+    """Decision 11: the SAME RecurringEntry model backs three separate
+    approval authorities (starting a schedule, an addition, and — from
+    6.5.4 — a disposal-triggered recompute) that differ only in which
+    ApprovalRule.DocType applies; kind stays DEPRECIATION for all of
+    them (it's a label, not a routing key — same as TaxCode.kind).
+    Used by apps.approvals.services.list_pending_approvals and by this
+    module's own approve/reject/withdraw wrappers so both agree."""
+    if AssetAddition.objects.filter(new_entry=entry).exists():
+        return ADDITION_DOC_TYPE
+    return DOC_TYPE
 
 
 def _first_schedule_period(tenant, in_service_date):
@@ -166,9 +186,17 @@ def _activate_schedule(entry):
     per decision 5's own instruction not to touch that function."""
     asset = Asset.objects.get(depreciation_entry=entry)
     if asset.depreciation_method == Asset.DepreciationMethod.DECLINING_BALANCE:
+        # entry.total_amount_base is always "book value at schedule
+        # start − salvage_base" by construction (both at the original
+        # start_depreciation and after an addition's recompute) — so
+        # adding salvage_base back gives the opening book value without
+        # this module needing to separately track accumulated-to-date,
+        # which start_depreciation's own opening_accumulated_depreciation
+        # field can't express once a *second* schedule (an addition)
+        # has already run.
+        opening_book_value = entry.total_amount_base + asset.salvage_base
         periods, amounts = _declining_balance_amounts(
-            entry, asset.cost_base - asset.opening_accumulated_depreciation, asset.salvage_base,
-            asset.declining_balance_rate,
+            entry, opening_book_value, asset.salvage_base, asset.declining_balance_rate,
         )
     else:
         periods = _consecutive_periods(entry.tenant, entry.first_period, entry.installments_count, create=True)
@@ -246,7 +274,8 @@ def approve_depreciation_schedule(entry, user, request=None, emergency_reason=""
     from apps.approvals.services import approve as approvals_approve
 
     approvals_approve(
-        entry, user, DOC_TYPE, entry.total_amount_base, request=request, emergency_reason=emergency_reason
+        entry, user, doc_type_for_entry(entry), entry.total_amount_base, request=request,
+        emergency_reason=emergency_reason,
     )
     _activate_schedule(entry)
     return entry
@@ -255,10 +284,102 @@ def approve_depreciation_schedule(entry, user, request=None, emergency_reason=""
 def reject_depreciation_schedule(entry, user, reason, request=None):
     from apps.approvals.services import reject as approvals_reject
 
-    return approvals_reject(entry, user, DOC_TYPE, reason, request=request)
+    return approvals_reject(entry, user, doc_type_for_entry(entry), reason, request=request)
 
 
 def withdraw_depreciation_schedule(entry, user, request=None):
     from apps.approvals.services import withdraw as approvals_withdraw
 
-    return approvals_withdraw(entry, user, DOC_TYPE, request=request)
+    return approvals_withdraw(entry, user, doc_type_for_entry(entry), request=request)
+
+
+@transaction.atomic
+def add_to_asset(asset, user, date, amount_base, description="", extend_life_months=0, request=None):
+    """Decision 6: cancels the current schedule's remaining (DUE)
+    installments and starts a fresh one over the new book value,
+    spread across (remaining installments + extend_life_months). Never
+    posts a journal entry itself — the purchase itself is a manual
+    JV/voucher on FIXED_ASSETS like any other capital expenditure
+    (decision 1)."""
+    if amount_base <= 0:
+        raise ValidationError(str(_("مبلغ الإضافة يجب أن يكون أكبر من صفر.")))
+
+    old_entry = asset.depreciation_entry
+    if old_entry is None or old_entry.status != RecurringEntry.Status.APPROVED:
+        raise NoActiveDepreciationSchedule(str(_("لا يوجد جدول إهلاك نشط لهذا الأصل.")))
+
+    period = assert_open_period(asset.tenant, date)
+
+    generated_so_far = old_entry.installments.filter(
+        status=RecurringInstallment.Status.GENERATED
+    ).aggregate(total=Sum("amount_base"))["total"] or Decimal("0")
+    # old_entry.total_amount_base is always "book value at old_entry's
+    # own start − salvage_base" by construction (true whether old_entry
+    # came from start_depreciation or from an earlier addition) — so
+    # this reads correctly however many additions have already
+    # happened, with no need to separately track cumulative
+    # depreciation back to the asset's original opening_accumulated_
+    # depreciation.
+    book_value = old_entry.total_amount_base + asset.salvage_base - generated_so_far
+    new_total = book_value + amount_base - asset.salvage_base
+    old_due_count = old_entry.installments.filter(status=RecurringInstallment.Status.DUE).count()
+    new_count = old_due_count + extend_life_months
+    if new_count <= 0:
+        raise ValidationError(str(_("لا توجد أقساط متبقية بعد هذه الإضافة.")))
+
+    this_period_installment = old_entry.installments.filter(period=period).first()
+    if this_period_installment is not None and this_period_installment.status == RecurringInstallment.Status.GENERATED:
+        # Decision 6: "يبدأ من فترة الإضافة إن لم يُولَّد قسطها وإلا
+        # التالية" — this period's own installment already posted, so
+        # the new schedule picks up starting the next one, same
+        # elapsed-walk _first_schedule_period already does for a
+        # fresh start (the immediately-following period is open by
+        # construction here, since `period` itself just passed
+        # assert_open_period above).
+        first_period, _elapsed = _first_schedule_period(asset.tenant, period.end_date + timedelta(days=1))
+    else:
+        first_period = period
+
+    from apps.accounting.recurring import cancel_recurring_entry
+
+    cancel_recurring_entry(old_entry, user, request=request)
+
+    accum_account = get_system_account(asset.tenant, "ACCUM_DEPRECIATION")
+    expense_account = get_system_account(asset.tenant, "DEPRECIATION_EXPENSE")
+    new_entry = RecurringEntry.objects.create(
+        tenant=asset.tenant, legal_entity=asset.legal_entity, cost_center=asset.cost_center,
+        description=str(_("إهلاك %(code)s — %(name)s (بعد إضافة)") % {"code": asset.code, "name": asset.name}),
+        kind=RecurringEntry.Kind.DEPRECIATION, from_account=accum_account, to_account=expense_account,
+        total_amount_base=new_total, installments_count=new_count, first_period=first_period,
+        created_by=user,
+    )
+
+    addition = AssetAddition.objects.create(
+        tenant=asset.tenant, asset=asset, date=date, amount_base=amount_base, description=description,
+        extend_life_months=extend_life_months, old_entry=old_entry, new_entry=new_entry, created_by=user,
+    )
+    log_action(
+        actor_type=AuditLog.ActorType.TENANT_USER, actor_id=user.id, action="asset_addition.created",
+        target_type="asset", target_id=asset.id, tenant_id=asset.tenant_id,
+        after={"amount_base": str(amount_base), "new_entry": str(new_entry.id)}, request=request,
+    )
+
+    # Decision 6: purchase_cost/cost_base are both in base currency
+    # here — every test and every spec example for this block is a
+    # SAR (base-currency) asset; a foreign-currency asset's own
+    # purchase_cost (its own currency) is left untouched, a known,
+    # narrow limitation (cost_base, the field every computation above
+    # actually reads, is always correct).
+    asset.cost_base += amount_base
+    asset.purchase_cost += amount_base
+    if extend_life_months:
+        asset.useful_life_months += extend_life_months
+    asset.depreciation_entry = new_entry
+    asset.save(update_fields=["cost_base", "purchase_cost", "useful_life_months", "depreciation_entry"])
+
+    from apps.approvals.services import submit_for_approval
+
+    auto_approved = submit_for_approval(new_entry, user, ADDITION_DOC_TYPE, new_entry.total_amount_base, request=request)
+    if auto_approved:
+        _activate_schedule(new_entry)
+    return addition

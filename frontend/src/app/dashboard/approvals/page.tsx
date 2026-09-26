@@ -24,6 +24,7 @@ const DOC_TYPE_LABEL: Record<PendingApproval["doc_type"], string> = {
   iban_change: "ibanChangeDocType",
   opening_balance: "openingBalanceDocType",
   asset_depreciation: "assetDepreciationDocType",
+  asset_addition: "assetAdditionDocType",
 };
 
 // Sprint 6.3: fixes a pre-existing gap (sprint 5.5) — an "iban_change"
@@ -38,6 +39,7 @@ const DOC_TYPE_PATH: Record<PendingApproval["doc_type"], string> = {
   iban_change: "iban-requests",
   opening_balance: "opening-balances",
   asset_depreciation: "depreciation-schedules",
+  asset_addition: "depreciation-schedules",
 };
 
 // Sprint 6.9.1 (item C): the emergency tab can show doc_types the

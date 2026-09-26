@@ -115,7 +115,7 @@ def _describe_emergency_document(doc_type, target_id):
             entry = OpeningBalanceEntry.objects.select_related("legal_entity").get(id=target_id)
             amount = entry.lines.aggregate(total=Sum("debit_base"))["total"] or Decimal("0")
             return {"number": None, "description": entry.legal_entity.name, "amount_base": str(amount)}
-        if doc_type in ("recurring_entry", "asset_depreciation"):
+        if doc_type in ("recurring_entry", "asset_depreciation", "asset_addition"):
             schedule = RecurringEntry.objects.get(id=target_id)
             return {
                 "number": schedule.number, "description": schedule.description,

@@ -9,13 +9,14 @@ from apps.accounting.models import RecurringEntry
 from apps.accounting.serializers import OpeningBalanceReasonSerializer, RecurringEntrySerializer
 from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 
-from .depreciation import DepreciationAlreadyActive
+from .depreciation import DepreciationAlreadyActive, NoActiveDepreciationSchedule
+from .depreciation import add_to_asset as _add_to_asset
 from .depreciation import approve_depreciation_schedule as _approve_depreciation_schedule
 from .depreciation import reject_depreciation_schedule as _reject_depreciation_schedule
 from .depreciation import start_depreciation as _start_depreciation
 from .depreciation import withdraw_depreciation_schedule as _withdraw_depreciation_schedule
 from .models import Asset
-from .serializers import AssetSerializer
+from .serializers import AssetAdditionCreateSerializer, AssetAdditionSerializer, AssetSerializer
 
 
 class AssetViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
@@ -38,6 +39,7 @@ class AssetViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         # depreciation schedule is a separate authority from editing
         # the plain registry row (assets.manage).
         "start_depreciation": "assets.depreciate",
+        "additions": "assets.depreciate",
     }
 
     def get_queryset(self):
@@ -63,6 +65,23 @@ class AssetViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         data["warnings"] = warnings
         data["depreciation_schedule_id"] = str(entry.id)
         return Response(data, status=201)
+
+    @action(detail=True, methods=["post"])
+    def additions(self, request, pk=None):
+        asset = self.get_object()
+        serializer = AssetAdditionCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            addition = _add_to_asset(
+                asset, request.user, date=data["date"], amount_base=data["amount_base"],
+                description=data["description"], extend_life_months=data["extend_life_months"], request=request,
+            )
+        except NoActiveDepreciationSchedule as exc:
+            return Response({"detail": str(exc)}, status=409)
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        return Response(AssetAdditionSerializer(addition).data, status=201)
 
 
 class DepreciationScheduleViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
