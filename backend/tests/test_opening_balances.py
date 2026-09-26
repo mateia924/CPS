@@ -404,3 +404,38 @@ def test_tenant_isolation(tenant_a, tenant_b, owner_client, user_b):
     other_client = _client(user_b)
     response = other_client.get(f"/api/opening-balances/{entry_id}/")
     assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------
+# Sprint 6.9.1 (item D, decision 6): zero-line INITIAL — an entity that
+# started activity inside the system, nothing to open.
+# ---------------------------------------------------------------------
+
+
+def test_empty_initial_is_created_submitted_and_approved_without_a_journal_entry(tenant_a, owner_client, user_a):
+    entity = _entity(tenant_a)
+    created = owner_client.post(
+        "/api/opening-balances/", {"legal_entity": str(entity.id), "kind": "initial", "lines": []}, format="json"
+    )
+    assert created.status_code == 201, created.data
+    entry_id = created.data["id"]
+
+    submitted = owner_client.post(f"/api/opening-balances/{entry_id}/submit/")
+    assert submitted.status_code == 200, submitted.data
+
+    response = owner_client.post(
+        f"/api/opening-balances/{entry_id}/approve/",
+        {"attestation_text": "لا أرصدة افتتاحية — بدأ الكيان نشاطه داخل النظام"},
+        format="json",
+    )
+    assert response.status_code == 200, response.data
+
+    entry = OpeningBalanceEntry.objects.get(id=entry_id)
+    assert entry.journal_entry_id is None
+
+    entity.refresh_from_db()
+    assert entity.opening_approved_at is not None
+
+    summary = owner_client.get("/api/dashboard/summary/")
+    assert summary.status_code == 200, summary.data
+    assert entity.name not in summary.data["opening_not_approved"]

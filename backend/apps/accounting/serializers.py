@@ -384,10 +384,11 @@ class OpeningBalanceCreateSerializer(serializers.Serializer):
                 tenant=request.user.tenant, id__in=accessible_ids
             )
 
-    def validate_lines(self, value):
-        if not value:
-            raise serializers.ValidationError(_("At least one line is required."))
-        return value
+    # Sprint 6.9.1 (item D, decision 6): a legal entity that started
+    # activity inside the system has nothing to open — an INITIAL
+    # document with zero lines is balanced (0 = 0) and must be
+    # creatable; this used to reject it outright ("at least one line
+    # is required") before the accountant ever reached submit/approve.
 
 
 class OpeningBalanceApproveSerializer(serializers.Serializer):

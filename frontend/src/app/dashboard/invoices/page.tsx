@@ -10,6 +10,7 @@ import { Money } from "@/components/Money";
 import { formatMoney } from "@/lib/money";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import type { CostCenter, CustomerParty, Invoice, LegalEntity, Paginated, Product, TaxCode } from "@/lib/types";
 
 interface LineDraft {
@@ -41,6 +42,7 @@ export default function InvoicesPage() {
   const [showQuickAddCustomer, setShowQuickAddCustomer] = useState(false);
   const [quickCustomerName, setQuickCustomerName] = useState("");
   const [quickAddError, setQuickAddError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
 
   // 3.13: legal_entity only needs a visible field once the tenant is out
   // of simplified mode — otherwise the server auto-fills the single branch.
@@ -151,11 +153,13 @@ export default function InvoicesPage() {
           ...(l.costCenter ? { cost_center: l.costCenter } : {}),
         })),
     };
+    let saved: Invoice;
     if (editing) {
-      await api.patch(`/invoices/${editing.id}/`, payload);
+      saved = await api.patch<Invoice>(`/invoices/${editing.id}/`, payload);
     } else {
-      await api.post("/invoices/", payload);
+      saved = await api.post<Invoice>("/invoices/", payload);
     }
+    setWarnings(saved.warnings || []);
     cancelEdit();
     setRefreshToken((n) => n + 1);
   };
@@ -163,6 +167,7 @@ export default function InvoicesPage() {
   return (
     <div>
       <h1>{t("invoices")}</h1>
+      <WarningsBanner warnings={warnings} />
       <div className="card">
         <h3>{editing ? t("editInvoice") : t("createInvoice")}</h3>
         <form onSubmit={onSubmit}>
@@ -360,7 +365,8 @@ export default function InvoicesPage() {
               <button
                 className="secondary"
                 onClick={async () => {
-                  await api.post(`/invoices/${invoice.id}/issue/`);
+                  const issued = await api.post<Invoice>(`/invoices/${invoice.id}/issue/`);
+                  setWarnings(issued.warnings || []);
                   reload();
                 }}
               >

@@ -444,9 +444,14 @@ def _finish_approval(entry, user, request=None):
     entry.approved_at = timezone.now()
     entry.save(update_fields=["readiness_snapshot", "approved_by", "approved_at"])
 
-    journal_entry = _post_opening_balance(entry, user)
-    entry.journal_entry = journal_entry
-    entry.save(update_fields=["journal_entry"])
+    # Sprint 6.9.1 (item D, decision 6): a legal entity that started
+    # activity inside the system has nothing to open — an INITIAL
+    # document with zero lines is balanced (0 = 0) and approvable, but
+    # must never produce an empty JournalEntry (no line at all).
+    if entry.lines.exists():
+        journal_entry = _post_opening_balance(entry, user)
+        entry.journal_entry = journal_entry
+        entry.save(update_fields=["journal_entry"])
 
     if entry.kind == OpeningBalanceEntry.Kind.INITIAL:
         entry.legal_entity.opening_approved_at = entry.approved_at

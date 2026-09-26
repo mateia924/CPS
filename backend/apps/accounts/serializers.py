@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -15,6 +16,7 @@ from apps.accounting.services import (
     seed_tax_codes_for_country,
 )
 from apps.approvals.models import ApprovalRule
+from apps.common.validators import validate_tenant_subdomain
 from apps.organization.services import create_default_legal_entities
 from apps.platform.models import AuditLog, Plan
 from apps.platform.services import log_action
@@ -45,7 +47,7 @@ class UserSerializer(serializers.ModelSerializer):
 
 class RegisterSerializer(serializers.Serializer):
     company_name = serializers.CharField(max_length=255)
-    subdomain = serializers.SlugField(max_length=63)
+    subdomain = serializers.CharField(max_length=30)
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True, validators=[validate_password])
     first_name = serializers.CharField(max_length=150, required=False, allow_blank=True, default="")
@@ -58,9 +60,12 @@ class RegisterSerializer(serializers.Serializer):
     )
 
     def validate_subdomain(self, value):
-        value = value.lower()
+        try:
+            value = validate_tenant_subdomain(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.message)
         if Tenant.objects.filter(subdomain=value).exists():
-            raise serializers.ValidationError(_("This subdomain is already taken."))
+            raise serializers.ValidationError(_("هذا الاسم مُستخدَم بالفعل، اختر اسمًا آخر."))
         return value
 
     def create(self, validated_data):

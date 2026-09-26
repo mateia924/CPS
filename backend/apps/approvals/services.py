@@ -46,12 +46,18 @@ def list_pending_approvals(user):
 
     tenant = user.tenant
     user_role_ids = set(user.roles.values_list("id", flat=True))
+    # Sprint 6.9.1 (item A, decision 2): the same single-active-user
+    # exemption approve() already grants (3.15.1) — without it, the one
+    # user on such a tenant could approve any of these documents
+    # (approve() lets them through) but never actually saw them here,
+    # since none matched their own role.
+    exempted = _is_single_active_user_tenant(tenant)
     results = []
 
     for entry in JournalEntry.objects.filter(tenant=tenant, status="pending_approval"):
         amount = entry.lines.aggregate(total=Sum("debit"))["total"] or Decimal("0")
         rule = get_matching_rule(tenant, "journal_entry", amount)
-        if rule is not None and rule.required_role_id in user_role_ids:
+        if rule is not None and (exempted or rule.required_role_id in user_role_ids):
             results.append(
                 {
                     "doc_type": "journal_entry",
@@ -66,7 +72,7 @@ def list_pending_approvals(user):
 
     for invoice in Invoice.objects.filter(tenant=tenant, status="pending_approval"):
         rule = get_matching_rule(tenant, "invoice", invoice.base_total)
-        if rule is not None and rule.required_role_id in user_role_ids:
+        if rule is not None and (exempted or rule.required_role_id in user_role_ids):
             results.append(
                 {
                     "doc_type": "invoice",
@@ -85,7 +91,7 @@ def list_pending_approvals(user):
     for voucher in Voucher.objects.filter(tenant=tenant, status="pending_approval"):
         doc_type = f"voucher_{voucher.voucher_type}"
         rule = get_matching_rule(tenant, doc_type, voucher.total_base)
-        if rule is not None and rule.required_role_id in user_role_ids:
+        if rule is not None and (exempted or rule.required_role_id in user_role_ids):
             results.append(
                 {
                     "doc_type": doc_type,
@@ -105,7 +111,7 @@ def list_pending_approvals(user):
         tenant=tenant, status="pending_approval"
     ).select_related("content_type"):
         rule = get_matching_rule(tenant, "iban_change", Decimal("0"))
-        if rule is not None and rule.required_role_id in user_role_ids:
+        if rule is not None and (exempted or rule.required_role_id in user_role_ids):
             results.append(
                 {
                     "doc_type": "iban_change",
@@ -129,7 +135,7 @@ def list_pending_approvals(user):
     ):
         amount = entry.lines.aggregate(total=Sum("debit_base"))["total"] or Decimal("0")
         rule = get_matching_rule(tenant, "opening_balance", amount)
-        if rule is not None and rule.required_role_id in user_role_ids:
+        if rule is not None and (exempted or rule.required_role_id in user_role_ids):
             results.append(
                 {
                     "doc_type": "opening_balance",
@@ -144,7 +150,7 @@ def list_pending_approvals(user):
 
     for schedule in RecurringEntry.objects.filter(tenant=tenant, status="pending_approval"):
         rule = get_matching_rule(tenant, "recurring_entry", schedule.total_amount_base)
-        if rule is not None and rule.required_role_id in user_role_ids:
+        if rule is not None and (exempted or rule.required_role_id in user_role_ids):
             results.append(
                 {
                     "doc_type": "recurring_entry",

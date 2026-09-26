@@ -7,6 +7,7 @@ import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import { flattenLeafAccounts, type FlatAccountOption } from "@/lib/accounts";
 import type { AccountTreeNode, CostCenter, JournalEntry, LegalEntity, Paginated } from "@/lib/types";
 
@@ -37,6 +38,7 @@ export default function JournalEntriesPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
   const [showFx, setShowFx] = useState(false);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [reasonFor, setReasonFor] = useState<{ id: string; kind: "reject" | "reverse" } | null>(null);
   const [attachmentsFor, setAttachmentsFor] = useState<string | null>(null);
   const [reasonText, setReasonText] = useState("");
@@ -102,7 +104,8 @@ export default function JournalEntriesPage() {
         })),
     };
     try {
-      await api.post("/journal-entries/", payload);
+      const created = await api.post<JournalEntry>("/journal-entries/", payload);
+      setWarnings(created.warnings || []);
       resetForm();
       setRefreshToken((n) => n + 1);
     } catch {
@@ -117,10 +120,11 @@ export default function JournalEntriesPage() {
 
   const submitReason = async (reload: () => void) => {
     if (!reasonFor) return;
-    await api.post(`/journal-entries/${reasonFor.id}/${reasonFor.kind}/`, {
+    const result = await api.post<JournalEntry>(`/journal-entries/${reasonFor.id}/${reasonFor.kind}/`, {
       reason: reasonText,
       ...(reasonFor.kind === "reverse" && reverseDate ? { date: reverseDate } : {}),
     });
+    setWarnings(result.warnings || []);
     setReasonFor(null);
     setReasonText("");
     setReverseDate("");
@@ -130,6 +134,7 @@ export default function JournalEntriesPage() {
   return (
     <div>
       <h1>{t("manualJournalEntries")}</h1>
+      <WarningsBanner warnings={warnings} />
 
       <div className="card">
         <h3>{t("createJournalEntry")}</h3>

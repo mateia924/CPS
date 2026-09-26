@@ -76,32 +76,101 @@ class PendingApprovalsView(APIView):
         return Response(list_pending_approvals(request.user))
 
 
+def _describe_emergency_document(doc_type, target_id):
+    """Sprint 6.9.1 (item C): AuditLog itself only ever stored the bare
+    target_id — enough to build the endpoint in 6.8, not enough to
+    render a usable review screen. Resolves the same doc_type strings
+    apps.approvals.services.list_pending_approvals already knows, by id
+    rather than by PENDING_APPROVAL status (the document is long since
+    approved by the time it shows up here)."""
+    from decimal import Decimal
+
+    from django.db.models import Sum
+
+    from apps.accounting.models import JournalEntry, OpeningBalanceEntry, RecurringEntry
+    from apps.sales.models import Invoice
+    from apps.treasury.models import IbanChangeRequest
+    from apps.vouchers.models import Voucher
+
+    try:
+        if doc_type == "journal_entry":
+            entry = JournalEntry.objects.get(id=target_id)
+            amount = entry.lines.aggregate(total=Sum("debit"))["total"] or Decimal("0")
+            return {"number": entry.number, "description": entry.memo, "amount_base": str(amount)}
+        if doc_type == "invoice":
+            invoice = Invoice.objects.select_related("party").get(id=target_id)
+            return {"number": invoice.number, "description": invoice.party.name, "amount_base": str(invoice.base_total)}
+        if doc_type.startswith("voucher_"):
+            voucher = Voucher.objects.select_related("party").get(id=target_id)
+            description = voucher.party.name if voucher.party_id else voucher.payee_name
+            return {"number": voucher.number, "description": description, "amount_base": str(voucher.total_base)}
+        if doc_type == "iban_change":
+            iban_request = IbanChangeRequest.objects.get(id=target_id)
+            return {
+                "number": None,
+                "description": f"{iban_request.old_iban or '—'} -> {iban_request.new_iban}",
+                "amount_base": "0",
+            }
+        if doc_type == "opening_balance":
+            entry = OpeningBalanceEntry.objects.select_related("legal_entity").get(id=target_id)
+            amount = entry.lines.aggregate(total=Sum("debit_base"))["total"] or Decimal("0")
+            return {"number": None, "description": entry.legal_entity.name, "amount_base": str(amount)}
+        if doc_type == "recurring_entry":
+            schedule = RecurringEntry.objects.get(id=target_id)
+            return {
+                "number": schedule.number, "description": schedule.description,
+                "amount_base": str(schedule.total_amount_base),
+            }
+    except (
+        JournalEntry.DoesNotExist, Invoice.DoesNotExist, Voucher.DoesNotExist,
+        IbanChangeRequest.DoesNotExist, OpeningBalanceEntry.DoesNotExist, RecurringEntry.DoesNotExist,
+    ):
+        pass
+    return {"number": None, "description": None, "amount_base": None}
+
+
 class EmergencyApprovalsView(APIView):
     """Sprint 6.8 (decision 18, D4): `GET /api/approvals/emergency/` —
     every emergency approval on record, for review. Read from AuditLog
     directly (`after__is_emergency_approval=True`) rather than a new
     column on every approvable document model — apps.approvals.services
     .approve() already logs this fact there for every doc type
-    uniformly, so this is the one place that needs to know about it."""
+    uniformly, so this is the one place that needs to know about it.
+    Sprint 6.9.1 (item C): also resolves the document's own number/
+    description/amount and the approver's display name — the raw ids
+    AuditLog stores aren't enough to render a screen a human reads."""
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        from apps.accounts.models import User
         from apps.platform.models import AuditLog
 
         logs = AuditLog.objects.filter(
             tenant_id=request.user.tenant_id, action__endswith=".approved", after__is_emergency_approval=True,
         ).order_by("-created_at")
-        return Response(
-            [
+        users_by_id = {
+            str(user.id): (user.get_full_name() or user.email)
+            for user in User.objects.filter(tenant_id=request.user.tenant_id)
+        }
+        results = []
+        for log in logs:
+            doc_type = log.action.rsplit(".", 1)[0]
+            target_id = str(log.target_id) if log.target_id else None
+            document = _describe_emergency_document(doc_type, target_id) if target_id else {
+                "number": None, "description": None, "amount_base": None,
+            }
+            approved_by_id = str(log.actor_id) if log.actor_id else None
+            results.append(
                 {
                     "id": str(log.id),
-                    "doc_type": log.action.rsplit(".", 1)[0],
-                    "target_id": str(log.target_id) if log.target_id else None,
-                    "approved_by": str(log.actor_id) if log.actor_id else None,
+                    "doc_type": doc_type,
+                    "target_id": target_id,
+                    **document,
+                    "approved_by": approved_by_id,
+                    "approved_by_name": users_by_id.get(approved_by_id, approved_by_id),
                     "emergency_reason": (log.after or {}).get("emergency_reason", ""),
                     "created_at": log.created_at,
                 }
-                for log in logs
-            ]
-        )
+            )
+        return Response(results)

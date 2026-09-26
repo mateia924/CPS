@@ -134,6 +134,7 @@ services:
       context: ../frontend
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_APP_DOMAIN: ${NEXT_PUBLIC_APP_DOMAIN}
     restart: unless-stopped
     # Sprint 6.0.1-B (README debt #13): frontend/src only ever reads
     # NEXT_PUBLIC_* vars (verified: no other process.env.* usage) — it
@@ -143,6 +144,10 @@ services:
     # via the ARG above; this only matters for `next dev`.
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      # Sprint 6.9.1 (item I): the login screen's "اسم شركتك في الرابط"
+      # helper text and hostname-based auto-fill both need this — the
+      # domain a real subdomain would be a label in front of.
+      NEXT_PUBLIC_APP_DOMAIN: ${NEXT_PUBLIC_APP_DOMAIN}
     depends_on:
       - backend
 

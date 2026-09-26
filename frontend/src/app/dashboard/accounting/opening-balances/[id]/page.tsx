@@ -32,6 +32,17 @@ export default function OpeningBalanceDetailPage() {
 
   useEffect(load, [id]);
 
+  // Sprint 6.9.1 (item D, decision 6): a legal entity that started
+  // activity inside the system (no prior balances to open) still needs
+  // a written attestation to approve — suggest the standard wording
+  // instead of leaving the accountant to invent one from scratch.
+  useEffect(() => {
+    if (entry && entry.status === "pending_approval" && entry.lines.length === 0 && !attestation) {
+      setAttestation(t("noOpeningLinesAttestationSuggestion"));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry?.id, entry?.status]);
+
   if (!entry) return null;
 
   const checkReadiness = async () => {

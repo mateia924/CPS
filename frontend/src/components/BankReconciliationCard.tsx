@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, generalError } from "@/lib/api";
 import { Money } from "@/components/Money";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import { useLocale } from "@/lib/i18n";
 import type {
   BankStatement,
@@ -24,6 +25,7 @@ export function BankReconciliationCard({ bankId }: { bankId: string }) {
   const [report, setReport] = useState<ReconciliationReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
+  const [warnings, setWarnings] = useState<string[]>([]);
 
   const loadStatements = () => {
     api
@@ -64,12 +66,14 @@ export function BankReconciliationCard({ bankId }: { bankId: string }) {
       </div>
 
       {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
+      <WarningsBanner warnings={warnings} />
 
       {showImport && (
         <ImportStatementForm
           bankId={bankId}
-          onDone={() => {
+          onDone={(importWarnings) => {
             setShowImport(false);
+            setWarnings(importWarnings);
             loadStatements();
             loadReport();
           }}
@@ -131,7 +135,7 @@ function ImportStatementForm({
   onError,
 }: {
   bankId: string;
-  onDone: () => void;
+  onDone: (warnings: string[]) => void;
   onError: (message: string | null) => void;
 }) {
   const { t } = useLocale();
@@ -165,8 +169,8 @@ function ImportStatementForm({
       );
     }
     try {
-      await api.upload(`/bank-statements/import/`, formData);
-      onDone();
+      const result = await api.upload<{ warnings?: string[] }>(`/bank-statements/import/`, formData);
+      onDone(result.warnings || []);
     } catch (e) {
       onError(generalError(e instanceof ApiError ? e.body : null, t("couldNotSave")));
     } finally {

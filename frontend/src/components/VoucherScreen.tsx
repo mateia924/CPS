@@ -9,6 +9,7 @@ import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import { formatMoney } from "@/lib/money";
 import { flattenLeafAccounts, type FlatAccountOption } from "@/lib/accounts";
 import type {
@@ -73,6 +74,7 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
   const [lines, setLines] = useState<LineDraft[]>([{ ...EMPTY_LINE }]);
   const [error, setError] = useState<string | null>(null);
   const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [refreshToken, setRefreshToken] = useState(0);
   const [reasonFor, setReasonFor] = useState<{ id: string; kind: "reject" | "reverse" } | null>(null);
   const [reasonText, setReasonText] = useState("");
@@ -219,7 +221,8 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
 
   const runAction = async (voucher: Voucher, action: string, reload: () => void) => {
     try {
-      await api.post(`/vouchers/${voucher.id}/${action}/`);
+      const result = await api.post<Voucher>(`/vouchers/${voucher.id}/${action}/`);
+      setWarnings(result.warnings || []);
     } catch (err) {
       window.alert(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
@@ -228,7 +231,8 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
 
   const submitReason = async (reload: () => void) => {
     if (!reasonFor) return;
-    await api.post(`/vouchers/${reasonFor.id}/${reasonFor.kind}/`, { reason: reasonText });
+    const result = await api.post<Voucher>(`/vouchers/${reasonFor.id}/${reasonFor.kind}/`, { reason: reasonText });
+    setWarnings(result.warnings || []);
     setReasonFor(null);
     setReasonText("");
     reload();
@@ -237,6 +241,7 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
   return (
     <div>
       <h1>{t(isReceipt ? "receiptVouchers" : "paymentVouchers")}</h1>
+      <WarningsBanner warnings={warnings} />
 
       <div className="card">
         <h3>{t(isReceipt ? "createReceiptVoucher" : "createPaymentVoucher")}</h3>

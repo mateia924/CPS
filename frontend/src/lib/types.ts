@@ -86,6 +86,10 @@ export interface Invoice {
   journal_entry_id: string | null;
   journal_entry_number: string | null;
   lines: InvoiceLine[];
+  // Sprint 6.9.1 (item B): only present on create/patch/issue
+  // responses (credit limit, stale exchange rate) — never on a plain
+  // GET, so this stays optional rather than a field every Invoice has.
+  warnings?: string[];
 }
 
 export type LegalEntityType = "holding" | "company" | "branch";
@@ -678,6 +682,8 @@ export interface JournalEntry {
   exchange_rate: string;
   created_at: string;
   lines: JournalLine[];
+  // Sprint 6.9.1 (item B): present on create/reverse responses only.
+  warnings?: string[];
 }
 
 export interface ManualJournalLineInput {
@@ -838,6 +844,8 @@ export interface OpeningBalanceEntry {
   journal_entry: string | null;
   lines: OpeningBalanceLine[];
   created_at: string;
+  // Sprint 6.9.1 (item B): present on create/patch-lines responses only.
+  warnings?: string[];
 }
 
 export interface OpeningBalanceStatusRow {
@@ -1037,6 +1045,20 @@ export interface PendingApproval {
   created_by: string | null;
 }
 
+// Sprint 6.8 (decision 18, D4) + 6.9.1 (item C, display fields).
+export interface EmergencyApproval {
+  id: string;
+  doc_type: string;
+  target_id: string | null;
+  number: string | null;
+  description: string | null;
+  amount_base: string | null;
+  approved_by: string | null;
+  approved_by_name: string | null;
+  emergency_reason: string;
+  created_at: string;
+}
+
 // --- Sprint 5.3/5.4 (docs/SYSTEM_ANALYSIS.md 3.8): سندات القبض/الصرف/التسوية ---
 
 export type VoucherType = "receipt" | "payment" | "settlement";
@@ -1104,4 +1126,6 @@ export interface Voucher {
   reversal_of: string | null;
   lines: VoucherLine[];
   created_at: string;
+  // Sprint 6.9.1 (item B): present on create/post responses only.
+  warnings?: string[];
 }

@@ -482,6 +482,16 @@ class DashboardSummaryView(APIView):
         from django.db.models import F, Sum
         from django.utils import timezone
 
+        from apps.access.services import user_has_permission
+
+        # Sprint 6.9.1 (item A, decision 1): these are aggregated
+        # tenant-wide financial figures, not a per-user personal view
+        # (unlike the pending-approvals count folded into the same
+        # payload below) — any authenticated user could read them
+        # before this check, regardless of role.
+        if not user_has_permission(request.user, "accounting.view"):
+            raise PermissionDenied()
+
         from apps.approvals.services import list_pending_approvals
         from apps.sales.models import Invoice
         from apps.treasury.models import Bank, CashBox

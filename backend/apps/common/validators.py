@@ -1,3 +1,5 @@
+import re
+
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -85,3 +87,34 @@ def validate_iban(value, country_code=None):
     digits = "".join(str(int(ch, 36)) for ch in rearranged)
     if int(digits) % 97 != 1:
         raise ValidationError(_("IBAN checksum is invalid."))
+
+
+# Sprint 6.9.1 (item I, decision 7): "معرّف الشركة" (the subdomain) is
+# a real routing identifier a customer picks once at registration and
+# can never change — the rules were previously only "Django's
+# SlugField" (which also accepts underscores and uppercase, neither
+# wanted here). Called from RegisterSerializer only — not attached to
+# Tenant.subdomain's own `validators=` kwarg, which would change the
+# field's migration state for zero actual DB-level effect (validators
+# aren't a Postgres constraint); one function, one call site, no
+# migration needed.
+_SUBDOMAIN_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])?$")
+
+RESERVED_SUBDOMAINS = {
+    "www", "app", "api", "admin", "mail", "static", "media", "cdn",
+    "status", "help", "support", "docs", "login", "register", "platform",
+}
+
+
+def validate_tenant_subdomain(value):
+    value = (value or "").strip().lower()
+    if not _SUBDOMAIN_PATTERN.match(value):
+        raise ValidationError(
+            _(
+                "اسم الشركة في الرابط يجب أن يكون 3 إلى 30 حرفًا، حروفًا "
+                "لاتينية صغيرة وأرقامًا وشرطات فقط، ولا يبدأ أو ينتهي بشرطة."
+            )
+        )
+    if value in RESERVED_SUBDOMAINS:
+        raise ValidationError(_("هذا الاسم محجوز، اختر اسمًا آخر."))
+    return value

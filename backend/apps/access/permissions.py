@@ -19,7 +19,17 @@ class HasModulePermission(BasePermission):
         permission_map = getattr(view, "permission_map", None)
         if not permission_map:
             return True
-        required_code = permission_map.get(view.action)
+        # Sprint 6.9.1 (item A, decision 3): `view.action` is a
+        # DRF-ViewSet-only concept — a plain APIView that still declares
+        # `permission_map` (keyed "view"/"manage" instead of an action
+        # name) used to crash with AttributeError here, a 500 instead of
+        # a 403. Safe methods read as "view", everything else as
+        # "manage" — never changes behavior for an actual ViewSet,
+        # which always has a real `.action`.
+        action = getattr(view, "action", None)
+        if action is None:
+            action = "view" if request.method in ("GET", "HEAD", "OPTIONS") else "manage"
+        required_code = permission_map.get(action)
         if required_code is None:
             return True
         return bool(request.user and request.user.is_authenticated) and user_has_permission(

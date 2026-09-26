@@ -46,7 +46,13 @@ class TenantAdminSerializer(serializers.ModelSerializer):
             "created_at",
         )
         read_only_fields = (
-            "id", "plan_code", "user_count", "invoice_count", "last_activity", "created_at",
+            # Sprint 6.9.1 (item I, decision 7): "غير قابل للتغيير بعد
+            # الإنشاء عبر أي API" — TenantAdminViewSet currently has no
+            # PATCH/PUT route at all (http_method_names below), so this
+            # was already unreachable in practice; read-only here too,
+            # defensively, so a future update route can't regress it
+            # without deliberately overriding this serializer's field.
+            "id", "subdomain", "plan_code", "user_count", "invoice_count", "last_activity", "created_at",
         )
 
 

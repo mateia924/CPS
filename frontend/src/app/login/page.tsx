@@ -1,12 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import { ApiError, fieldErrors, generalError } from "@/lib/api";
+import { lastRememberedSubdomain, rememberSubdomain, subdomainFromHostname } from "@/lib/subdomain";
+
+const APP_DOMAIN = process.env.NEXT_PUBLIC_APP_DOMAIN || "localhost:3000";
 
 const FALLBACK_ERROR: Record<"ar" | "en", string> = {
   ar: "حدث خطأ غير متوقع. حاول مرة أخرى.",
@@ -19,11 +22,28 @@ export default function LoginPage() {
   const router = useRouter();
 
   const [subdomain, setSubdomain] = useState("");
+  const [subdomainFromHost, setSubdomainFromHost] = useState<string | null>(null);
+  const [editingSubdomain, setEditingSubdomain] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [generalErrorText, setGeneralErrorText] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Sprint 6.9.1 (item I): the host itself may already carry the
+  // company identifier (production: fatma.app.cps-erp.com) — this dev
+  // host never does, so this stays a no-op fallback to the last
+  // remembered value instead.
+  useEffect(() => {
+    const fromHost = subdomainFromHostname(window.location.hostname);
+    if (fromHost) {
+      setSubdomainFromHost(fromHost);
+      setSubdomain(fromHost);
+      return;
+    }
+    const remembered = lastRememberedSubdomain();
+    if (remembered) setSubdomain(remembered);
+  }, []);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,6 +52,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(subdomain, email, password);
+      rememberSubdomain(subdomain);
       router.replace("/dashboard");
     } catch (err) {
       if (err instanceof ApiError) {
@@ -52,15 +73,34 @@ export default function LoginPage() {
     <div className="container">
       <img src="/brand/cps-logo-stacked.svg" alt="CPS" className="brand-lockup" style={{ width: 200 }} />
       <div className="topbar">
-        <h1>{t("appName")}</h1>
+        <h1>{t("login")}</h1>
         <LocaleSwitcher />
       </div>
       <form onSubmit={onSubmit}>
-        <div className="form-field">
-          <label>{t("subdomain")}</label>
-          <input value={subdomain} onChange={(e) => setSubdomain(e.target.value)} required />
-          {errors.subdomain && <p className="error-text">{errors.subdomain}</p>}
-        </div>
+        {subdomainFromHost && !editingSubdomain ? (
+          <p style={{ margin: "0 0 1rem" }}>
+            {t("companyLabel")}: <strong>{subdomainFromHost}</strong>{" "}
+            <button type="button" className="secondary" onClick={() => setEditingSubdomain(true)}>
+              {t("changeCompany")}
+            </button>
+          </p>
+        ) : (
+          <div className="form-field">
+            <label>{t("companyUrlName")}</label>
+            <input
+              value={subdomain}
+              onChange={(e) => setSubdomain(e.target.value)}
+              placeholder="fatma"
+              required
+            />
+            {subdomain && (
+              <p style={{ color: "var(--muted)", fontSize: "0.85rem" }}>
+                {subdomain}.{APP_DOMAIN}
+              </p>
+            )}
+            {errors.subdomain && <p className="error-text">{errors.subdomain}</p>}
+          </div>
+        )}
         <div className="form-field">
           <label>{t("email")}</label>
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />

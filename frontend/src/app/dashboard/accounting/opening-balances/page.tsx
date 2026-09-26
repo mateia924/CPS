@@ -9,6 +9,7 @@ import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Money } from "@/components/Money";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import type {
   AccountTreeNode,
   CostCenter,
@@ -83,6 +84,7 @@ function OpeningBalancesContent() {
   );
   const [lines, setLines] = useState<LineDraft[]>([{ ...EMPTY_LINE }, { ...EMPTY_LINE }]);
   const [error, setError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [refreshToken, setRefreshToken] = useState(0);
 
   const showCostCenterUI = !!me && me.features.cost_centers;
@@ -165,7 +167,8 @@ function OpeningBalancesContent() {
         })),
     };
     try {
-      await api.post("/opening-balances/", payload);
+      const created = await api.post<OpeningBalanceEntry>("/opening-balances/", payload);
+      setWarnings(created.warnings || []);
       resetForm();
       setRefreshToken((n) => n + 1);
     } catch (err) {
@@ -176,6 +179,7 @@ function OpeningBalancesContent() {
   return (
     <div>
       <h1>{t("openingBalancesNav")}</h1>
+      <WarningsBanner warnings={warnings} />
 
       <div className="card">
         <h3>{t("statusByEntity")}</h3>
