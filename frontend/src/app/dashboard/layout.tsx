@@ -63,10 +63,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Sprint 3.5 (3.18): "المشتريات ... purchasing".
   const showPurchasing = !!me && me.features.purchasing;
   const showAccounting = !!me && me.permissions.includes("accounting.view");
-  // Sprint 6.9 (sprint-6.md §القائمة): "الوضع المبسّط يُخفي الدورية" —
-  // a single-branch tenant on the simplest plan never sees recurring
-  // entries at all, unlike every other accounting screen above it.
-  const showRecurring = showAccounting && !!me && !me.simplified_mode;
+  // Sprint 6.9 (sprint-6.md §القائمة) originally hid this behind
+  // !simplified_mode too — corrected in 6.5.7 (§11): simplified mode
+  // hides organizational *complexity* (entity pickers, holding-only
+  // features), never an accounting function. Recurring entries are a
+  // real accounting tool a single-branch tenant uses just as much as
+  // anyone else, so this now only follows the same permission gate as
+  // every other accounting screen.
+  const showRecurring = showAccounting;
   const showApprovalRules = !!me && me.permissions.includes("approvals.view");
   const showDocumentNumbering = !!me && me.permissions.includes("numbering.view");
   const showAttachmentRules = !!me && me.permissions.includes("attachments.view");

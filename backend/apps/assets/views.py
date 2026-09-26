@@ -7,6 +7,7 @@ from rest_framework.response import Response
 
 from apps.access.permissions import HasModulePermission
 from apps.accounting.models import RecurringEntry
+from apps.accounting.recurring import generate_due_installments as _generate_due_installments
 from apps.accounting.serializers import OpeningBalanceReasonSerializer, RecurringEntrySerializer
 from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 
@@ -55,6 +56,9 @@ class AssetViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         "start_depreciation": "assets.depreciate",
         "additions": "assets.depreciate",
         "dispose": "assets.depreciate",
+        # Sprint 6.5.7: manual "توليد المستحق الآن" — same authority as
+        # starting/adding/disposing, not a plain view action.
+        "generate_due_now": "assets.depreciate",
         # Sprint 6.5 (decision 15): its own narrower authority — no
         # financial posting at all, unlike the three above.
         "transfer": "assets.transfer",
@@ -139,6 +143,19 @@ class AssetViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         except (ValidationError, ValueError) as exc:
             return Response({"detail": str(exc)}, status=400)
         return Response(AssetTransferSerializer(transferred).data, status=201)
+
+    @action(detail=True, methods=["post"], url_path="generate-due-now")
+    def generate_due_now(self, request, pk=None):
+        """Sprint 6.5.7: same function/logic as the daily beat and the
+        tenant-wide manual button (RecurringEntryViewSet.generate_due),
+        scoped to just this asset's own schedule — for an accountant who
+        doesn't want to wait for tonight's beat to see this month's
+        installment posted."""
+        asset = self.get_object()
+        if not asset.depreciation_entry_id:
+            return Response({"detail": str(_("لا جدول إهلاك نشط لهذا الأصل."))}, status=409)
+        result = _generate_due_installments(tenant=request.user.tenant, recurring_entry=asset.depreciation_entry)
+        return Response(result)
 
 
 class DepreciationScheduleViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):

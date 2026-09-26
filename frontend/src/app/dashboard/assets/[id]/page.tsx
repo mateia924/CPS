@@ -124,6 +124,21 @@ export default function AssetDetailPage() {
     }
   };
 
+  const generateDueNow = async () => {
+    setError(null);
+    try {
+      const result = await api.post<{ generated: number; skipped: number }>(`/assets/${id}/generate-due-now/`);
+      setWarnings([
+        t("generateDueNowResult")
+          .replace("{generated}", String(result.generated))
+          .replace("{skipped}", String(result.skipped)),
+      ]);
+      load();
+    } catch (err) {
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
+    }
+  };
+
   const cost = Number(asset.cost_base ?? asset.purchase_cost);
   const accumulatedDepreciation = Number(asset.accumulated_depreciation ?? 0);
   const bookValue = Number(asset.book_value ?? cost);
@@ -264,6 +279,12 @@ export default function AssetDetailPage() {
                 <strong>{remainingInstallments}</strong>
               </div>
             </div>
+
+            {schedule.status === "approved" && (
+              <button className="secondary" style={{ marginTop: "0.75rem" }} onClick={generateDueNow}>
+                {t("generateDueNow")}
+              </button>
+            )}
 
             {schedule.status === "pending_approval" && (
               <div style={{ marginTop: "0.75rem" }}>

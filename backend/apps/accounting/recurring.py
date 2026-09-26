@@ -242,19 +242,26 @@ def regenerate_installment(installment, user, request=None):
 
 
 @transaction.atomic
-def generate_due_installments(tenant=None, as_of=None):
+def generate_due_installments(tenant=None, as_of=None, recurring_entry=None):
     """Decision 10: every DUE installment whose period's end_date has
     been reached — OPEN period -> POSTED (approval already happened at
     the schedule level, this is a system path, not a manual one); CLOSED/
     LOCKED -> SKIPPED with a reason, never a silent failure. Safe to run
     twice: a DUE row transitions to GENERATED/SKIPPED and is never
-    picked up again by this same query."""
+    picked up again by this same query.
+
+    Sprint 6.5.7: `recurring_entry` narrows this to one schedule — the
+    "توليد المستحق الآن" button on a single asset's depreciation tab
+    reuses this exact function/logic instead of duplicating it, scoped
+    to just that asset's `depreciation_entry`."""
     as_of = as_of or timezone.localdate()
     qs = RecurringInstallment.objects.filter(
         status=RecurringInstallment.Status.DUE, period__end_date__lte=as_of
     ).select_related("period", "entry", "entry__legal_entity")
     if tenant is not None:
         qs = qs.filter(entry__tenant=tenant)
+    if recurring_entry is not None:
+        qs = qs.filter(entry=recurring_entry)
 
     generated, skipped = 0, 0
     for installment in qs:

@@ -194,6 +194,44 @@ def test_generate_first_installment_posts_journal_entry_with_cost_center(tenant_
     assert lines[accum.id].cost_center_id == cost_center.id
 
 
+def test_generate_due_now_scoped_to_this_assets_schedule_only(tenant_a, owner_client):
+    """Sprint 6.5.7: the asset detail screen's "توليد المستحق الآن"
+    button must never touch another asset's due installments — only
+    generate_due_installments(recurring_entry=...) for this one."""
+    entity = _entity(tenant_a)
+    asset_a = AssetFactory(
+        tenant=tenant_a, legal_entity=entity, purchase_date="2026-01-01", purchase_cost="12000.00",
+        salvage_value="0", useful_life_months=12,
+    )
+    asset_b = AssetFactory(
+        tenant=tenant_a, legal_entity=entity, purchase_date="2026-01-01", purchase_cost="6000.00",
+        salvage_value="0", useful_life_months=12,
+    )
+    assert _start(owner_client, asset_a.id).status_code == 201
+    assert _start(owner_client, asset_b.id).status_code == 201
+
+    response = owner_client.post(f"/api/assets/{asset_a.id}/generate-due-now/")
+    assert response.status_code == 200, response.data
+    assert response.data["generated"] >= 1
+
+    asset_a.refresh_from_db()
+    asset_b.refresh_from_db()
+    a_installments = list(asset_a.depreciation_entry.installments.values_list("status", flat=True))
+    b_installments = list(asset_b.depreciation_entry.installments.values_list("status", flat=True))
+    assert "generated" in a_installments
+    assert all(status == "due" for status in b_installments)
+
+
+def test_generate_due_now_without_active_schedule_returns_409(tenant_a, owner_client):
+    entity = _entity(tenant_a)
+    asset = AssetFactory(
+        tenant=tenant_a, legal_entity=entity, purchase_date="2026-01-01", purchase_cost="12000.00",
+        salvage_value="0", useful_life_months=12,
+    )
+    response = owner_client.post(f"/api/assets/{asset.id}/generate-due-now/")
+    assert response.status_code == 409, response.data
+
+
 def test_reversing_depreciation_installment_returns_409(tenant_a, owner_client):
     entity = _entity(tenant_a)
     asset = AssetFactory(

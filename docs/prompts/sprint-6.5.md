@@ -125,6 +125,16 @@ commit: `Sprint 6.5.5: asset transfers, fixed-asset register report and print, U
 
 commit: `Sprint 6.5.6: voucher form legal_entity/treasury_id fixes, shared FormField validation UI across the app, FIXED_ASSETS no longer a control account`
 
+### 6.5.7 — تصحيح لقرار 6.9 (الدورية والوضع المبسّط) + توليد المستحق الآن لأصل واحد
+
+**سؤال ثم تصحيح:** `simplified_mode` (§3.13) مُشتَقّ حصرًا من هيكل الكيانات القانونية (`apps.organization.services.is_simplified_mode`: شركة واحدة + فرع واحد + بلا قابضة) — لا حقل مخزَّن على المستأجر أو المستخدم، ولا واجهة تعديل مباشرة له؛ سطح التحكم الفعلي هو شاشة «الهيكل التنظيمي» نفسها (إضافة فرع ثانٍ أو قابضة يُخرِج المستأجر من الوضع المبسّط تلقائيًا). بعد سؤال المالك: **لا مفتاح يدوي جديد** (تجنبًا لمصدرين متنافسين للحقيقة) — لكن القاعدة التي استُخدم بها الوضع المبسّط في سبرنت 6.9 كانت خاطئة: هو يخفي **التعقيد الهيكلي فقط**، لا وظيفة محاسبية. `frontend/src/app/dashboard/layout.tsx`: `showRecurring` أصبح تابعًا لصلاحية `accounting.view` فقط (بلا فحص `simplified_mode`) — القيود الدورية تظهر دائمًا مع باقي شاشات المحاسبة الآن. `SYSTEM_ANALYSIS.md` 3.18/§11 مُصحَّحتان.
+
+**توليد المستحق الآن (زر في تبويب الإهلاك):** `apps.accounting.recurring.generate_due_installments` اكتسب معامل `recurring_entry` اختياريًا (بلا تغيير سلوك المستدعين الحاليين — `None` كافتراضه)؛ زر جديد `POST /api/assets/{id}/generate-due-now/` (`assets.depreciate`، 409 بلا جدول نشط) يستدعيها بجدول هذا الأصل وحده — بلا تكرار منطق التوليد اليومي (beat) أو زر «توليد الآن» العام لكل القيود الدورية.
+
+- **اختبارات:** توليد المستحق الآن لأصلين لهما جدولان نشطان يُولِّد أقساط الأصل المطلوب فقط ويترك أقساط الآخر `due`؛ أصل بلا جدول نشط → 409. لا اختبار آلي مخصَّص لتصحيح القائمة (تغيير سطر واجهة واحد، بلا منطق باك-إند يُختبَر) — يُغطَّى بـ`tsc --noEmit`/`next build` النظيفين.
+
+commit: `Sprint 6.5.7: recurring entries no longer hidden by simplified mode, generate-due-now button scoped to one asset's schedule`
+
 ---
 
 ## معايير القبول الإجمالية

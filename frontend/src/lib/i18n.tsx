@@ -187,6 +187,9 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     accumulatedDepreciationCard: "مجمّع الإهلاك",
     bookValueCard: "القيمة الدفترية",
     remainingInstallmentsCard: "الأشهر المتبقية",
+    // Sprint 6.5.7: manual trigger for this asset's own schedule only
+    // (generateDueNow itself reused from the recurring-entries screen).
+    generateDueNowResult: "تم توليد {generated} قسطًا، وتخطي {skipped}.",
     // Sprint 6.5.3 (decision 6): additions.
     additionsTab: "الإضافات",
     addAddition: "إضافة",
@@ -856,6 +859,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     accumulatedDepreciationCard: "Accumulated depreciation",
     bookValueCard: "Book value",
     remainingInstallmentsCard: "Remaining months",
+    generateDueNowResult: "Generated {generated} installment(s), skipped {skipped}.",
     additionsTab: "Additions",
     addAddition: "Add",
     additionAmount: "Addition amount",
