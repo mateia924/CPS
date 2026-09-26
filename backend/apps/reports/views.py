@@ -9,7 +9,7 @@ from apps.access.services import user_has_permission
 from apps.organization.models import CostCenter, LegalEntity
 from apps.organization.services import get_accessible_entity_ids
 
-from .services import aging_report, balance_sheet, income_statement
+from .services import aging_report, balance_sheet, fixed_assets_register, income_statement
 
 
 def _require_accounting_view(request):
@@ -134,6 +134,30 @@ class AgingReportView(APIView):
             "rows": [{**row, "amount_base": str(row["amount_base"])} for row in result["rows"]],
             "totals_by_party": [{**row, "amount_base": str(row["amount_base"])} for row in result["totals_by_party"]],
             "total": str(result["total"]),
+            "as_of": result["as_of"],
+        }
+        return Response(_report_envelope(request, legal_entity, payload))
+
+
+class FixedAssetsRegisterView(APIView):
+    """Sprint 6.5 (decision 13): "سجل الأصول الثابتة"."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        _require_accounting_view(request)
+        legal_entity = _resolve_legal_entity(request)
+        include_children = request.query_params.get("include_children", "true") != "false"
+        as_of = _parse_date(request, "as_of")
+
+        result = fixed_assets_register(request.user.tenant, as_of=as_of, legal_entity=legal_entity, include_children=include_children)
+        row_money_fields = ("cost", "additions", "disposals", "accumulated_depreciation", "book_value")
+        payload = {
+            "rows": [
+                {**row, **{field: str(row[field]) for field in row_money_fields}} for row in result["rows"]
+            ],
+            "totals": {key: str(value) for key, value in result["totals"].items()},
+            "reconciliation": {key: str(value) for key, value in result["reconciliation"].items()},
             "as_of": result["as_of"],
         }
         return Response(_report_envelope(request, legal_entity, payload))

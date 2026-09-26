@@ -9,7 +9,7 @@ from apps.organization.models import CostCenter, LegalEntity
 from apps.organization.services import get_or_create_linked_cost_center
 from apps.parties.models import Party, PartyRole
 
-from .models import Asset, AssetAddition, AssetDisposal
+from .models import Asset, AssetAddition, AssetDisposal, AssetTransfer
 
 
 class AssetAdditionSerializer(serializers.ModelSerializer):
@@ -70,12 +70,43 @@ class AssetDisposeCreateSerializer(serializers.Serializer):
             self.fields["proceeds_party"].queryset = Party.objects.filter(tenant=tenant)
 
 
+class AssetTransferSerializer(serializers.ModelSerializer):
+    """Sprint 6.5 (decision 8): read shape for both the create response
+    and the transfer-history list nested on AssetSerializer below."""
+
+    class Meta:
+        model = AssetTransfer
+        fields = (
+            "id", "from_legal_entity", "to_legal_entity", "from_cost_center", "to_cost_center",
+            "created_by", "created_at",
+        )
+        read_only_fields = fields
+
+
+class AssetTransferCreateSerializer(serializers.Serializer):
+    legal_entity = serializers.PrimaryKeyRelatedField(
+        queryset=LegalEntity.objects.all(), required=False, allow_null=True, default=None
+    )
+    cost_center = serializers.PrimaryKeyRelatedField(
+        queryset=CostCenter.objects.all(), required=False, allow_null=True, default=None
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request is not None and request.user.is_authenticated:
+            tenant = request.user.tenant
+            self.fields["legal_entity"].queryset = LegalEntity.objects.filter(tenant=tenant)
+            self.fields["cost_center"].queryset = CostCenter.objects.filter(tenant=tenant)
+
+
 class AssetSerializer(serializers.ModelSerializer):
     # Write-only (3.3 section 4): "افتراضيًا مفعّل للسيارات" — only
     # meaningful when category == VEHICLE; ignored otherwise.
     create_linked_cost_center = serializers.BooleanField(required=False, default=True, write_only=True)
     additions = AssetAdditionSerializer(many=True, read_only=True)
     disposals = AssetDisposalSerializer(many=True, read_only=True)
+    transfers = AssetTransferSerializer(many=True, read_only=True)
     # Sprint 6.5.3: computed the same way apps.assets.depreciation.
     # add_to_asset itself derives book value — entry.total_amount_base
     # is always "book value at that entry's own start − salvage_base"
@@ -102,10 +133,12 @@ class AssetSerializer(serializers.ModelSerializer):
             "additions", "accumulated_depreciation", "book_value",
             # Sprint 6.5.4 (decision 7): disposal history.
             "disposals",
+            # Sprint 6.5.5 (decision 8): transfer history.
+            "transfers",
         )
         read_only_fields = (
             "id", "created_at", "cost_base", "salvage_base", "disposed_fraction", "depreciation_entry", "additions",
-            "accumulated_depreciation", "book_value", "disposals",
+            "accumulated_depreciation", "book_value", "disposals", "transfers",
         )
 
     def get_book_value(self, asset):

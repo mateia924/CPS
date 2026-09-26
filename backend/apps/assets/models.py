@@ -204,3 +204,35 @@ class AssetDisposal(TenantScopedModel):
 
     def __str__(self):
         return f"{self.asset.code} -{self.fraction}"
+
+
+class AssetTransfer(TenantScopedModel):
+    """Sprint 6.5 (decision 8): a free cost-center move, or a legal-
+    entity move restricted to within one company (source and target
+    share their nearest non-branch ancestor — apps.assets.transfer.
+    _company_root). No journal entry, no approval — a not-yet-
+    generated installment reads the new legal_entity/cost_center off
+    the parent RecurringEntry at generation time (updated here too);
+    a generated one is untouched, its JournalLine already historical."""
+
+    asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name="transfers")
+    from_legal_entity = models.ForeignKey(
+        "organization.LegalEntity", on_delete=models.PROTECT, related_name="+"
+    )
+    to_legal_entity = models.ForeignKey("organization.LegalEntity", on_delete=models.PROTECT, related_name="+")
+    from_cost_center = models.ForeignKey(
+        "organization.CostCenter", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    to_cost_center = models.ForeignKey(
+        "organization.CostCenter", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    created_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.asset.code}: {self.from_legal_entity_id} -> {self.to_legal_entity_id}"

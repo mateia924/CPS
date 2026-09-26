@@ -27,7 +27,10 @@ from .serializers import (
     AssetDisposalSerializer,
     AssetDisposeCreateSerializer,
     AssetSerializer,
+    AssetTransferCreateSerializer,
+    AssetTransferSerializer,
 )
+from .transfer import transfer_asset as _transfer_asset
 
 
 class AssetViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
@@ -52,6 +55,9 @@ class AssetViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         "start_depreciation": "assets.depreciate",
         "additions": "assets.depreciate",
         "dispose": "assets.depreciate",
+        # Sprint 6.5 (decision 15): its own narrower authority — no
+        # financial posting at all, unlike the three above.
+        "transfer": "assets.transfer",
     }
 
     def get_queryset(self):
@@ -118,6 +124,21 @@ class AssetViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
                 )
             ]
         return Response(payload, status=201)
+
+    @action(detail=True, methods=["post"])
+    def transfer(self, request, pk=None):
+        asset = self.get_object()
+        serializer = AssetTransferCreateSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            transferred = _transfer_asset(
+                asset, request.user, legal_entity=data["legal_entity"], cost_center=data["cost_center"],
+                request=request,
+            )
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        return Response(AssetTransferSerializer(transferred).data, status=201)
 
 
 class DepreciationScheduleViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):

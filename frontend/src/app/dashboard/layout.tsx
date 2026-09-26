@@ -195,6 +195,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <SidebarLink href="/dashboard/reports/ledger">{t("ledgerNav")}</SidebarLink>
             <SidebarLink href="/dashboard/reports/aging">{t("agingReportNav")}</SidebarLink>
             <SidebarLink href="/dashboard/reports/statement">{t("statementReportNav")}</SidebarLink>
+            <SidebarLink href="/dashboard/reports/fixed-assets">{t("fixedAssetsReportNav")}</SidebarLink>
           </>
         )}
 

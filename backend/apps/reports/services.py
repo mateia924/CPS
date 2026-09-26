@@ -236,3 +236,74 @@ def aging_report(tenant, legal_entity=None, as_of=None):
     ]
     total = sum((v["amount_base"] for v in per_party.values()), Decimal("0"))
     return {"rows": rows, "totals_by_party": totals_by_party, "total": total, "as_of": as_of}
+
+
+def fixed_assets_register(tenant, as_of=None, legal_entity=None, include_children=True):
+    """Sprint 6.5 (decision 13): the fixed-asset register report —
+    per-asset cost/additions/disposals/accumulated depreciation/book
+    value/remaining months, plus a reconciliation footer against the
+    ledger using the exact same shared function the period-close
+    checklist's own WARN reads (apps.assets.reconciliation.
+    register_vs_ledger) — the two can never silently disagree. A fully
+    DISPOSED asset is no longer a live line item, same exclusion
+    register_vs_ledger's own totals already apply.
+    """
+    from django.db.models import Sum
+
+    from apps.assets.depreciation import current_book_value
+    from apps.assets.models import Asset
+    from apps.assets.reconciliation import register_vs_ledger
+
+    as_of = as_of or timezone.localdate()
+    assets = (
+        Asset.objects.filter(tenant=tenant, is_active=True, purchase_date__lte=as_of)
+        .exclude(status=Asset.Status.DISPOSED)
+        .select_related("depreciation_entry")
+    )
+    if legal_entity is not None:
+        assets = assets.filter(legal_entity__in=_entities_in_scope(legal_entity, include_children))
+
+    rows = []
+    total_cost = Decimal("0")
+    total_additions = Decimal("0")
+    total_disposals = Decimal("0")
+    total_accumulated = Decimal("0")
+    total_book_value = Decimal("0")
+    for asset in assets.order_by("code"):
+        additions_total = asset.additions.aggregate(total=Sum("amount_base"))["total"] or Decimal("0")
+        disposals_total = asset.disposals.aggregate(total=Sum("cost_share"))["total"] or Decimal("0")
+        remaining_fraction = Decimal("1") - asset.disposed_fraction
+        cost_base = asset.cost_base if asset.cost_base is not None else asset.purchase_cost
+        remaining_cost = (cost_base * remaining_fraction).quantize(CENTS)
+        book_value = current_book_value(asset)
+        accumulated = remaining_cost - book_value
+        remaining_months = 0
+        if asset.depreciation_entry_id:
+            remaining_months = asset.depreciation_entry.installments.filter(status="due").count()
+
+        rows.append(
+            {
+                "asset_id": str(asset.id), "code": asset.code, "name": asset.name, "category": asset.category,
+                "in_service_date": asset.in_service_date or asset.purchase_date,
+                "depreciation_method": asset.depreciation_method,
+                "cost": asset.purchase_cost, "additions": additions_total, "disposals": disposals_total,
+                "accumulated_depreciation": accumulated, "book_value": book_value,
+                "remaining_months": remaining_months, "status": asset.status,
+            }
+        )
+        total_cost += asset.purchase_cost
+        total_additions += additions_total
+        total_disposals += disposals_total
+        total_accumulated += accumulated
+        total_book_value += book_value
+
+    reconciliation = register_vs_ledger(tenant, as_of=as_of, legal_entity=legal_entity, include_children=include_children)
+    return {
+        "rows": rows,
+        "totals": {
+            "cost": total_cost, "additions": total_additions, "disposals": total_disposals,
+            "accumulated_depreciation": total_accumulated, "book_value": total_book_value,
+        },
+        "reconciliation": reconciliation,
+        "as_of": as_of,
+    }

@@ -519,6 +519,18 @@ export interface Asset {
   accumulated_depreciation: string | null;
   book_value: string | null;
   disposals: AssetDisposal[];
+  transfers: AssetTransfer[];
+}
+
+// Sprint 6.5.5 (decision 8): a legal-entity or cost-center move.
+export interface AssetTransfer {
+  id: string;
+  from_legal_entity: string;
+  to_legal_entity: string;
+  from_cost_center: string | null;
+  to_cost_center: string | null;
+  created_by: string | null;
+  created_at: string;
 }
 
 // Sprint 6.5.3 (decision 6): a capital addition to an asset.
@@ -1011,6 +1023,46 @@ export interface AgingReport {
   rows: AgingRow[];
   totals_by_party: AgingPartyTotal[];
   total: string;
+  as_of: string;
+  generated_at: string;
+  prepared_by: string;
+  base_currency: string;
+}
+
+// Sprint 6.5.5 (decision 13): fixed-asset register report.
+export interface FixedAssetRegisterRow {
+  asset_id: string;
+  code: string;
+  name: string;
+  category: AssetCategory;
+  in_service_date: string;
+  depreciation_method: AssetDepreciationMethod;
+  cost: string;
+  additions: string;
+  disposals: string;
+  accumulated_depreciation: string;
+  book_value: string;
+  remaining_months: number;
+  status: AssetStatus;
+}
+
+export interface FixedAssetRegisterReport {
+  rows: FixedAssetRegisterRow[];
+  totals: {
+    cost: string;
+    additions: string;
+    disposals: string;
+    accumulated_depreciation: string;
+    book_value: string;
+  };
+  reconciliation: {
+    register_cost: string;
+    ledger_cost: string;
+    cost_diff: string;
+    register_accumulated_depreciation: string;
+    ledger_accumulated_depreciation: string;
+    accum_diff: string;
+  };
   as_of: string;
   generated_at: string;
   prepared_by: string;

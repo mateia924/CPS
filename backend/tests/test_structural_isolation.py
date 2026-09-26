@@ -39,6 +39,7 @@ TENANT_FILTER_EXEMPTIONS = {
     "apps.reports.views.IncomeStatementView": "plain APIView, account_balances()/income_statement() scoped by request.user.tenant throughout — not a ModelViewSet, sprint 6.6, same pattern as DashboardSummaryView",
     "apps.reports.views.BalanceSheetView": "plain APIView, account_balances()/balance_sheet() scoped by request.user.tenant throughout — not a ModelViewSet, sprint 6.6, same pattern as DashboardSummaryView",
     "apps.reports.views.AgingReportView": "plain APIView, aging_report() scoped by request.user.tenant throughout — not a ModelViewSet, sprint 6.6, same pattern as DashboardSummaryView",
+    "apps.reports.views.FixedAssetsRegisterView": "plain APIView, fixed_assets_register() scoped by request.user.tenant throughout — not a ModelViewSet, sprint 6.5.5, same pattern as AgingReportView",
     "apps.accounting.views.TaxPeriodViewSet": "get_queryset() filters by tenant + get_accessible_entity_ids() by hand, same pattern as JournalEntryViewSet above",
     "apps.accounting.views.OpeningBalanceViewSet": "get_queryset() filters by tenant + get_accessible_entity_ids() by hand, same pattern as JournalEntryViewSet above, sprint 6.3",
     "apps.accounting.views.RecurringEntryViewSet": "get_queryset() filters by tenant + get_accessible_entity_ids() by hand, same pattern as JournalEntryViewSet above, sprint 6.4",

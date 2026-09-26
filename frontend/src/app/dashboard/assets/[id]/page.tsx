@@ -12,6 +12,9 @@ import type {
   Asset,
   AssetDepreciationMethod,
   AccountTreeNode,
+  CostCenter,
+  LegalEntity,
+  Paginated,
   RecurringEntry,
   RecurringInstallmentStatus,
 } from "@/lib/types";
@@ -53,8 +56,16 @@ export default function AssetDetailPage() {
   const [disposalReason, setDisposalReason] = useState("");
   const [showDispose, setShowDispose] = useState(false);
 
+  const [legalEntities, setLegalEntities] = useState<LegalEntity[]>([]);
+  const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
+  const [transferEntityId, setTransferEntityId] = useState("");
+  const [transferCostCenterId, setTransferCostCenterId] = useState("");
+  const [showTransfer, setShowTransfer] = useState(false);
+
   useEffect(() => {
     api.get<AccountTreeNode[]>("/accounts/tree/").then((tree) => setAccounts(flattenLeafAccounts(tree)));
+    api.get<Paginated<LegalEntity>>("/legal-entities/").then((data) => setLegalEntities(data.results));
+    api.get<Paginated<CostCenter>>("/cost-centers/").then((data) => setCostCenters(data.results));
   }, []);
 
   const load = async () => {
@@ -149,6 +160,22 @@ export default function AssetDetailPage() {
       setDisposalProceeds("0");
       setDisposalAccountId("");
       setDisposalReason("");
+      load();
+    } catch (err) {
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
+    }
+  };
+
+  const transferAsset = async () => {
+    setError(null);
+    try {
+      await api.post(`/assets/${id}/transfer/`, {
+        legal_entity: transferEntityId || null,
+        cost_center: transferCostCenterId || null,
+      });
+      setShowTransfer(false);
+      setTransferEntityId("");
+      setTransferCostCenterId("");
       load();
     } catch (err) {
       setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
@@ -468,6 +495,70 @@ export default function AssetDetailPage() {
                     <td><Money amount={disposal.proceeds_base} /></td>
                     <td><Money amount={disposal.gain_loss} /></td>
                     <td>{disposal.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {asset.status !== "disposed" && (
+        <div className="card">
+          <h3>{t("transfersTab")}</h3>
+          <button className="secondary" onClick={() => setShowTransfer((v) => !v)}>
+            {t("transferAsset")}
+          </button>
+          {showTransfer && (
+            <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+              <div className="form-field">
+                <label>{t("transferLegalEntity")}</label>
+                <select value={transferEntityId} onChange={(e) => setTransferEntityId(e.target.value)}>
+                  <option value="">—</option>
+                  {legalEntities.map((entity) => (
+                    <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-field">
+                <label>{t("transferCostCenter")}</label>
+                <select value={transferCostCenterId} onChange={(e) => setTransferCostCenterId(e.target.value)}>
+                  <option value="">—</option>
+                  {costCenters.map((cc) => (
+                    <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
+                  ))}
+                </select>
+              </div>
+              <button className="primary" onClick={transferAsset}>{t("save")}</button>
+            </div>
+          )}
+
+          <h4 style={{ marginTop: "0.75rem" }}>{t("transfersHistory")}</h4>
+          {asset.transfers.length === 0 ? (
+            <p>{t("noTransfersYet")}</p>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>{t("transferLegalEntity")}</th>
+                  <th>{t("transferCostCenter")}</th>
+                  <th>{t("date")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {asset.transfers.map((transfer) => (
+                  <tr key={transfer.id}>
+                    <td>
+                      {transfer.from_legal_entity !== transfer.to_legal_entity
+                        ? `${transfer.from_legal_entity} → ${transfer.to_legal_entity}`
+                        : "—"}
+                    </td>
+                    <td>
+                      {transfer.from_cost_center !== transfer.to_cost_center
+                        ? `${transfer.from_cost_center || "—"} → ${transfer.to_cost_center || "—"}`
+                        : "—"}
+                    </td>
+                    <td>{new Date(transfer.created_at).toLocaleDateString()}</td>
                   </tr>
                 ))}
               </tbody>
