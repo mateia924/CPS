@@ -486,6 +486,7 @@ export interface PartyStatement extends LedgerStatement {
 
 export type AssetCategory = "vehicle" | "equipment" | "building" | "furniture" | "it" | "other";
 export type AssetStatus = "active" | "disposed" | "under_maintenance";
+export type AssetDepreciationMethod = "straight_line" | "declining_balance";
 
 export interface Asset {
   id: string;
@@ -498,12 +499,22 @@ export interface Asset {
   currency: string;
   useful_life_months: number | null;
   salvage_value: string;
-  depreciation_method: "straight_line";
+  depreciation_method: AssetDepreciationMethod;
   custodian: string | null;
   cost_center: string | null;
   status: AssetStatus;
   is_active: boolean;
   created_at: string;
+  // Sprint 6.5 (decisions 3, 4, 5, 9, 14).
+  is_depreciable: boolean;
+  purchase_reference: string;
+  in_service_date: string | null;
+  cost_base: string | null;
+  salvage_base: string | null;
+  opening_accumulated_depreciation: string;
+  declining_balance_rate: string | null;
+  disposed_fraction: string;
+  depreciation_entry: string | null;
 }
 
 // --- Sprint 3.5 (docs/SYSTEM_ANALYSIS.md 3.3 v1.4): dedicated,
@@ -764,7 +775,9 @@ export interface FiscalYear {
 export type ApprovalDocType =
   | "journal_entry" | "invoice"
   | "voucher_receipt" | "voucher_payment" | "voucher_settlement"
-  | "iban_change" | "opening_balance";
+  | "iban_change" | "opening_balance"
+  // Sprint 6.5 (decision 11).
+  | "asset_depreciation";
 
 // Sprint 6.3 (3.10/3.16.3): opening balances.
 export type OpeningBalanceKind = "initial" | "adjustment";

@@ -78,6 +78,7 @@ from .serializers import (
 )
 from .services import (
     REPORTABLE_STATUSES,
+    DepreciationEntryReversalRejected,
     OpeningEntryReversalRejected,
     approve_journal_entry,
     compute_trial_balance,
@@ -380,6 +381,22 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
                 {"detail": str(_("لا يمكن عكس قيد افتتاحي مُرحَّل — صحّحه بمستند تعديل جديد بدلًا من ذلك."))},
                 status=409,
             )
+        if entry.source_type == "recurring":
+            # Decision 12: checked before the generic source_type guard
+            # below, same reasoning as is_opening above — a depreciation
+            # installment gets its own dedicated 409, distinct from an
+            # ordinary recurring installment's generic 400.
+            from .models import RecurringEntry
+
+            if RecurringEntry.objects.filter(id=entry.source_id, kind=RecurringEntry.Kind.DEPRECIATION).exists():
+                return Response(
+                    {
+                        "detail": str(
+                            _("قيد قسط الإهلاك لا يُعكس فرديًا — التصحيح بإضافة إلى الأصل أو استبعاده فقط.")
+                        )
+                    },
+                    status=409,
+                )
         if entry.source_type:
             # A system-generated entry (currently only invoices) has
             # its own reversal path (Invoice.void() ->
@@ -402,7 +419,7 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
                 entry, request.user, serializer.validated_data["reason"],
                 date=serializer.validated_data.get("date"),
             )
-        except OpeningEntryReversalRejected as exc:
+        except (OpeningEntryReversalRejected, DepreciationEntryReversalRejected) as exc:
             return Response({"detail": str(exc)}, status=409)
         except (ValidationError, ValueError) as exc:
             return Response({"detail": str(exc)}, status=400)

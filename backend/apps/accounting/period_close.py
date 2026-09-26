@@ -48,6 +48,18 @@ def _unposted_documents(tenant_id, start_date, end_date):
     return unposted
 
 
+def _depreciable_assets_without_schedule(tenant_id):
+    """Decision 10: replaces the dead INFO placeholder — every active,
+    depreciable asset with no depreciation schedule at all yet."""
+    from apps.assets.models import Asset
+
+    assets = Asset.objects.filter(
+        tenant_id=tenant_id, is_active=True, is_depreciable=True,
+        status=Asset.Status.ACTIVE, depreciation_entry__isnull=True,
+    )
+    return [{"id": str(a.id), "reference": f"{a.code} {a.name}"} for a in assets]
+
+
 def _due_installments_not_generated(tenant_id, period):
     from .models import RecurringInstallment
 
@@ -213,7 +225,32 @@ def period_checklist(period):
             ),
         }
     )
-    items.append({"level": "info", "code": "depreciation_not_enabled", "message": str(_("الإهلاك غير مفعَّل — سبرنت 6.5."))})
+    depreciable_without_schedule = _depreciable_assets_without_schedule(tenant.id)
+    if depreciable_without_schedule:
+        items.append(
+            {
+                "level": "warn", "code": "depreciable_assets_without_schedule",
+                "message": str(
+                    _("توجد %(count)s أصول قابلة للإهلاك نشطة بلا جدول إهلاك.")
+                    % {"count": len(depreciable_without_schedule)}
+                ),
+                "references": depreciable_without_schedule,
+            }
+        )
+
+    from apps.assets.reconciliation import register_vs_ledger
+
+    reconciliation = register_vs_ledger(tenant, as_of=period.end_date)
+    if reconciliation["cost_diff"] != 0 or reconciliation["accum_diff"] != 0:
+        items.append(
+            {
+                "level": "warn", "code": "asset_register_ledger_mismatch",
+                "message": str(
+                    _("سجل الأصول لا يطابق الدليل: فرق التكلفة %(cost_diff)s، فرق المجمّع %(accum_diff)s.")
+                    % {"cost_diff": reconciliation["cost_diff"], "accum_diff": reconciliation["accum_diff"]}
+                ),
+            }
+        )
 
     return items
 

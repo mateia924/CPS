@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
+import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
 import type { Asset, AssetCategory, CostCenter, LegalEntity, Paginated, Party } from "@/lib/types";
@@ -262,6 +263,11 @@ export default function AssetsPage() {
           { key: "name", label: t("name"), sortable: true },
           { key: "category", label: t("category"), render: (row) => t(CATEGORY_LABEL_KEY[row.category]) },
           { key: "status", label: t("assetStatus"), render: (row) => t(row.status === "under_maintenance" ? "underMaintenance" : row.status === "disposed" ? "disposed" : "active") },
+          {
+            key: "id",
+            label: "",
+            render: (row) => <Link href={`/dashboard/assets/${row.id}`}>{t("viewDetails")}</Link>,
+          },
         ]}
       />
     </div>

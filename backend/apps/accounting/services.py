@@ -755,6 +755,16 @@ class OpeningEntryReversalRejected(Exception):
     opening_balances), never a reversal of the posted entry itself."""
 
 
+class DepreciationEntryReversalRejected(Exception):
+    """Sprint 6.5 (decision 12): same "not reversed individually, only
+    corrected forward" rule as OpeningEntryReversalRejected — a
+    depreciation installment's own JournalEntry is corrected by a new
+    addition or disposal schedule (apps.assets.depreciation), never by
+    reversing the installment itself. Defense-in-depth: the primary
+    path is apps.accounting.views.JournalEntryViewSet.reverse's own
+    up-front check, mirroring is_opening's dual layering there."""
+
+
 @transaction.atomic
 def reverse_journal_entry(entry, user, reason, date=None):
     """CFO_REVIEW_1 C8: `date` defaults to today and may never precede
@@ -768,6 +778,13 @@ def reverse_journal_entry(entry, user, reason, date=None):
         raise OpeningEntryReversalRejected(
             str(_("A posted opening balance entry can never be reversed — correct it with a new adjustment instead."))
         )
+    if entry.source_type == "recurring":
+        from .models import RecurringEntry
+
+        if RecurringEntry.objects.filter(id=entry.source_id, kind=RecurringEntry.Kind.DEPRECIATION).exists():
+            raise DepreciationEntryReversalRejected(
+                str(_("قيد قسط الإهلاك لا يُعكس فرديًا — التصحيح بإضافة إلى الأصل أو استبعاده فقط."))
+            )
     if not reason:
         raise ValidationError(_("A reason is required to reverse a journal entry."))
     reversal_date = date or timezone.localdate()

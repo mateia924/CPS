@@ -17,6 +17,7 @@ DOC_TYPE_LABEL = {
     "iban_change": _("طلب تغيير IBAN"),
     "opening_balance": _("رصيد افتتاحي"),
     "recurring_entry": _("قيد دوري"),
+    "asset_depreciation": _("جدول إهلاك أصل"),
 }
 
 DOC_TYPE_PATH = {

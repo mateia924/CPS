@@ -42,6 +42,13 @@ class ApprovalRule(TenantScopedModel):
         # got in 4.5 — freely editable/deletable, unlike IBAN_CHANGE/
         # OPENING_BALANCE (not in _LOCKED_DOC_TYPES).
         RECURRING_ENTRY = "recurring_entry", _("Recurring Entry")
+        # Sprint 6.5 (decision 11): a default rule (min_amount=0,
+        # required_role=Owner) seeded per tenant, same as RECURRING_ENTRY
+        # — freely editable/deletable. Kept separate from
+        # RECURRING_ENTRY itself so a tenant can require a different
+        # approver/threshold for starting a depreciation schedule than
+        # for an ordinary prepaid/deferred one.
+        ASSET_DEPRECIATION = "asset_depreciation", _("Asset Depreciation")
 
     doc_type = models.CharField(_("document type"), max_length=30, choices=DocType.choices)
     min_amount = models.DecimalField(

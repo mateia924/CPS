@@ -22,6 +22,7 @@ const DOC_TYPE_LABEL: Record<ApprovalDocType, string> = {
   voucher_settlement: "voucherSettlementDocType",
   iban_change: "ibanChangeDocType",
   opening_balance: "openingBalanceDocType",
+  asset_depreciation: "assetDepreciationDocType",
 };
 
 export default function ApprovalRulesPage() {
