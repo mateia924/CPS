@@ -7,6 +7,7 @@ import { api, fieldErrors, generalError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
+import { FormField } from "@/components/FormField";
 import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
 import { WarningsBanner } from "@/components/WarningsBanner";
@@ -80,33 +81,39 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
   const [reasonText, setReasonText] = useState("");
   const [prefilled, setPrefilled] = useState(false);
 
-  const needsEntityPicker = !!me && !me.simplified_mode;
   const showCostCenterUI = !!me && me.features.cost_centers;
   const treasuryOptions: { kind: TreasuryKind; id: string; label: string }[] = [
     ...banks.map((b) => ({ kind: "bank" as TreasuryKind, id: b.id, label: `${t("bank")}: ${b.name}` })),
     ...cashBoxes.map((c) => ({ kind: "cash_box" as TreasuryKind, id: c.id, label: `${t("cashBox")}: ${c.name}` })),
     ...custodies.map((c) => ({ kind: "custody" as TreasuryKind, id: c.id, label: `${t("custody")}: ${c.name}` })),
   ];
+  const treasuryValue = treasuryId ? `${treasuryKind}:${treasuryId}` : "";
 
   useEffect(() => {
     (async () => {
-      const [bankData, cashData, custodyData, tree, taxData] = await Promise.all([
+      const [bankData, cashData, custodyData, tree, taxData, entityData] = await Promise.all([
         api.get<Paginated<Bank>>("/banks/"),
         api.get<Paginated<CashBox>>("/cash-boxes/"),
         api.get<Paginated<Custody>>("/custodies/"),
         api.get<AccountTreeNode[]>("/accounts/tree/"),
         api.get<Paginated<TaxCode>>("/tax-codes/"),
+        api.get<Paginated<LegalEntity>>("/legal-entities/"),
       ]);
       setBanks(bankData.results);
       setCashBoxes(cashData.results);
       setCustodies(custodyData.results);
       setAccounts(flattenLeafAccounts(tree));
       setTaxCodes(taxData.results);
-      if (needsEntityPicker) {
-        const entityData = await api.get<Paginated<LegalEntity>>("/legal-entities/");
-        setEntities(entityData.results.filter((entity) => entity.entity_type !== "holding"));
-        // Sprint 6.0.1-B item 6: default to the user's own primary branch.
-        if (me?.legal_entity_ids[0]) setLegalEntityId((prev) => prev || me.legal_entity_ids[0]);
+      // Sprint 6.5.6 (UAT fix): legal_entity must never be silently
+      // omitted — a single-entity tenant (or user scoped to just one
+      // branch) gets it auto-selected with no picker to show; a picker
+      // only appears once there's an actual choice to make.
+      const filteredEntities = entityData.results.filter((entity) => entity.entity_type !== "holding");
+      setEntities(filteredEntities);
+      if (filteredEntities.length === 1) {
+        setLegalEntityId((prev) => prev || filteredEntities[0].id);
+      } else if (me?.legal_entity_ids[0]) {
+        setLegalEntityId((prev) => prev || me.legal_entity_ids[0]);
       }
       if (showCostCenterUI) {
         const ccData = await api.get<Paginated<CostCenter>>("/cost-centers/");
@@ -114,7 +121,7 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needsEntityPicker, showCostCenterUI]);
+  }, [showCostCenterUI]);
 
   useEffect(() => {
     api.get<Paginated<Party>>(`/parties/?role=${partyRole}`).then((data) => setParties(data.results));
@@ -163,7 +170,11 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
   };
 
   const resetForm = () => {
-    setLegalEntityId("");
+    // Sprint 6.5.6: preserve a single-entity auto-selection across a
+    // reset — the fetch effect only runs once on mount, so clearing
+    // this unconditionally would silently drop legal_entity from every
+    // voucher after the first one on a single-entity tenant.
+    setLegalEntityId(entities.length === 1 ? entities[0].id : "");
     setDate(new Date().toISOString().slice(0, 10));
     setTreasuryKind("bank");
     setTreasuryId("");
@@ -247,14 +258,12 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
         <h3>{t(isReceipt ? "createReceiptVoucher" : "createPaymentVoucher")}</h3>
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            <div className="form-field">
-              <label>{t("voucherDate")}</label>
+            <FormField name="date" label={t("voucherDate")} required error={fieldErr.date}>
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
-            </div>
-            <div className="form-field">
-              <label>{t("treasuryAccount")}</label>
+            </FormField>
+            <FormField name="treasury_id" label={t("treasuryAccount")} required error={fieldErr.treasury_id}>
               <select
-                value={`${treasuryKind}:${treasuryId}`}
+                value={treasuryValue}
                 onChange={(e) => {
                   const [kind, id] = e.target.value.split(":");
                   setTreasuryKind(kind as TreasuryKind);
@@ -262,55 +271,56 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
                 }}
                 required
               >
-                <option value=":" disabled>—</option>
+                <option value="" disabled>—</option>
                 {treasuryOptions.map((opt) => (
                   <option key={`${opt.kind}:${opt.id}`} value={`${opt.kind}:${opt.id}`}>{opt.label}</option>
                 ))}
               </select>
-            </div>
+            </FormField>
           </div>
 
-          {needsEntityPicker && (
+          {!me?.simplified_mode && entities.length > 1 && (
             <details style={{ marginTop: "0.75rem" }}>
               <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
-              <div className="form-field" style={{ marginTop: "0.75rem", maxWidth: "320px" }}>
-                <label>{t("legalEntity")}</label>
+              <FormField
+                name="legal_entity" required error={fieldErr.legal_entity}
+                style={{ marginTop: "0.75rem", maxWidth: "320px" }}
+              >
                 <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
                   <option value="" disabled>—</option>
                   {entities.map((entity) => (
                     <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>
                   ))}
                 </select>
-              </div>
+              </FormField>
             </details>
           )}
 
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
-            <div className="form-field">
-              <label>{t("partyRole")}</label>
+            <FormField name="party_role" label={t("partyRole")}>
               <select value={partyRole} onChange={(e) => setPartyRole(e.target.value as PartyRoleType)}>
                 {ROLE_OPTIONS.map((role) => (
                   <option key={role} value={role}>{t(ROLE_LABEL_KEY[role])}</option>
                 ))}
               </select>
-            </div>
-            <div className="form-field" style={{ flex: 1, minWidth: "220px" }}>
-              <label>{t(isReceipt ? "receivedFrom" : "paidTo")}</label>
+            </FormField>
+            <FormField
+              name="party" label={t(isReceipt ? "receivedFrom" : "paidTo")} error={fieldErr.party}
+              style={{ flex: 1, minWidth: "220px" }}
+            >
               <select value={partyId} onChange={(e) => setPartyId(e.target.value)}>
                 <option value="">{t("none")}</option>
                 {parties.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
-            </div>
+            </FormField>
             {!isReceipt && !partyId && (
-              <div className="form-field">
-                <label>{t("payeeName")}</label>
+              <FormField name="payee_name" error={fieldErr.payee_name}>
                 <input value={payeeName} onChange={(e) => setPayeeName(e.target.value)} />
-              </div>
+              </FormField>
             )}
-            <div className="form-field">
-              <label>{t("paymentMethod")}</label>
+            <FormField name="payment_method" label={t("paymentMethod")}>
               <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as VoucherPaymentMethod)}>
                 <option value="cash">{t("paymentMethodCash")}</option>
                 <option value="bank_transfer">{t("paymentMethodBankTransfer")}</option>
@@ -318,59 +328,53 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
                 <option value="card">{t("paymentMethodCard")}</option>
                 <option value="other">{t("paymentMethodOther")}</option>
               </select>
-            </div>
-            <div className="form-field">
-              <label>{t("reference")}</label>
+            </FormField>
+            <FormField name="reference" error={fieldErr.reference}>
               <input value={reference} onChange={(e) => setReference(e.target.value)} />
-            </div>
-            <div className="form-field" style={{ flex: 1, minWidth: "220px" }}>
-              <label>{t("description")}</label>
+            </FormField>
+            <FormField name="description" error={fieldErr.description} style={{ flex: 1, minWidth: "220px" }}>
               <input value={description} onChange={(e) => setDescription(e.target.value)} />
-            </div>
+            </FormField>
           </div>
 
           <h4 style={{ marginTop: "1rem" }}>{t("payments")}</h4>
           {lines.map((line, i) => (
             <div key={i} style={{ display: "flex", gap: "0.75rem", alignItems: "end", flexWrap: "wrap", marginBottom: "0.4rem" }}>
-              <div className="form-field" style={{ minWidth: "150px" }}>
-                <label>{t("lineType")}</label>
+              <FormField name="line_type" label={t("lineType")} style={{ minWidth: "150px" }}>
                 <select value={line.lineType} onChange={(e) => updateLine(i, "lineType", e.target.value)}>
                   <option value="invoice">{t("invoiceLineType")}</option>
                   <option value="on_account">{t("onAccountLineType")}</option>
                   <option value="account">{t("accountLineType")}</option>
                 </select>
-              </div>
+              </FormField>
               {line.lineType === "invoice" && (
-                <div className="form-field" style={{ minWidth: "220px" }}>
-                  <label>{t("invoiceToSettle")}</label>
+                <FormField name="invoice" label={t("invoiceToSettle")} required style={{ minWidth: "220px" }}>
                   <select value={line.invoice} onChange={(e) => updateLine(i, "invoice", e.target.value)} required>
                     <option value="" disabled>—</option>
                     {partyInvoices.map((inv) => (
                       <option key={inv.id} value={inv.id}>{inv.number} ({t("balanceDue")}: {formatMoney(inv.balance_fc, inv.currency)})</option>
                     ))}
                   </select>
-                </div>
+                </FormField>
               )}
               {line.lineType === "account" && (
                 <>
-                  <div className="form-field" style={{ minWidth: "220px" }}>
-                    <label>{t("account")}</label>
+                  <FormField name="account" required style={{ minWidth: "220px" }}>
                     <select value={line.account} onChange={(e) => updateLine(i, "account", e.target.value)} required>
                       <option value="" disabled>—</option>
                       {accounts.map((a) => (
                         <option key={a.id} value={a.id}>{a.label}</option>
                       ))}
                     </select>
-                  </div>
-                  <div className="form-field" style={{ minWidth: "140px" }}>
-                    <label>{t("taxCode")}</label>
+                  </FormField>
+                  <FormField name="tax_code" style={{ minWidth: "140px" }}>
                     <select value={line.taxCode} onChange={(e) => updateLine(i, "taxCode", e.target.value)}>
                       <option value="">{t("none")}</option>
                       {taxCodes.map((tc) => (
                         <option key={tc.id} value={tc.id}>{tc.code} — {tc.rate}%</option>
                       ))}
                     </select>
-                  </div>
+                  </FormField>
                   <label style={{ fontSize: "0.9rem", display: "flex", alignItems: "center", gap: "0.3rem" }}>
                     <input
                       type="checkbox"
@@ -380,26 +384,23 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
                     {t("amountIncludesTax")}
                   </label>
                   {showCostCenterUI && (
-                    <div className="form-field" style={{ minWidth: "160px" }}>
-                      <label>{t("costCenter")}</label>
+                    <FormField name="cost_center" style={{ minWidth: "160px" }}>
                       <select value={line.costCenter} onChange={(e) => updateLine(i, "costCenter", e.target.value)}>
                         <option value="">{t("none")}</option>
                         {costCenters.map((cc) => (
                           <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
                         ))}
                       </select>
-                    </div>
+                    </FormField>
                   )}
                 </>
               )}
-              <div className="form-field" style={{ width: "140px" }}>
-                <label>{t("amount")}</label>
+              <FormField name="amount_fc" label={t("amount")} required style={{ width: "140px" }}>
                 <input type="number" step="0.01" value={line.amountFc} onChange={(e) => updateLine(i, "amountFc", e.target.value)} required />
-              </div>
-              <div className="form-field" style={{ flex: 1, minWidth: "160px" }}>
-                <label>{t("description")}</label>
+              </FormField>
+              <FormField name="description" style={{ flex: 1, minWidth: "160px" }}>
                 <input value={line.description} onChange={(e) => updateLine(i, "description", e.target.value)} />
-              </div>
+              </FormField>
               {lines.length > 1 && (
                 <button type="button" className="secondary" onClick={() => removeLine(i)}>×</button>
               )}
@@ -409,10 +410,7 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
             {t("addLine")}
           </button>
           <br />
-          {Object.entries(fieldErr).map(([field, msg]) => (
-            <p key={field} className="error-text">{field}: {msg}</p>
-          ))}
-          {error && <p className="error-text">{error}</p>}
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           <button className="primary" type="submit">{t(isReceipt ? "createReceiptVoucher" : "createPaymentVoucher")}</button>
         </form>
       </div>
@@ -420,7 +418,9 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
       {reasonFor && (
         <div className="card">
           <h3>{reasonFor.kind === "reject" ? t("rejectReason") : t("confirmReverseVoucher")}</h3>
-          <input value={reasonText} onChange={(e) => setReasonText(e.target.value)} style={{ minWidth: "300px" }} />
+          <FormField name="reason" required style={{ maxWidth: "320px" }}>
+            <input value={reasonText} onChange={(e) => setReasonText(e.target.value)} style={{ minWidth: "300px" }} />
+          </FormField>
           <div style={{ marginTop: "0.75rem" }}>
             <button className="primary" onClick={() => submitReason(() => setRefreshToken((n) => n + 1))}>{t("save")}</button>
             <button

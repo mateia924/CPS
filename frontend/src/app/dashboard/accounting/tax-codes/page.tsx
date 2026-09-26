@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, fieldErrors, generalError } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { FormField } from "@/components/FormField";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import { flattenLeafAccounts, type FlatAccountOption } from "@/lib/accounts";
 import type {
   AccountTreeNode,
@@ -49,6 +51,7 @@ export default function TaxCodesPage() {
   const [effectiveFrom, setEffectiveFrom] = useState(() => new Date().toISOString().slice(0, 10));
   const [isActive, setIsActive] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
@@ -68,6 +71,7 @@ export default function TaxCodesPage() {
     setEffectiveFrom(row.effective_from);
     setIsActive(row.is_active);
     setError(null);
+    setFieldErr({});
   };
 
   const cancelEdit = () => {
@@ -83,11 +87,13 @@ export default function TaxCodesPage() {
     setEffectiveFrom(new Date().toISOString().slice(0, 10));
     setIsActive(true);
     setError(null);
+    setFieldErr({});
   };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setFieldErr({});
     try {
       if (editing) {
         // TaxCodeSerializer.update only allows name/is_active — the
@@ -108,8 +114,9 @@ export default function TaxCodesPage() {
       }
       cancelEdit();
       setRefreshToken((n) => n + 1);
-    } catch {
-      setError("Could not save this tax code.");
+    } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
 
@@ -121,16 +128,13 @@ export default function TaxCodesPage() {
         <h3>{editing ? t("edit") : t("add")}</h3>
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            <div className="form-field">
-              <label>{t("code")}</label>
+            <FormField name="code" required error={fieldErr.code}>
               <input value={code} onChange={(e) => setCode(e.target.value)} required disabled={!!editing} />
-            </div>
-            <div className="form-field">
-              <label>{t("name")}</label>
+            </FormField>
+            <FormField name="name" required error={fieldErr.name}>
               <input value={name} onChange={(e) => setName(e.target.value)} required />
-            </div>
-            <div className="form-field">
-              <label>{t("rate")}</label>
+            </FormField>
+            <FormField name="rate" error={fieldErr.rate}>
               <input
                 type="number"
                 step="0.01"
@@ -138,9 +142,9 @@ export default function TaxCodesPage() {
                 onChange={(e) => setRate(e.target.value)}
                 disabled={!!editing}
               />
-            </div>
+            </FormField>
             <label style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-              <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
+              <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} /> {/* form-ok: مربع اختيار بدون تحقق حقل من الـAPI */}
               {t("active")}
             </label>
           </div>
@@ -149,8 +153,7 @@ export default function TaxCodesPage() {
             <details open style={{ marginTop: "0.75rem" }}>
               <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
               <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
-                <div className="form-field">
-                  <label>{t("kind")}</label>
+                <FormField name="kind" label={t("kind")} error={fieldErr.kind}>
                   <select value={kind} onChange={(e) => setKind(e.target.value as TaxCodeKind)}>
                     {KINDS.map((k) => (
                       <option key={k} value={k}>
@@ -158,9 +161,8 @@ export default function TaxCodesPage() {
                       </option>
                     ))}
                   </select>
-                </div>
-                <div className="form-field">
-                  <label>{t("direction")}</label>
+                </FormField>
+                <FormField name="direction" label={t("direction")} error={fieldErr.direction}>
                   <select value={direction} onChange={(e) => setDirection(e.target.value as TaxCodeDirection)}>
                     {DIRECTIONS.map((d) => (
                       <option key={d} value={d}>
@@ -168,9 +170,8 @@ export default function TaxCodesPage() {
                       </option>
                     ))}
                   </select>
-                </div>
-                <div className="form-field">
-                  <label>{t("deductible")}</label>
+                </FormField>
+                <FormField name="deductible" label={t("deductible")} error={fieldErr.deductible}>
                   <select value={deductible} onChange={(e) => setDeductible(e.target.value as TaxCodeDeductible)}>
                     {DEDUCTIBLES.map((d) => (
                       <option key={d} value={d}>
@@ -178,9 +179,8 @@ export default function TaxCodesPage() {
                       </option>
                     ))}
                   </select>
-                </div>
-                <div className="form-field">
-                  <label>{t("account")}</label>
+                </FormField>
+                <FormField name="account" label={t("account")} error={fieldErr.account}>
                   <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
                     <option value="">{t("none")}</option>
                     {accounts.map((a) => (
@@ -189,24 +189,22 @@ export default function TaxCodesPage() {
                       </option>
                     ))}
                   </select>
-                </div>
-                <div className="form-field">
-                  <label>{t("countryCode")}</label>
+                </FormField>
+                <FormField name="country_code" label={t("countryCode")} error={fieldErr.country_code}>
                   <input value={countryCode} onChange={(e) => setCountryCode(e.target.value)} maxLength={2} />
-                </div>
-                <div className="form-field">
-                  <label>{t("effectiveFrom")}</label>
+                </FormField>
+                <FormField name="effective_from" label={t("effectiveFrom")} error={fieldErr.effective_from}>
                   <input
                     type="date"
                     value={effectiveFrom}
                     onChange={(e) => setEffectiveFrom(e.target.value)}
                   />
-                </div>
+                </FormField>
               </div>
             </details>
           )}
 
-          {error && <p className="error-text">{error}</p>}
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           <button className="primary" type="submit" style={{ marginTop: "0.75rem" }}>
             {editing ? t("saveChanges") : t("add")}
           </button>

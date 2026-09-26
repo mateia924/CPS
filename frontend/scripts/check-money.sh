@@ -10,6 +10,11 @@
 # may carry a `// money-ok: <why>` comment to opt out explicitly.
 # Heuristic (grep, not an AST), matching this project's other
 # structural checks.
+#
+# Sprint 6.5.6: FormField's `error={fieldErr.amount_fc}` (etc.) is a
+# field-error lookup, not a money display, but matches the same
+# ".fieldname}" shape as a real one — excluded alongside the
+# <Money>/formatMoney( escape hatches.
 set -e
 
 FAIL=0
@@ -31,7 +36,7 @@ echo "== check-money: money-shaped field access without <Money>/formatMoney( =="
 PATTERN='\.(total|total_fc|subtotal|tax_total|base_total|amount|amount_fc|balance|balance_fc|paid_fc|debit|debit_fc|credit|credit_fc|unit_price|max_balance|credit_limit|allocated_invoice_fc)\}'
 MATCHES=$(find src -name '*.tsx' -type f \
   ! -path 'src/components/Money.tsx' \
-  -exec grep -nE "$PATTERN" {} + | grep -v '<Money' | grep -v 'formatMoney(' | grep -v 'money-ok' || true)
+  -exec grep -nE "$PATTERN" {} + | grep -v '<Money' | grep -v 'formatMoney(' | grep -v 'money-ok' | grep -v 'fieldErr\.' || true)
 if [ -n "$MATCHES" ]; then
   echo "$MATCHES"
   echo "FAIL: raw money field rendered without <Money>/formatMoney( on the same line"

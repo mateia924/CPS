@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { api, generalError } from "@/lib/api";
+import { api, fieldErrors, generalError } from "@/lib/api";
 import { flattenLeafAccounts, type FlatAccountOption } from "@/lib/accounts";
+import { FormField } from "@/components/FormField";
 import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
 import { WarningsBanner } from "@/components/WarningsBanner";
@@ -33,6 +34,7 @@ export default function AssetDetailPage() {
   const [asset, setAsset] = useState<Asset | null>(null);
   const [schedule, setSchedule] = useState<RecurringEntry | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [warnings, setWarnings] = useState<string[]>([]);
   const [rejectReason, setRejectReason] = useState("");
   const [showReject, setShowReject] = useState(false);
@@ -91,18 +93,21 @@ export default function AssetDetailPage() {
 
   const runScheduleAction = async (action: string, body?: Record<string, unknown>) => {
     setError(null);
+    setFieldErr({});
     try {
       await api.post(`/depreciation-schedules/${schedule!.id}/${action}/`, body);
       setShowReject(false);
       setRejectReason("");
       load();
     } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
       setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
 
   const startDepreciation = async () => {
     setError(null);
+    setFieldErr({});
     try {
       await api.patch(`/assets/${id}/`, {
         in_service_date: inServiceDate,
@@ -114,6 +119,7 @@ export default function AssetDetailPage() {
       setWarnings(started.warnings || []);
       load();
     } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
       setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
@@ -125,6 +131,7 @@ export default function AssetDetailPage() {
 
   const addAddition = async () => {
     setError(null);
+    setFieldErr({});
     try {
       await api.post(`/assets/${id}/additions/`, {
         date: additionDate,
@@ -139,12 +146,14 @@ export default function AssetDetailPage() {
       setExtendLifeMonths("0");
       load();
     } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
       setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
 
   const disposeAsset = async () => {
     setError(null);
+    setFieldErr({});
     try {
       const result = await api.post<{ warnings?: string[] }>(`/assets/${id}/dispose/`, {
         date: disposalDate,
@@ -162,12 +171,14 @@ export default function AssetDetailPage() {
       setDisposalReason("");
       load();
     } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
       setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
 
   const transferAsset = async () => {
     setError(null);
+    setFieldErr({});
     try {
       await api.post(`/assets/${id}/transfer/`, {
         legal_entity: transferEntityId || null,
@@ -178,6 +189,7 @@ export default function AssetDetailPage() {
       setTransferCostCenterId("");
       load();
     } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
       setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
@@ -217,7 +229,7 @@ export default function AssetDetailPage() {
       </h1>
 
       <WarningsBanner warnings={warnings} />
-      {error && <p className="error-text">{error}</p>}
+      <WarningsBanner warnings={error ? [error] : []} variant="error" />
 
       <div className="card">
         <p>{t("category")}: {t(asset.category)}</p>
@@ -269,15 +281,16 @@ export default function AssetDetailPage() {
                   {t("reject")}
                 </button>
                 {showReject && (
-                  <div style={{ marginTop: "0.5rem" }}>
-                    <input
-                      value={rejectReason}
-                      onChange={(e) => setRejectReason(e.target.value)}
-                      placeholder={t("reason")}
-                      style={{ minWidth: "260px" }}
-                    />
+                  <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.5rem", alignItems: "start" }}>
+                    <FormField name="reason" required error={fieldErr.reason} style={{ minWidth: "260px" }}>
+                      <input
+                        value={rejectReason}
+                        onChange={(e) => setRejectReason(e.target.value)}
+                        required
+                      />
+                    </FormField>
                     <button
-                      className="secondary" style={{ marginInlineStart: "0.5rem" }}
+                      className="secondary" style={{ marginTop: "1.6rem" }}
                       onClick={() => runScheduleAction("reject", { reason: rejectReason })}
                     >
                       {t("save")}
@@ -322,28 +335,24 @@ export default function AssetDetailPage() {
             </button>
             {showAddAddition && (
               <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
-                <div className="form-field">
-                  <label>{t("additionDate")}</label>
+                <FormField name="date" label={t("additionDate")} error={fieldErr.date}>
                   <input type="date" value={additionDate} onChange={(e) => setAdditionDate(e.target.value)} />
-                </div>
-                <div className="form-field">
-                  <label>{t("additionAmount")}</label>
+                </FormField>
+                <FormField name="amount_base" label={t("additionAmount")} error={fieldErr.amount_base}>
                   <input
                     type="number" step="0.01" value={additionAmount}
                     onChange={(e) => setAdditionAmount(e.target.value)}
                   />
-                </div>
-                <div className="form-field">
-                  <label>{t("extendLifeMonths")}</label>
+                </FormField>
+                <FormField name="extend_life_months" error={fieldErr.extend_life_months}>
                   <input
                     type="number" value={extendLifeMonths}
                     onChange={(e) => setExtendLifeMonths(e.target.value)}
                   />
-                </div>
-                <div className="form-field">
-                  <label>{t("description")}</label>
+                </FormField>
+                <FormField name="description" error={fieldErr.description}>
                   <input value={additionDescription} onChange={(e) => setAdditionDescription(e.target.value)} />
-                </div>
+                </FormField>
                 <button className="primary" onClick={addAddition}>{t("save")}</button>
               </div>
             )}
@@ -378,12 +387,10 @@ export default function AssetDetailPage() {
           <>
             <p>{t("noDepreciationSchedule")}</p>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-              <div className="form-field">
-                <label>{t("inServiceDate")}</label>
+              <FormField name="in_service_date" error={fieldErr.in_service_date}>
                 <input type="date" value={inServiceDate} onChange={(e) => setInServiceDate(e.target.value)} />
-              </div>
-              <div className="form-field">
-                <label>{t("depreciationMethod")}</label>
+              </FormField>
+              <FormField name="depreciation_method" error={fieldErr.depreciation_method}>
                 <select
                   value={method}
                   onChange={(e) => {
@@ -403,23 +410,21 @@ export default function AssetDetailPage() {
                   <option value="straight_line">{t("straightLine")}</option>
                   <option value="declining_balance">{t("decliningBalance")}</option>
                 </select>
-              </div>
+              </FormField>
               {method === "declining_balance" && (
-                <div className="form-field">
-                  <label>{t("decliningBalanceRate")}</label>
+                <FormField name="declining_balance_rate" error={fieldErr.declining_balance_rate}>
                   <input
                     type="number" step="0.01" value={decliningRate}
                     onChange={(e) => setDecliningRate(e.target.value)}
                   />
-                </div>
+                </FormField>
               )}
-              <div className="form-field">
-                <label>{t("openingAccumulatedDepreciation")}</label>
+              <FormField name="opening_accumulated_depreciation" error={fieldErr.opening_accumulated_depreciation}>
                 <input
                   type="number" step="0.01" value={openingAccum}
                   onChange={(e) => setOpeningAccum(e.target.value)}
                 />
-              </div>
+              </FormField>
             </div>
             <button className="primary" style={{ marginTop: "0.75rem" }} onClick={startDepreciation}>
               {t("startDepreciation")}
@@ -436,39 +441,34 @@ export default function AssetDetailPage() {
           </button>
           {showDispose && (
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
-              <div className="form-field">
-                <label>{t("disposalDate")}</label>
+              <FormField name="date" label={t("disposalDate")} error={fieldErr.date}>
                 <input type="date" value={disposalDate} onChange={(e) => setDisposalDate(e.target.value)} />
-              </div>
-              <div className="form-field">
-                <label>{t("disposalFraction")}</label>
+              </FormField>
+              <FormField name="fraction" label={t("disposalFraction")} error={fieldErr.fraction}>
                 <input
                   type="number" step="0.0001" min="0" max="1" value={disposalFraction}
                   onChange={(e) => setDisposalFraction(e.target.value)}
                 />
-              </div>
-              <div className="form-field">
-                <label>{t("disposalProceeds")}</label>
+              </FormField>
+              <FormField name="proceeds_base" label={t("disposalProceeds")} error={fieldErr.proceeds_base}>
                 <input
                   type="number" step="0.01" value={disposalProceeds}
                   onChange={(e) => setDisposalProceeds(e.target.value)}
                 />
-              </div>
+              </FormField>
               {Number(disposalProceeds) > 0 && (
-                <div className="form-field">
-                  <label>{t("disposalProceedsAccount")}</label>
+                <FormField name="proceeds_account" label={t("disposalProceedsAccount")} error={fieldErr.proceeds_account}>
                   <select value={disposalAccountId} onChange={(e) => setDisposalAccountId(e.target.value)}>
                     <option value="">—</option>
                     {accounts.map((account) => (
                       <option key={account.id} value={account.id}>{account.label}</option>
                     ))}
                   </select>
-                </div>
+                </FormField>
               )}
-              <div className="form-field">
-                <label>{t("disposalReason")}</label>
+              <FormField name="reason" label={t("disposalReason")} error={fieldErr.reason}>
                 <input value={disposalReason} onChange={(e) => setDisposalReason(e.target.value)} />
-              </div>
+              </FormField>
               <button className="primary" onClick={disposeAsset}>{t("save")}</button>
             </div>
           )}
@@ -511,24 +511,22 @@ export default function AssetDetailPage() {
           </button>
           {showTransfer && (
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
-              <div className="form-field">
-                <label>{t("transferLegalEntity")}</label>
+              <FormField name="legal_entity" label={t("transferLegalEntity")} error={fieldErr.legal_entity}>
                 <select value={transferEntityId} onChange={(e) => setTransferEntityId(e.target.value)}>
                   <option value="">—</option>
                   {legalEntities.map((entity) => (
                     <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>
                   ))}
                 </select>
-              </div>
-              <div className="form-field">
-                <label>{t("transferCostCenter")}</label>
+              </FormField>
+              <FormField name="cost_center" label={t("transferCostCenter")} error={fieldErr.cost_center}>
                 <select value={transferCostCenterId} onChange={(e) => setTransferCostCenterId(e.target.value)}>
                   <option value="">—</option>
                   {costCenters.map((cc) => (
                     <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
                   ))}
                 </select>
-              </div>
+              </FormField>
               <button className="primary" onClick={transferAsset}>{t("save")}</button>
             </div>
           )}

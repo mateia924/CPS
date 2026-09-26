@@ -1,6 +1,7 @@
 "use client";
 
 import { useLocale } from "@/lib/i18n";
+import { FormField } from "@/components/FormField";
 import type { StructuredAddressFields } from "@/lib/types";
 
 const KEYS: (keyof StructuredAddressFields)[] = [
@@ -26,10 +27,11 @@ export const EMPTY_STRUCTURED_ADDRESS: StructuredAddressFields = {
 // LegalEntity in settings/company/page.tsx, but that screen has its own
 // effective_profile inheritance logic and isn't reused directly here.
 export function StructuredAddressFieldset({
-  value, onChange,
+  value, onChange, fieldErr = {},
 }: {
   value: StructuredAddressFields;
   onChange: (next: StructuredAddressFields) => void;
+  fieldErr?: Record<string, string>;
 }) {
   const { t } = useLocale();
   return (
@@ -37,10 +39,9 @@ export function StructuredAddressFieldset({
       <summary style={{ cursor: "pointer" }}>{t("structuredAddressSection")}</summary>
       <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
         {KEYS.map((key) => (
-          <div className="form-field" key={key}>
-            <label>{t(LABEL_KEY[key])}</label>
+          <FormField name={key} label={t(LABEL_KEY[key])} error={fieldErr[key]} key={key}>
             <input value={value[key]} onChange={(e) => onChange({ ...value, [key]: e.target.value })} />
-          </div>
+          </FormField>
         ))}
       </div>
     </details>

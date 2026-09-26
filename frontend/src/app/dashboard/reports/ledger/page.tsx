@@ -48,7 +48,7 @@ function LedgerReport() {
         <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "end" }}>
           <div className="form-field" style={{ minWidth: "260px" }}>
             <label>{t("account")}</label>
-            <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+            <select value={accountId} onChange={(e) => setAccountId(e.target.value)}> {/* form-ok: تصفية تقرير GET فقط، لا تحقق حقل من الـAPI */}
               <option value="" disabled>{t("selectAccount")}</option>
               {accounts.map((a) => (
                 <option key={a.id} value={a.id}>{a.label}</option>
@@ -57,11 +57,11 @@ function LedgerReport() {
           </div>
           <div className="form-field">
             <label>{t("dateFrom")}</label>
-            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} /> {/* form-ok: تصفية تقرير GET فقط، لا تحقق حقل من الـAPI */}
           </div>
           <div className="form-field">
             <label>{t("dateTo")}</label>
-            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} /> {/* form-ok: تصفية تقرير GET فقط، لا تحقق حقل من الـAPI */}
           </div>
           <button className="primary" onClick={load} disabled={!accountId}>{t("submit")}</button>
         </div>

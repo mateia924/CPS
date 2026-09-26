@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { usePlatformAuth } from "@/lib/platform-auth-context";
 import { useLocale } from "@/lib/i18n";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
+import { FormField } from "@/components/FormField";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import { ApiError, fieldErrors, generalError } from "@/lib/api";
 
 const FALLBACK_ERROR: Record<"ar" | "en", string> = {
@@ -80,22 +82,18 @@ export default function PlatformLoginPage() {
 
       {step === "credentials" && (
         <form onSubmit={onSubmitCredentials}>
-          <div className="form-field">
-            <label>{t("email")}</label>
+          <FormField name="email" label={t("email")} required error={errors.email}>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            {errors.email && <p className="error-text">{errors.email}</p>}
-          </div>
-          <div className="form-field">
-            <label>{t("password")}</label>
+          </FormField>
+          <FormField name="password" label={t("password")} required error={errors.password}>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
             />
-            {errors.password && <p className="error-text">{errors.password}</p>}
-          </div>
-          {generalErrorText && <p className="error-text">{generalErrorText}</p>}
+          </FormField>
+          <WarningsBanner warnings={generalErrorText ? [generalErrorText] : []} variant="error" />
           <button className="primary" type="submit" disabled={loading}>
             {loading ? "..." : t("continueLabel")}
           </button>
@@ -105,16 +103,15 @@ export default function PlatformLoginPage() {
       {step === "code" && (
         <form onSubmit={onSubmitCode}>
           <p style={{ color: "var(--muted)", fontSize: "0.9rem" }}>{t("totpCodeHint")}</p>
-          <div className="form-field">
-            <label>{t("totpCode")}</label>
+          <FormField name="totp_code" label={t("totpCode")} required>
             <input
               value={totpCode}
               onChange={(e) => setTotpCode(e.target.value)}
               autoFocus
               required
             />
-          </div>
-          {generalErrorText && <p className="error-text">{generalErrorText}</p>}
+          </FormField>
+          <WarningsBanner warnings={generalErrorText ? [generalErrorText] : []} variant="error" />
           <button className="primary" type="submit" disabled={loading}>
             {loading ? "..." : t("login")}
           </button>

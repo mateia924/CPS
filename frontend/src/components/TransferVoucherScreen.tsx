@@ -7,6 +7,7 @@ import { api, fieldErrors, generalError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
+import { FormField } from "@/components/FormField";
 import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
 import { WarningsBanner } from "@/components/WarningsBanner";
@@ -45,7 +46,6 @@ export function TransferVoucherScreen() {
   const [reasonText, setReasonText] = useState("");
   const [prefilled, setPrefilled] = useState(false);
 
-  const needsEntityPicker = !!me && !me.simplified_mode;
   const treasuryOptions: { kind: TreasuryKind; id: string; label: string; currency: string }[] = [
     ...banks.map((b) => ({ kind: "bank" as TreasuryKind, id: b.id, label: `${t("bank")}: ${b.name}`, currency: b.currency })),
     ...cashBoxes.map((c) => ({ kind: "cash_box" as TreasuryKind, id: c.id, label: `${t("cashBox")}: ${c.name}`, currency: c.currency })),
@@ -54,26 +54,32 @@ export function TransferVoucherScreen() {
   const sourceCurrency = treasuryOptions.find((o) => o.kind === treasuryKind && o.id === treasuryId)?.currency;
   const destCurrency = treasuryOptions.find((o) => o.kind === counterTreasuryKind && o.id === counterTreasuryId)?.currency;
   const needsCounterAmount = !!sourceCurrency && !!destCurrency && sourceCurrency !== destCurrency;
+  const treasuryValue = treasuryId ? `${treasuryKind}:${treasuryId}` : "";
+  const counterTreasuryValue = counterTreasuryId ? `${counterTreasuryKind}:${counterTreasuryId}` : "";
 
   useEffect(() => {
     (async () => {
-      const [bankData, cashData, custodyData] = await Promise.all([
+      const [bankData, cashData, custodyData, entityData] = await Promise.all([
         api.get<Paginated<Bank>>("/banks/"),
         api.get<Paginated<CashBox>>("/cash-boxes/"),
         api.get<Paginated<Custody>>("/custodies/"),
+        api.get<Paginated<LegalEntity>>("/legal-entities/"),
       ]);
       setBanks(bankData.results);
       setCashBoxes(cashData.results);
       setCustodies(custodyData.results);
-      if (needsEntityPicker) {
-        const entityData = await api.get<Paginated<LegalEntity>>("/legal-entities/");
-        setEntities(entityData.results.filter((entity) => entity.entity_type !== "holding"));
-        // Sprint 6.0.1-B item 6: default to the user's own primary branch.
-        if (me?.legal_entity_ids[0]) setLegalEntityId((prev) => prev || me.legal_entity_ids[0]);
+      // Sprint 6.5.6 (UAT fix): same as VoucherScreen — legal_entity
+      // must never be silently omitted.
+      const filteredEntities = entityData.results.filter((entity) => entity.entity_type !== "holding");
+      setEntities(filteredEntities);
+      if (filteredEntities.length === 1) {
+        setLegalEntityId((prev) => prev || filteredEntities[0].id);
+      } else if (me?.legal_entity_ids[0]) {
+        setLegalEntityId((prev) => prev || me.legal_entity_ids[0]);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needsEntityPicker]);
+  }, []);
 
   useEffect(() => {
     if (prefilled || treasuryOptions.length === 0) return;
@@ -89,7 +95,9 @@ export function TransferVoucherScreen() {
   }, [searchParams, prefilled, treasuryOptions.length]);
 
   const resetForm = () => {
-    setLegalEntityId("");
+    // Sprint 6.5.6: same reasoning as VoucherScreen — preserve a
+    // single-entity auto-selection across a reset.
+    setLegalEntityId(entities.length === 1 ? entities[0].id : "");
     setDate(new Date().toISOString().slice(0, 10));
     setTreasuryId("");
     setCounterTreasuryId("");
@@ -155,32 +163,32 @@ export function TransferVoucherScreen() {
         <h3>{t("createTransferVoucher")}</h3>
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            <div className="form-field">
-              <label>{t("voucherDate")}</label>
+            <FormField name="date" label={t("voucherDate")} required error={fieldErr.date}>
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
-            </div>
+            </FormField>
           </div>
 
-          {needsEntityPicker && (
+          {!me?.simplified_mode && entities.length > 1 && (
             <details style={{ marginTop: "0.75rem" }}>
               <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
-              <div className="form-field" style={{ marginTop: "0.75rem", maxWidth: "320px" }}>
-                <label>{t("legalEntity")}</label>
+              <FormField
+                name="legal_entity" required error={fieldErr.legal_entity}
+                style={{ marginTop: "0.75rem", maxWidth: "320px" }}
+              >
                 <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
                   <option value="" disabled>—</option>
                   {entities.map((entity) => (
                     <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>
                   ))}
                 </select>
-              </div>
+              </FormField>
             </details>
           )}
 
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
-            <div className="form-field">
-              <label>{t("sourceAccount")}</label>
+            <FormField name="treasury_id" label={t("sourceAccount")} required error={fieldErr.treasury_id}>
               <select
-                value={`${treasuryKind}:${treasuryId}`}
+                value={treasuryValue}
                 onChange={(e) => {
                   const [kind, id] = e.target.value.split(":");
                   setTreasuryKind(kind as TreasuryKind);
@@ -188,16 +196,18 @@ export function TransferVoucherScreen() {
                 }}
                 required
               >
-                <option value=":" disabled>—</option>
+                <option value="" disabled>—</option>
                 {treasuryOptions.map((opt) => (
                   <option key={`s-${opt.kind}:${opt.id}`} value={`${opt.kind}:${opt.id}`}>{opt.label}</option>
                 ))}
               </select>
-            </div>
-            <div className="form-field">
-              <label>{t("destinationAccount")}</label>
+            </FormField>
+            <FormField
+              name="counter_treasury_id" label={t("destinationAccount")} required
+              error={fieldErr.counter_treasury_id}
+            >
               <select
-                value={`${counterTreasuryKind}:${counterTreasuryId}`}
+                value={counterTreasuryValue}
                 onChange={(e) => {
                   const [kind, id] = e.target.value.split(":");
                   setCounterTreasuryKind(kind as TreasuryKind);
@@ -205,37 +215,33 @@ export function TransferVoucherScreen() {
                 }}
                 required
               >
-                <option value=":" disabled>—</option>
+                <option value="" disabled>—</option>
                 {treasuryOptions.map((opt) => (
                   <option key={`d-${opt.kind}:${opt.id}`} value={`${opt.kind}:${opt.id}`}>{opt.label}</option>
                 ))}
               </select>
-            </div>
-            <div className="form-field">
-              <label>{t("amount")} ({sourceCurrency || "—"})</label>
+            </FormField>
+            <FormField name="amount_fc" label={`${t("amount")} (${sourceCurrency || "—"})`} required error={fieldErr.amount_fc}>
               <input type="number" step="0.01" value={amountFc} onChange={(e) => setAmountFc(e.target.value)} required />
-            </div>
+            </FormField>
             {needsCounterAmount && (
-              <div className="form-field">
-                <label>{t("counterAmount")} ({destCurrency})</label>
+              <FormField
+                name="counter_amount_fc" label={`${t("counterAmount")} (${destCurrency})`} required
+                error={fieldErr.counter_amount_fc}
+              >
                 <input type="number" step="0.01" value={counterAmountFc} onChange={(e) => setCounterAmountFc(e.target.value)} required />
-              </div>
+              </FormField>
             )}
-            <div className="form-field">
-              <label>{t("reference")}</label>
+            <FormField name="reference" error={fieldErr.reference}>
               <input value={reference} onChange={(e) => setReference(e.target.value)} />
-            </div>
-            <div className="form-field" style={{ flex: 1, minWidth: "220px" }}>
-              <label>{t("description")}</label>
+            </FormField>
+            <FormField name="description" error={fieldErr.description} style={{ flex: 1, minWidth: "220px" }}>
               <input value={description} onChange={(e) => setDescription(e.target.value)} />
-            </div>
+            </FormField>
           </div>
 
           <br />
-          {Object.entries(fieldErr).map(([field, msg]) => (
-            <p key={field} className="error-text">{field}: {msg}</p>
-          ))}
-          {error && <p className="error-text">{error}</p>}
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           <button className="primary" type="submit">{t("createTransferVoucher")}</button>
         </form>
       </div>
@@ -243,7 +249,9 @@ export function TransferVoucherScreen() {
       {reasonFor && (
         <div className="card">
           <h3>{t("confirmReverseVoucher")}</h3>
-          <input value={reasonText} onChange={(e) => setReasonText(e.target.value)} style={{ minWidth: "300px" }} />
+          <FormField name="reason" required style={{ maxWidth: "320px" }}>
+            <input value={reasonText} onChange={(e) => setReasonText(e.target.value)} style={{ minWidth: "300px" }} />
+          </FormField>
           <div style={{ marginTop: "0.75rem" }}>
             <button className="primary" onClick={() => submitReason(() => setRefreshToken((n) => n + 1))}>{t("save")}</button>
             <button type="button" className="secondary" style={{ marginInlineStart: "0.5rem" }} onClick={() => { setReasonFor(null); setReasonText(""); }}>{t("cancel")}</button>

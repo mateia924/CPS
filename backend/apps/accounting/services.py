@@ -51,11 +51,17 @@ CONTROL_SYSTEM_KEYS = {
     # system-managed variance account touched only through the cash
     # count -> variance voucher flow, never a free-form manual JV.
     "CASH_COUNT_VARIANCE",
-    # Sprint 6.5.0 (decision 2): fixed-asset accounts — every posting
-    # to them goes through apps.assets.depreciation (start/addition/
-    # disposal), never a free-form manual JV without an override
-    # reason, same as any other system-managed account here.
-    "FIXED_ASSETS", "ACCUM_DEPRECIATION", "DEPRECIATION_EXPENSE", "DISPOSAL_GAIN_LOSS",
+    # Sprint 6.5.0 (decision 2), revised 6.5.6 (decision C, first human
+    # UAT): every posting to these three goes through apps.assets.
+    # depreciation/disposal (start/addition/disposal), never a
+    # free-form manual JV without an override reason. FIXED_ASSETS
+    # itself is deliberately NOT here (removed in 6.5.6) — the asset's
+    # own purchase, or an addition to it, is an ordinary voucher/manual
+    # JV like any other capital expenditure (decision 1); it was never
+    # actually posted to by any depreciation/disposal code path, so
+    # gating it the same way only blocked the accountant's own normal
+    # entry with no corresponding system-code benefit.
+    "ACCUM_DEPRECIATION", "DEPRECIATION_EXPENSE", "DISPOSAL_GAIN_LOSS",
 }
 
 # Sprint 3.3/3.4: which system_key parent a given PartyRole.Role's

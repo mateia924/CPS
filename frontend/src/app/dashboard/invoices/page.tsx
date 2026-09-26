@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, generalError } from "@/lib/api";
+import { api, fieldErrors, generalError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
+import { FormField } from "@/components/FormField";
 import { Money } from "@/components/Money";
 import { formatMoney } from "@/lib/money";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -43,6 +44,8 @@ export default function InvoicesPage() {
   const [quickCustomerName, setQuickCustomerName] = useState("");
   const [quickAddError, setQuickAddError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
 
   // 3.13: legal_entity only needs a visible field once the tenant is out
   // of simplified mode — otherwise the server auto-fills the single branch.
@@ -121,6 +124,8 @@ export default function InvoicesPage() {
     setExchangeRate("");
     setShowFx(false);
     setLines([{ ...EMPTY_LINE }]);
+    setError(null);
+    setFieldErr({});
   };
 
   const onQuickAddCustomer = async (e: React.FormEvent) => {
@@ -132,13 +137,15 @@ export default function InvoicesPage() {
       setCustomerId(created.id);
       setQuickCustomerName("");
       setShowQuickAddCustomer(false);
-    } catch {
-      setQuickAddError("Could not create this customer.");
+    } catch (err) {
+      setQuickAddError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
+    setFieldErr({});
     const payload = {
       customer: customerId,
       ...(legalEntityId ? { legal_entity: legalEntityId } : {}),
@@ -153,15 +160,20 @@ export default function InvoicesPage() {
           ...(l.costCenter ? { cost_center: l.costCenter } : {}),
         })),
     };
-    let saved: Invoice;
-    if (editing) {
-      saved = await api.patch<Invoice>(`/invoices/${editing.id}/`, payload);
-    } else {
-      saved = await api.post<Invoice>("/invoices/", payload);
+    try {
+      let saved: Invoice;
+      if (editing) {
+        saved = await api.patch<Invoice>(`/invoices/${editing.id}/`, payload);
+      } else {
+        saved = await api.post<Invoice>("/invoices/", payload);
+      }
+      setWarnings(saved.warnings || []);
+      cancelEdit();
+      setRefreshToken((n) => n + 1);
+    } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
-    setWarnings(saved.warnings || []);
-    cancelEdit();
-    setRefreshToken((n) => n + 1);
   };
 
   return (
@@ -172,60 +184,62 @@ export default function InvoicesPage() {
         <h3>{editing ? t("editInvoice") : t("createInvoice")}</h3>
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            <div className="form-field">
-              <label>{t("customer")}</label>
-              <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-                <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} required>
-                  <option value="" disabled>
-                    —
-                  </option>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
+            <FormField name="customer" label={t("customer")} required error={fieldErr.customer}>
+              <div>
+                <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+                  <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} required>
+                    <option value="" disabled>
+                      —
                     </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => setShowQuickAddCustomer((v) => !v)}
-                >
-                  {t("quickAddCustomer")}
-                </button>
-              </div>
-              {showQuickAddCustomer && (
-                <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.4rem", alignItems: "center" }}>
-                  <input
-                    value={quickCustomerName}
-                    onChange={(e) => setQuickCustomerName(e.target.value)}
-                    placeholder={t("name")}
-                  />
-                  <button type="button" className="primary" onClick={onQuickAddCustomer}>
-                    {t("save")}
-                  </button>
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
                   <button
                     type="button"
                     className="secondary"
-                    onClick={() => {
-                      setShowQuickAddCustomer(false);
-                      setQuickCustomerName("");
-                      setQuickAddError(null);
-                    }}
+                    onClick={() => setShowQuickAddCustomer((v) => !v)}
                   >
-                    {t("cancel")}
+                    {t("quickAddCustomer")}
                   </button>
                 </div>
-              )}
-              {quickAddError && <p className="error-text">{quickAddError}</p>}
-            </div>
-
+                {showQuickAddCustomer && (
+                  <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.4rem", alignItems: "center" }}>
+                    <input
+                      value={quickCustomerName}
+                      onChange={(e) => setQuickCustomerName(e.target.value)}
+                      placeholder={t("name")} // form-ok: حقل ضمن نموذج فرعي سريع بلا FormField خاص به، الخطأ يظهر أدناه عبر quickAddError
+                    />
+                    <button type="button" className="primary" onClick={onQuickAddCustomer}>
+                      {t("save")}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => {
+                        setShowQuickAddCustomer(false);
+                        setQuickCustomerName("");
+                        setQuickAddError(null);
+                      }}
+                    >
+                      {t("cancel")}
+                    </button>
+                  </div>
+                )}
+                {quickAddError && <p className="error-text">{quickAddError}</p>}
+              </div>
+            </FormField>
           </div>
 
           {needsEntityPicker && (
             <details style={{ marginTop: "0.75rem" }}>
               <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
-              <div className="form-field" style={{ marginTop: "0.75rem", maxWidth: "320px" }}>
-                <label>{t("legalEntity")}</label>
+              <FormField
+                name="legal_entity" label={t("legalEntity")} required error={fieldErr.legal_entity}
+                style={{ marginTop: "0.75rem", maxWidth: "320px" }}
+              >
                 <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
                   <option value="" disabled>
                     —
@@ -236,7 +250,7 @@ export default function InvoicesPage() {
                     </option>
                   ))}
                 </select>
-              </div>
+              </FormField>
             </details>
           )}
 
@@ -246,21 +260,18 @@ export default function InvoicesPage() {
             </button>
           ) : (
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
-              <div className="form-field">
-                <label>{t("currency")}</label>
+              <FormField name="currency" label={t("currency")} error={fieldErr.currency}>
                 <input value={currency} onChange={(e) => setCurrency(e.target.value)} maxLength={3} />
-              </div>
-              <div className="form-field">
-                <label>{t("exchangeRateLabel")}</label>
+              </FormField>
+              <FormField name="exchange_rate" label={t("exchangeRateLabel")} error={fieldErr.exchange_rate}>
                 <input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} />
-              </div>
+              </FormField>
             </div>
           )}
 
           {lines.map((line, i) => (
             <div key={i} style={{ display: "flex", gap: "0.75rem", alignItems: "end", flexWrap: "wrap" }}>
-              <div className="form-field" style={{ flex: 1, minWidth: "180px" }}>
-                <label>{t("product")}</label>
+              <FormField name="product" label={t("product")} required style={{ flex: 1, minWidth: "180px" }}>
                 <select value={line.product} onChange={(e) => updateLine(i, "product", e.target.value)} required>
                   <option value="" disabled>
                     —
@@ -271,9 +282,8 @@ export default function InvoicesPage() {
                     </option>
                   ))}
                 </select>
-              </div>
-              <div className="form-field" style={{ width: "120px" }}>
-                <label>{t("quantity")}</label>
+              </FormField>
+              <FormField name="quantity" label={t("quantity")} required style={{ width: "120px" }}>
                 <input
                   type="number"
                   step="0.01"
@@ -281,9 +291,8 @@ export default function InvoicesPage() {
                   onChange={(e) => updateLine(i, "quantity", e.target.value)}
                   required
                 />
-              </div>
-              <div className="form-field" style={{ minWidth: "140px" }}>
-                <label>{t("taxCode")}</label>
+              </FormField>
+              <FormField name="tax_code" label={t("taxCode")} required style={{ minWidth: "140px" }}>
                 <select value={line.taxCode} onChange={(e) => updateLine(i, "taxCode", e.target.value)} required>
                   <option value="" disabled>
                     —
@@ -294,10 +303,9 @@ export default function InvoicesPage() {
                     </option>
                   ))}
                 </select>
-              </div>
+              </FormField>
               {showCostCenterUI && showCostCenters && (
-                <div className="form-field" style={{ minWidth: "160px" }}>
-                  <label>{t("costCenter")}</label>
+                <FormField name="cost_center" label={t("costCenter")} style={{ minWidth: "160px" }}>
                   <select value={line.costCenter} onChange={(e) => updateLine(i, "costCenter", e.target.value)}>
                     <option value="">{t("none")}</option>
                     {costCenters.map((cc) => (
@@ -306,7 +314,7 @@ export default function InvoicesPage() {
                       </option>
                     ))}
                   </select>
-                </div>
+                </FormField>
               )}
             </div>
           ))}
@@ -326,6 +334,7 @@ export default function InvoicesPage() {
             {t("addLine")}
           </button>
           <br />
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           <button className="primary" type="submit">
             {editing ? t("saveChanges") : t("createInvoice")}
           </button>

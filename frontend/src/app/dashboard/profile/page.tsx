@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api, generalError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import type { MeResponse } from "@/lib/types";
 
 // Sprint 6.8 (decision 17): "ملف المستخدم" — the one self-service
@@ -44,13 +45,13 @@ export default function ProfilePage() {
         <form onSubmit={onSubmit}>
           <div className="form-field" style={{ marginTop: "0.5rem" }}>
             <label>
-              <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />{" "}
+              <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />{/* form-ok: boolean toggle, never returns a field-level API error */}{" "}
               {t("notifyApprovalsEmail")}
             </label>
           </div>
 
           <br />
-          {error && <p className="error-text">{error}</p>}
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           {saved && <p style={{ color: "var(--success)" }}>✓</p>}
           <button className="primary" type="submit">{t("saveChanges")}</button>
         </form>

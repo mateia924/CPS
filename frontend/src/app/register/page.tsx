@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
+import { FormField } from "@/components/FormField";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import { ApiError, fieldErrors, generalError } from "@/lib/api";
 
 const FALLBACK_ERROR: Record<"ar" | "en", string> = {
@@ -70,37 +72,25 @@ export default function RegisterPage() {
         <LocaleSwitcher />
       </div>
       <form onSubmit={onSubmit}>
-        <div className="form-field">
-          <label>{t("companyName")}</label>
+        <FormField name="company_name" label={t("companyName")} required error={errors.company_name}>
           <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} required />
-          {errors.company_name && <p className="error-text">{errors.company_name}</p>}
-        </div>
-        <div className="form-field">
-          <label>{t("subdomain")}</label>
+        </FormField>
+        <FormField name="subdomain" label={t("subdomain")} required error={errors.subdomain}>
           <input value={subdomain} onChange={(e) => setSubdomain(e.target.value)} required />
-          {errors.subdomain && <p className="error-text">{errors.subdomain}</p>}
-        </div>
-        <div className="form-field">
-          <label>{t("firstName")}</label>
+        </FormField>
+        <FormField name="first_name" label={t("firstName")} error={errors.first_name}>
           <input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-          {errors.first_name && <p className="error-text">{errors.first_name}</p>}
-        </div>
-        <div className="form-field">
-          <label>{t("lastName")}</label>
+        </FormField>
+        <FormField name="last_name" label={t("lastName")} error={errors.last_name}>
           <input value={lastName} onChange={(e) => setLastName(e.target.value)} />
-          {errors.last_name && <p className="error-text">{errors.last_name}</p>}
-        </div>
-        <div className="form-field">
-          <label>{t("email")}</label>
+        </FormField>
+        <FormField name="email" label={t("email")} required error={errors.email}>
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          {errors.email && <p className="error-text">{errors.email}</p>}
-        </div>
-        <div className="form-field">
-          <label>{t("password")}</label>
+        </FormField>
+        <FormField name="password" label={t("password")} required error={errors.password}>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-          {errors.password && <p className="error-text">{errors.password}</p>}
-        </div>
-        {generalErrorText && <p className="error-text">{generalErrorText}</p>}
+        </FormField>
+        <WarningsBanner warnings={generalErrorText ? [generalErrorText] : []} variant="error" />
         <button className="primary" type="submit" disabled={loading}>
           {loading ? "..." : t("register")}
         </button>

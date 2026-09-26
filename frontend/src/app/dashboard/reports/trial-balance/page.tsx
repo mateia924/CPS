@@ -57,7 +57,7 @@ export default function TrialBalancePage() {
         <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "end" }}>
           <div className="form-field">
             <label>{t("legalEntity")}</label>
-            <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)}>
+            <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)}> {/* form-ok: تصفية تقرير GET فقط، لا تحقق حقل من الـAPI */}
               <option value="">{t("all")}</option>
               {entities.map((entity) => (
                 <option key={entity.id} value={entity.id}>
@@ -68,11 +68,11 @@ export default function TrialBalancePage() {
           </div>
           <div className="form-field">
             <label>{t("dateFrom")}</label>
-            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} /> {/* form-ok: تصفية تقرير GET فقط، لا تحقق حقل من الـAPI */}
           </div>
           <div className="form-field">
             <label>{t("dateTo")}</label>
-            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} /> {/* form-ok: تصفية تقرير GET فقط، لا تحقق حقل من الـAPI */}
           </div>
           <button className="primary" onClick={load}>
             {t("submit")}

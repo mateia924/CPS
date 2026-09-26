@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
+import { FormField } from "@/components/FormField";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import { ApiError, fieldErrors, generalError } from "@/lib/api";
 import { lastRememberedSubdomain, rememberSubdomain, subdomainFromHostname } from "@/lib/subdomain";
 
@@ -85,33 +87,27 @@ export default function LoginPage() {
             </button>
           </p>
         ) : (
-          <div className="form-field">
-            <label>{t("companyUrlName")}</label>
+          <FormField name="subdomain" label={t("companyUrlName")} required error={errors.subdomain}>
             <input
               value={subdomain}
               onChange={(e) => setSubdomain(e.target.value)}
               placeholder="fatma"
               required
             />
-            {subdomain && (
-              <p style={{ color: "var(--muted)", fontSize: "0.85rem" }}>
-                {subdomain}.{APP_DOMAIN}
-              </p>
-            )}
-            {errors.subdomain && <p className="error-text">{errors.subdomain}</p>}
-          </div>
+          </FormField>
         )}
-        <div className="form-field">
-          <label>{t("email")}</label>
+        {subdomain && !subdomainFromHost && (
+          <p style={{ color: "var(--muted)", fontSize: "0.85rem", marginTop: "-0.5rem" }}>
+            {subdomain}.{APP_DOMAIN}
+          </p>
+        )}
+        <FormField name="email" label={t("email")} required error={errors.email}>
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          {errors.email && <p className="error-text">{errors.email}</p>}
-        </div>
-        <div className="form-field">
-          <label>{t("password")}</label>
+        </FormField>
+        <FormField name="password" label={t("password")} required error={errors.password}>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-          {errors.password && <p className="error-text">{errors.password}</p>}
-        </div>
-        {generalErrorText && <p className="error-text">{generalErrorText}</p>}
+        </FormField>
+        <WarningsBanner warnings={generalErrorText ? [generalErrorText] : []} variant="error" />
         <button className="primary" type="submit" disabled={loading}>
           {loading ? "..." : t("login")}
         </button>

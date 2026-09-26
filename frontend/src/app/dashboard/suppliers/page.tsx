@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { api } from "@/lib/api";
+import { api, fieldErrors, generalError } from "@/lib/api";
 import { checkPartyDuplicate } from "@/lib/duplicateCheck";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { FormField } from "@/components/FormField";
 import { EMPTY_STRUCTURED_ADDRESS, StructuredAddressFieldset } from "@/components/StructuredAddressFieldset";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import type { StructuredAddressFields, SupplierParty } from "@/lib/types";
 
 const ROLE_LABEL_KEY: Record<string, string> = {
@@ -32,6 +34,7 @@ export default function SuppliersPage() {
   const [notes, setNotes] = useState("");
   const [structuredAddress, setStructuredAddress] = useState<StructuredAddressFields>(EMPTY_STRUCTURED_ADDRESS);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
 
@@ -52,6 +55,7 @@ export default function SuppliersPage() {
       city: party.city, postal_code: party.postal_code, short_address: party.short_address,
     });
     setError(null);
+    setFieldErr({});
   };
 
   const cancelEdit = () => {
@@ -68,6 +72,7 @@ export default function SuppliersPage() {
     setNotes("");
     setStructuredAddress(EMPTY_STRUCTURED_ADDRESS);
     setError(null);
+    setFieldErr({});
   };
 
   const buildPayload = () => ({
@@ -87,6 +92,7 @@ export default function SuppliersPage() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setFieldErr({});
 
     if (!editing && (taxNumber || nationalIdOrCr)) {
       setCheckingDuplicate(true);
@@ -117,8 +123,9 @@ export default function SuppliersPage() {
       }
       cancelEdit();
       setRefreshToken((n) => n + 1);
-    } catch {
-      setError("Could not save this supplier.");
+    } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
 
@@ -130,60 +137,50 @@ export default function SuppliersPage() {
         <h3>{editing ? t("edit") : t("add")}</h3>
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            <div className="form-field">
-              <label>{t("name")}</label>
+            <FormField name="name" required error={fieldErr.name}>
               <input value={name} onChange={(e) => setName(e.target.value)} required />
-            </div>
-            <div className="form-field">
-              <label>{t("partyType")}</label>
+            </FormField>
+            <FormField name="party_type" label={t("partyType")} error={fieldErr.party_type}>
               <select value={partyType} onChange={(e) => setPartyType(e.target.value as typeof partyType)}>
                 <option value="organization">{t("partyTypeOrganization")}</option>
                 <option value="individual">{t("individual")}</option>
               </select>
-            </div>
-            <div className="form-field">
-              <label>{t("phone")}</label>
+            </FormField>
+            <FormField name="phone" error={fieldErr.phone}>
               <input value={phone} onChange={(e) => setPhone(e.target.value)} />
-            </div>
-            <div className="form-field">
-              <label>{t("email")}</label>
+            </FormField>
+            <FormField name="email" error={fieldErr.email}>
               <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-            </div>
+            </FormField>
           </div>
 
           <details style={{ marginTop: "0.75rem" }}>
             <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
-              <div className="form-field">
-                <label>{t("taxNumber")}</label>
+              <FormField name="tax_number" error={fieldErr.tax_number}>
                 <input value={taxNumber} onChange={(e) => setTaxNumber(e.target.value)} />
-              </div>
-              <div className="form-field">
-                <label>{t("nationalIdOrCr")}</label>
+              </FormField>
+              <FormField name="national_id_or_cr" error={fieldErr.national_id_or_cr}>
                 <input value={nationalIdOrCr} onChange={(e) => setNationalIdOrCr(e.target.value)} />
-              </div>
-              <div className="form-field">
-                <label>{t("defaultCurrency")}</label>
+              </FormField>
+              <FormField name="default_currency" error={fieldErr.default_currency}>
                 <input value={defaultCurrency} onChange={(e) => setDefaultCurrency(e.target.value)} maxLength={3} />
-              </div>
-              <div className="form-field">
-                <label>{t("paymentTermsDays")}</label>
+              </FormField>
+              <FormField name="payment_terms_days" error={fieldErr.payment_terms_days}>
                 <input type="number" value={paymentTermsDays} onChange={(e) => setPaymentTermsDays(e.target.value)} />
-              </div>
-              <div className="form-field">
-                <label>IBAN</label>
+              </FormField>
+              <FormField name="iban" label="IBAN" error={fieldErr.iban}>
                 <input value={iban} onChange={(e) => setIban(e.target.value)} />
-              </div>
-              <div className="form-field" style={{ flex: 1, minWidth: "200px" }}>
-                <label>{t("notes")}</label>
+              </FormField>
+              <FormField name="notes" error={fieldErr.notes} style={{ flex: 1, minWidth: "200px" }}>
                 <input value={notes} onChange={(e) => setNotes(e.target.value)} />
-              </div>
+              </FormField>
             </div>
           </details>
 
-          <StructuredAddressFieldset value={structuredAddress} onChange={setStructuredAddress} />
+          <StructuredAddressFieldset value={structuredAddress} onChange={setStructuredAddress} fieldErr={fieldErr} />
 
-          {error && <p className="error-text">{error}</p>}
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           <button className="primary" type="submit" style={{ marginTop: "0.75rem" }} disabled={checkingDuplicate}>
             {checkingDuplicate ? t("checking") : editing ? t("saveChanges") : t("add")}
           </button>

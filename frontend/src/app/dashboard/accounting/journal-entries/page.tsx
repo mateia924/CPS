@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, fieldErrors, generalError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { FormField } from "@/components/FormField";
 import { WarningsBanner } from "@/components/WarningsBanner";
 import { flattenLeafAccounts, type FlatAccountOption } from "@/lib/accounts";
 import type { AccountTreeNode, CostCenter, JournalEntry, LegalEntity, Paginated } from "@/lib/types";
@@ -36,6 +37,7 @@ export default function JournalEntriesPage() {
   const [overrideReason, setOverrideReason] = useState("");
   const [lines, setLines] = useState<LineDraft[]>([{ ...EMPTY_LINE }, { ...EMPTY_LINE }]);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [refreshToken, setRefreshToken] = useState(0);
   const [showFx, setShowFx] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -80,11 +82,13 @@ export default function JournalEntriesPage() {
     setLines([{ ...EMPTY_LINE }, { ...EMPTY_LINE }]);
     setShowFx(false);
     setError(null);
+    setFieldErr({});
   };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setFieldErr({});
     const payload = {
       legal_entity: legalEntityId,
       date,
@@ -108,8 +112,9 @@ export default function JournalEntriesPage() {
       setWarnings(created.warnings || []);
       resetForm();
       setRefreshToken((n) => n + 1);
-    } catch {
-      setError("Could not save this journal entry.");
+    } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
 
@@ -140,20 +145,20 @@ export default function JournalEntriesPage() {
         <h3>{t("createJournalEntry")}</h3>
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            <div className="form-field">
-              <label>{t("date")}</label>
+            <FormField name="date" label={t("date")} required error={fieldErr.date}>
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
-            </div>
-            <div className="form-field" style={{ flex: 1, minWidth: "220px" }}>
-              <label>{t("memo")}</label>
+            </FormField>
+            <FormField name="memo" style={{ flex: 1, minWidth: "220px" }} error={fieldErr.memo}>
               <input value={memo} onChange={(e) => setMemo(e.target.value)} />
-            </div>
+            </FormField>
           </div>
 
           <details style={{ marginTop: "0.75rem" }}>
             <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
-            <div className="form-field" style={{ marginTop: "0.75rem", maxWidth: "320px" }}>
-              <label>{t("legalEntity")}</label>
+            <FormField
+              name="legal_entity" label={t("legalEntity")} required error={fieldErr.legal_entity}
+              style={{ marginTop: "0.75rem", maxWidth: "320px" }}
+            >
               <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
                 <option value="" disabled>
                   —
@@ -164,7 +169,7 @@ export default function JournalEntriesPage() {
                   </option>
                 ))}
               </select>
-            </div>
+            </FormField>
           </details>
 
           {!showFx ? (
@@ -173,33 +178,31 @@ export default function JournalEntriesPage() {
             </button>
           ) : (
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginBottom: "0.75rem" }}>
-              <div className="form-field">
-                <label>{t("currency")}</label>
+              <FormField name="currency" error={fieldErr.currency}>
                 <input value={currency} onChange={(e) => setCurrency(e.target.value)} maxLength={3} />
-              </div>
-              <div className="form-field">
-                <label>{t("exchangeRateLabel")}</label>
+              </FormField>
+              <FormField name="exchange_rate" label={t("exchangeRateLabel")} error={fieldErr.exchange_rate}>
                 <input value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} />
-              </div>
-              <div className="form-field">
-                <label>{t("reference")}</label>
+              </FormField>
+              <FormField name="reference" error={fieldErr.reference}>
                 <input value={reference} onChange={(e) => setReference(e.target.value)} />
-              </div>
-              <div className="form-field" style={{ flex: 1, minWidth: "220px" }}>
-                <label>{t("overrideReason")}</label>
+              </FormField>
+              <FormField
+                name="override_reason" label={t("overrideReason")} error={fieldErr.override_reason}
+                style={{ flex: 1, minWidth: "220px" }}
+              >
                 <input
                   value={overrideReason}
                   onChange={(e) => setOverrideReason(e.target.value)}
                   placeholder={t("overridePosting")}
                 />
-              </div>
+              </FormField>
             </div>
           )}
 
           {lines.map((line, i) => (
             <div key={i} style={{ display: "flex", gap: "0.75rem", alignItems: "end", flexWrap: "wrap" }}>
-              <div className="form-field" style={{ flex: 1, minWidth: "220px" }}>
-                <label>{t("account")}</label>
+              <FormField name="account" style={{ flex: 1, minWidth: "220px" }}>
                 <select value={line.account} onChange={(e) => updateLine(i, "account", e.target.value)} required>
                   <option value="" disabled>
                     —
@@ -210,10 +213,9 @@ export default function JournalEntriesPage() {
                     </option>
                   ))}
                 </select>
-              </div>
+              </FormField>
               {showCostCenterUI && (
-                <div className="form-field" style={{ minWidth: "160px" }}>
-                  <label>{t("costCenter")}</label>
+                <FormField name="cost_center" style={{ minWidth: "160px" }}>
                   <select value={line.costCenter} onChange={(e) => updateLine(i, "costCenter", e.target.value)}>
                     <option value="">{t("none")}</option>
                     {costCenters.map((cc) => (
@@ -222,26 +224,24 @@ export default function JournalEntriesPage() {
                       </option>
                     ))}
                   </select>
-                </div>
+                </FormField>
               )}
-              <div className="form-field" style={{ width: "130px" }}>
-                <label>{t("debitFc")}</label>
+              <FormField name="debit_fc" style={{ width: "130px" }}>
                 <input
                   type="number"
                   step="0.01"
                   value={line.debitFc}
                   onChange={(e) => updateLine(i, "debitFc", e.target.value)}
                 />
-              </div>
-              <div className="form-field" style={{ width: "130px" }}>
-                <label>{t("creditFc")}</label>
+              </FormField>
+              <FormField name="credit_fc" style={{ width: "130px" }}>
                 <input
                   type="number"
                   step="0.01"
                   value={line.creditFc}
                   onChange={(e) => updateLine(i, "creditFc", e.target.value)}
                 />
-              </div>
+              </FormField>
             </div>
           ))}
 
@@ -249,7 +249,7 @@ export default function JournalEntriesPage() {
             {t("addManualLine")}
           </button>
           <br />
-          {error && <p className="error-text">{error}</p>}
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           <button className="primary" type="submit">
             {t("createJournalEntry")}
           </button>
@@ -259,12 +259,13 @@ export default function JournalEntriesPage() {
       {reasonFor && (
         <div className="card">
           <h3>{reasonFor.kind === "reject" ? t("rejectReason") : t("reverseReason")}</h3>
-          <input value={reasonText} onChange={(e) => setReasonText(e.target.value)} style={{ minWidth: "300px" }} />
+          <FormField name="reason" required style={{ maxWidth: "320px" }}>
+            <input value={reasonText} onChange={(e) => setReasonText(e.target.value)} style={{ minWidth: "300px" }} />
+          </FormField>
           {reasonFor.kind === "reverse" && (
-            <div className="form-field" style={{ marginTop: "0.5rem", maxWidth: "200px" }}>
-              <label>{t("reverseDate")}</label>
+            <FormField name="date" label={t("reverseDate")} style={{ marginTop: "0.5rem", maxWidth: "200px" }}>
               <input type="date" value={reverseDate} onChange={(e) => setReverseDate(e.target.value)} />
-            </div>
+            </FormField>
           )}
           <div style={{ marginTop: "0.75rem" }}>
             <button className="primary" onClick={() => submitReason(() => setRefreshToken((n) => n + 1))}>

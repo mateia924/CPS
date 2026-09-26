@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { API_BASE, ApiError, api, generalError } from "@/lib/api";
+import { API_BASE, ApiError, api, fieldErrors, generalError } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
+import { FormField } from "@/components/FormField";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import type { Attachment, AttachmentCategory, AttachmentTargetType, Paginated } from "@/lib/types";
 
 export const CATEGORY_LABEL_KEY: Record<AttachmentCategory, string> = {
@@ -50,6 +52,7 @@ export function AttachmentPanel({
   const [category, setCategory] = useState<AttachmentCategory>("other");
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [showOlder, setShowOlder] = useState(false);
@@ -76,6 +79,7 @@ export function AttachmentPanel({
 
   const upload = async (file: File) => {
     setError(null);
+    setFieldErr({});
     setUploading(true);
     const formData = new FormData();
     formData.append("target_type", targetType);
@@ -88,6 +92,7 @@ export function AttachmentPanel({
       setDescription("");
       load();
     } catch (err) {
+      setFieldErr(err instanceof ApiError ? fieldErrors(err.body) : {});
       setError(generalError(err instanceof ApiError ? err.body : null, "Could not upload this file."));
     } finally {
       setUploading(false);
@@ -114,10 +119,17 @@ export function AttachmentPanel({
 
   const submitVoid = async () => {
     if (!voidingId || voidReason.trim().length < 3) return;
-    await api.post(`/attachments/${voidingId}/void/`, { reason: voidReason });
-    setVoidingId(null);
-    setVoidReason("");
-    load();
+    setError(null);
+    setFieldErr({});
+    try {
+      await api.post(`/attachments/${voidingId}/void/`, { reason: voidReason });
+      setVoidingId(null);
+      setVoidReason("");
+      load();
+    } catch (err) {
+      setFieldErr(err instanceof ApiError ? fieldErrors(err.body) : {});
+      setError(generalError(err instanceof ApiError ? err.body : null, "Could not void this attachment."));
+    }
   };
 
   const supersededIds = new Set(attachments.filter((a) => a.supersedes).map((a) => a.supersedes));
@@ -183,8 +195,8 @@ export function AttachmentPanel({
           >
             {uploading ? t("checking") : t("dragDropHint")}
           </div>
-          <input ref={fileInputRef} type="file" hidden onChange={onFileChosen} />
-          <input
+          <input ref={fileInputRef} type="file" hidden onChange={onFileChosen} /> {/* form-ok: triggered programmatically, no visible label */}
+          <input // form-ok: triggered programmatically, no visible label
             ref={cameraInputRef}
             type="file"
             accept="image/*"
@@ -194,8 +206,7 @@ export function AttachmentPanel({
           />
 
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "end", marginBottom: "0.75rem" }}>
-            <div className="form-field">
-              <label>{t("categoryLabel")}</label>
+            <FormField name="category" label={t("categoryLabel")} error={fieldErr.category}>
               <select value={category} onChange={(e) => setCategory(e.target.value as AttachmentCategory)}>
                 {CATEGORIES.map((c) => (
                   <option key={c} value={c}>
@@ -203,21 +214,22 @@ export function AttachmentPanel({
                   </option>
                 ))}
               </select>
-            </div>
-            <div className="form-field" style={{ flex: 1, minWidth: "160px" }}>
-              <label>{t("description")}</label>
+            </FormField>
+            <FormField name="description" label={t("description")} error={fieldErr.description} style={{ flex: 1, minWidth: "160px" }}>
               <input value={description} onChange={(e) => setDescription(e.target.value)} />
-            </div>
+            </FormField>
             <button type="button" className="secondary" onClick={() => cameraInputRef.current?.click()}>
               {t("captureWithCamera")}
             </button>
           </div>
-          {error && <p className="error-text">{error}</p>}
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
 
           {voidingId && (
             <div className="card" style={{ marginBottom: "0.75rem" }}>
               <p>{t("confirmVoidAttachment")}</p>
-              <input value={voidReason} onChange={(e) => setVoidReason(e.target.value)} style={{ minWidth: "260px" }} />
+              <FormField name="reason" required error={fieldErr.reason} style={{ minWidth: "260px" }}>
+                <input value={voidReason} onChange={(e) => setVoidReason(e.target.value)} />
+              </FormField>
               <div style={{ marginTop: "0.5rem" }}>
                 <button className="primary" onClick={submitVoid}>
                   {t("save")}

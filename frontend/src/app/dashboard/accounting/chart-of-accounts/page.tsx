@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, fieldErrors, generalError } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { AccountTree } from "@/components/AccountTree";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { FormField } from "@/components/FormField";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import { flattenAccountTree } from "@/lib/accounts";
 import type { Account, AccountTreeNode, AccountType } from "@/lib/types";
 
@@ -24,6 +26,7 @@ export default function ChartOfAccountsPage() {
   const [allowPosting, setAllowPosting] = useState(true);
   const [isIntercompany, setIsIntercompany] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [refreshToken, setRefreshToken] = useState(0);
 
   const loadTree = async () => {
@@ -48,6 +51,7 @@ export default function ChartOfAccountsPage() {
     setAllowPosting(true);
     setIsIntercompany(false);
     setError(null);
+    setFieldErr({});
   };
 
   const startEdit = (account: Account) => {
@@ -60,6 +64,7 @@ export default function ChartOfAccountsPage() {
     setAllowPosting(account.allow_posting);
     setIsIntercompany(account.is_intercompany);
     setError(null);
+    setFieldErr({});
   };
 
   const cancelEdit = () => {
@@ -72,11 +77,13 @@ export default function ChartOfAccountsPage() {
     setAllowPosting(true);
     setIsIntercompany(false);
     setError(null);
+    setFieldErr({});
   };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setFieldErr({});
     const payload = {
       code,
       name,
@@ -94,8 +101,9 @@ export default function ChartOfAccountsPage() {
       }
       cancelEdit();
       setRefreshToken((n) => n + 1);
-    } catch {
-      setError("Could not save this account.");
+    } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
 
@@ -107,16 +115,13 @@ export default function ChartOfAccountsPage() {
         <h3>{editing ? t("edit") : t("add")}</h3>
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            <div className="form-field">
-              <label>{t("code")}</label>
+            <FormField name="code" required error={fieldErr.code}>
               <input value={code} onChange={(e) => setCode(e.target.value)} required />
-            </div>
-            <div className="form-field">
-              <label>{t("name")}</label>
+            </FormField>
+            <FormField name="name" required error={fieldErr.name}>
               <input value={name} onChange={(e) => setName(e.target.value)} required />
-            </div>
-            <div className="form-field">
-              <label>{t("accountType")}</label>
+            </FormField>
+            <FormField name="type" label={t("accountType")} required error={fieldErr.type}>
               <select value={type} onChange={(e) => setType(e.target.value as AccountType)} required>
                 {TYPES.map((ty) => (
                   <option key={ty} value={ty}>
@@ -124,9 +129,8 @@ export default function ChartOfAccountsPage() {
                   </option>
                 ))}
               </select>
-            </div>
-            <div className="form-field">
-              <label>{t("parent")}</label>
+            </FormField>
+            <FormField name="parent" label={t("parent")} error={fieldErr.parent}>
               <select value={parentId} onChange={(e) => setParentId(e.target.value)}>
                 <option value="">{t("none")}</option>
                 {parentOptions.map((opt) => (
@@ -135,26 +139,25 @@ export default function ChartOfAccountsPage() {
                   </option>
                 ))}
               </select>
-            </div>
+            </FormField>
           </div>
 
           <details style={{ marginTop: "0.75rem" }}>
             <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
-              <div className="form-field">
-                <label>{t("normalBalance")}</label>
+              <FormField name="normal_balance" label={t("normalBalance")} error={fieldErr.normal_balance}>
                 <select value={normalBalance} onChange={(e) => setNormalBalance(e.target.value as "debit" | "credit" | "")}>
                   <option value="">{t("autoOption")}</option>
                   <option value="debit">{t("debit")}</option>
                   <option value="credit">{t("credit")}</option>
                 </select>
-              </div>
+              </FormField>
               <label style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-                <input type="checkbox" checked={allowPosting} onChange={(e) => setAllowPosting(e.target.checked)} />
+                <input type="checkbox" checked={allowPosting} onChange={(e) => setAllowPosting(e.target.checked)} /> {/* form-ok: مربع اختيار بدون تحقق حقل من الـAPI */}
                 {t("allowPosting")}
               </label>
               <label style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-                <input
+                <input // form-ok: مربع اختيار بدون تحقق حقل من الـAPI
                   type="checkbox"
                   checked={isIntercompany}
                   onChange={(e) => setIsIntercompany(e.target.checked)}
@@ -164,7 +167,7 @@ export default function ChartOfAccountsPage() {
             </div>
           </details>
 
-          {error && <p className="error-text">{error}</p>}
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           <button className="primary" type="submit" style={{ marginTop: "0.75rem" }}>
             {editing ? t("saveChanges") : t("add")}
           </button>

@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, fieldErrors, generalError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import Link from "next/link";
 import { DataTable } from "@/components/DataTable";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { FormField } from "@/components/FormField";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import type { Asset, AssetCategory, CostCenter, LegalEntity, Paginated, Party } from "@/lib/types";
 
 const CATEGORIES: AssetCategory[] = ["vehicle", "equipment", "building", "furniture", "it", "other"];
@@ -40,6 +42,7 @@ export default function AssetsPage() {
   const [costCenterId, setCostCenterId] = useState("");
   const [createLinkedCostCenter, setCreateLinkedCostCenter] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
@@ -71,6 +74,7 @@ export default function AssetsPage() {
     setCustodianId(asset.custodian || "");
     setCostCenterId(asset.cost_center || "");
     setError(null);
+    setFieldErr({});
   };
 
   const cancelEdit = () => {
@@ -88,11 +92,13 @@ export default function AssetsPage() {
     setCostCenterId("");
     setCreateLinkedCostCenter(true);
     setError(null);
+    setFieldErr({});
   };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setFieldErr({});
     const payload = {
       legal_entity: legalEntityId,
       code,
@@ -115,8 +121,9 @@ export default function AssetsPage() {
       }
       cancelEdit();
       setRefreshToken((n) => n + 1);
-    } catch {
-      setError("Could not save this asset.");
+    } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
 
@@ -128,16 +135,13 @@ export default function AssetsPage() {
         <h3>{editing ? t("edit") : t("add")}</h3>
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            <div className="form-field">
-              <label>{t("code")}</label>
+            <FormField name="code" required error={fieldErr.code}>
               <input value={code} onChange={(e) => setCode(e.target.value)} required />
-            </div>
-            <div className="form-field">
-              <label>{t("name")}</label>
+            </FormField>
+            <FormField name="name" required error={fieldErr.name}>
               <input value={name} onChange={(e) => setName(e.target.value)} required />
-            </div>
-            <div className="form-field">
-              <label>{t("category")}</label>
+            </FormField>
+            <FormField name="category" error={fieldErr.category}>
               <select value={category} onChange={(e) => setCategory(e.target.value as AssetCategory)}>
                 {CATEGORIES.map((c) => (
                   <option key={c} value={c}>
@@ -145,13 +149,11 @@ export default function AssetsPage() {
                   </option>
                 ))}
               </select>
-            </div>
-            <div className="form-field">
-              <label>{t("purchaseDate")}</label>
+            </FormField>
+            <FormField name="purchase_date" required error={fieldErr.purchase_date}>
               <input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} required />
-            </div>
-            <div className="form-field">
-              <label>{t("purchaseCost")}</label>
+            </FormField>
+            <FormField name="purchase_cost" required error={fieldErr.purchase_cost}>
               <input
                 type="number"
                 step="0.01"
@@ -159,7 +161,7 @@ export default function AssetsPage() {
                 onChange={(e) => setPurchaseCost(e.target.value)}
                 required
               />
-            </div>
+            </FormField>
           </div>
 
           {!editing && category === "vehicle" && (
@@ -168,6 +170,7 @@ export default function AssetsPage() {
                 type="checkbox"
                 checked={createLinkedCostCenter}
                 onChange={(e) => setCreateLinkedCostCenter(e.target.checked)}
+                // form-ok: client-side toggle only, backend never returns a field error for it
               />
               {t("createLinkedCostCenter")}
             </label>
@@ -176,8 +179,7 @@ export default function AssetsPage() {
           <details style={{ marginTop: "0.75rem" }}>
             <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
-              <div className="form-field">
-                <label>{t("legalEntity")}</label>
+              <FormField name="legal_entity" required error={fieldErr.legal_entity}>
                 <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
                   <option value="" disabled>
                     —
@@ -188,30 +190,26 @@ export default function AssetsPage() {
                     </option>
                   ))}
                 </select>
-              </div>
-              <div className="form-field">
-                <label>{t("currency")}</label>
+              </FormField>
+              <FormField name="currency" error={fieldErr.currency}>
                 <input value={currency} onChange={(e) => setCurrency(e.target.value)} maxLength={3} />
-              </div>
-              <div className="form-field">
-                <label>{t("usefulLifeMonths")}</label>
+              </FormField>
+              <FormField name="useful_life_months" error={fieldErr.useful_life_months}>
                 <input
                   type="number"
                   value={usefulLifeMonths}
                   onChange={(e) => setUsefulLifeMonths(e.target.value)}
                 />
-              </div>
-              <div className="form-field">
-                <label>{t("salvageValue")}</label>
+              </FormField>
+              <FormField name="salvage_value" error={fieldErr.salvage_value}>
                 <input
                   type="number"
                   step="0.01"
                   value={salvageValue}
                   onChange={(e) => setSalvageValue(e.target.value)}
                 />
-              </div>
-              <div className="form-field">
-                <label>{t("custodian")}</label>
+              </FormField>
+              <FormField name="custodian" error={fieldErr.custodian}>
                 <select value={custodianId} onChange={(e) => setCustodianId(e.target.value)}>
                   <option value="">{t("none")}</option>
                   {employees.map((employee) => (
@@ -220,9 +218,8 @@ export default function AssetsPage() {
                     </option>
                   ))}
                 </select>
-              </div>
-              <div className="form-field">
-                <label>{t("costCenter")}</label>
+              </FormField>
+              <FormField name="cost_center" error={fieldErr.cost_center}>
                 <select value={costCenterId} onChange={(e) => setCostCenterId(e.target.value)}>
                   <option value="">{t("none")}</option>
                   {costCenters.map((cc) => (
@@ -231,11 +228,11 @@ export default function AssetsPage() {
                     </option>
                   ))}
                 </select>
-              </div>
+              </FormField>
             </div>
           </details>
 
-          {error && <p className="error-text">{error}</p>}
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           <button className="primary" type="submit" style={{ marginTop: "0.75rem" }}>
             {editing ? t("saveChanges") : t("add")}
           </button>

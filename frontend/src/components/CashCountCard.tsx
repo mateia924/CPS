@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiError, generalError } from "@/lib/api";
+import { api, ApiError, fieldErrors, generalError } from "@/lib/api";
+import { FormField } from "@/components/FormField";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import { useLocale } from "@/lib/i18n";
 import type { CashCount, Paginated } from "@/lib/types";
 
@@ -14,6 +16,7 @@ export function CashCountCard({ cashBoxId }: { cashBoxId: string }) {
   const [countDate, setCountDate] = useState("");
   const [countedAmount, setCountedAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
 
   const load = () => {
     api
@@ -25,6 +28,7 @@ export function CashCountCard({ cashBoxId }: { cashBoxId: string }) {
 
   const createCount = async () => {
     setError(null);
+    setFieldErr({});
     try {
       await api.post(`/cash-counts/`, {
         cash_box: cashBoxId, count_date: countDate, counted_amount: countedAmount,
@@ -34,6 +38,7 @@ export function CashCountCard({ cashBoxId }: { cashBoxId: string }) {
       setCountedAmount("");
       load();
     } catch (e) {
+      setFieldErr(fieldErrors(e instanceof ApiError ? e.body : null));
       setError(generalError(e instanceof ApiError ? e.body : null, t("couldNotSave")));
     }
   };
@@ -64,18 +69,16 @@ export function CashCountCard({ cashBoxId }: { cashBoxId: string }) {
         </button>
       </div>
 
-      {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
+      <WarningsBanner warnings={error ? [error] : []} variant="error" />
 
       {showNew && (
         <div className="card" style={{ background: "var(--surface-2)" }}>
-          <label>
-            {t("countDate")}
+          <FormField name="count_date" label={t("countDate")} required error={fieldErr.count_date}>
             <input type="date" value={countDate} onChange={(e) => setCountDate(e.target.value)} />
-          </label>
-          <label>
-            {t("countedAmount")}
+          </FormField>
+          <FormField name="counted_amount" label={t("countedAmount")} required error={fieldErr.counted_amount}>
             <input value={countedAmount} onChange={(e) => setCountedAmount(e.target.value)} />
-          </label>
+          </FormField>
           <button className="primary" disabled={!countDate || !countedAmount} onClick={createCount}>
             {t("submit")}
           </button>

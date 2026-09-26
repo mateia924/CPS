@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, generalError } from "@/lib/api";
+import { api, fieldErrors, generalError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
+import { FormField } from "@/components/FormField";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import { Money } from "@/components/Money";
 import { flattenLeafAccounts, type FlatAccountOption } from "@/lib/accounts";
 import type {
@@ -46,6 +48,7 @@ export default function RecurringEntriesPage() {
   const [firstPeriod, setFirstPeriod] = useState("");
   const [preview, setPreview] = useState<RecurringInstallmentPreviewRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [refreshToken, setRefreshToken] = useState(0);
 
   const showCostCenterUI = !!me && me.features.cost_centers;
@@ -84,16 +87,19 @@ export default function RecurringEntriesPage() {
   const showPreview = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setFieldErr({});
     try {
       const rows = await api.post<RecurringInstallmentPreviewRow[]>("/recurring-entries/preview/", payload());
       setPreview(rows);
     } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
       setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
 
   const onSubmit = async () => {
     setError(null);
+    setFieldErr({});
     try {
       await api.post("/recurring-entries/", payload());
       setDescription("");
@@ -105,6 +111,7 @@ export default function RecurringEntriesPage() {
       setPreview(null);
       setRefreshToken((n) => n + 1);
     } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
       setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
@@ -122,83 +129,74 @@ export default function RecurringEntriesPage() {
         <h3>{t("createRecurringEntry")}</h3>
         <form onSubmit={showPreview}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            <div className="form-field" style={{ minWidth: "220px" }}>
-              <label>{t("legalEntity")}</label>
+            <FormField name="legal_entity" label={t("legalEntity")} required error={fieldErr.legal_entity} style={{ minWidth: "220px" }}>
               <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
                 <option value="" disabled>—</option>
                 {entities.map((entity) => (
                   <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>
                 ))}
               </select>
-            </div>
-            <div className="form-field">
-              <label>{t("kind")}</label>
+            </FormField>
+            <FormField name="kind" label={t("kind")} error={fieldErr.kind}>
               <select value={kind} onChange={(e) => setKind(e.target.value as RecurringEntryKind)}>
                 <option value="prepaid_expense">{t("prepaidExpenseKind")}</option>
                 <option value="deferred_revenue">{t("deferredRevenueKind")}</option>
                 <option value="accrual">{t("accrualKind")}</option>
                 <option value="other">{t("other")}</option>
               </select>
-            </div>
-            <div className="form-field" style={{ flex: 1, minWidth: "220px" }}>
-              <label>{t("description")}</label>
+            </FormField>
+            <FormField name="description" required error={fieldErr.description} style={{ flex: 1, minWidth: "220px" }}>
               <input value={description} onChange={(e) => setDescription(e.target.value)} required />
-            </div>
+            </FormField>
           </div>
 
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
-            <div className="form-field" style={{ flex: 1, minWidth: "200px" }}>
-              <label>{t("toAccount")}</label>
+            <FormField name="to_account" label={t("toAccount")} required error={fieldErr.to_account} style={{ flex: 1, minWidth: "200px" }}>
               <select value={toAccount} onChange={(e) => setToAccount(e.target.value)} required>
                 <option value="" disabled>—</option>
                 {accounts.map((a) => (
                   <option key={a.id} value={a.id}>{a.label}</option>
                 ))}
               </select>
-            </div>
-            <div className="form-field" style={{ flex: 1, minWidth: "200px" }}>
-              <label>{t("fromAccount")}</label>
+            </FormField>
+            <FormField name="from_account" label={t("fromAccount")} required error={fieldErr.from_account} style={{ flex: 1, minWidth: "200px" }}>
               <select value={fromAccount} onChange={(e) => setFromAccount(e.target.value)} required>
                 <option value="" disabled>—</option>
                 {accounts.map((a) => (
                   <option key={a.id} value={a.id}>{a.label}</option>
                 ))}
               </select>
-            </div>
+            </FormField>
             {showCostCenterUI && (
-              <div className="form-field" style={{ minWidth: "160px" }}>
-                <label>{t("costCenter")}</label>
+              <FormField name="cost_center" label={t("costCenter")} error={fieldErr.cost_center} style={{ minWidth: "160px" }}>
                 <select value={costCenter} onChange={(e) => setCostCenter(e.target.value)}>
                   <option value="">{t("none")}</option>
                   {costCenters.map((cc) => (
                     <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
                   ))}
                 </select>
-              </div>
+              </FormField>
             )}
           </div>
 
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
-            <div className="form-field" style={{ width: "160px" }}>
-              <label>{t("total")}</label>
+            <FormField name="total_amount_base" label={t("total")} required error={fieldErr.total_amount_base} style={{ width: "160px" }}>
               <input type="number" step="0.01" value={totalAmount} onChange={(e) => setTotalAmount(e.target.value)} required />
-            </div>
-            <div className="form-field" style={{ width: "140px" }}>
-              <label>{t("installmentsCount")}</label>
+            </FormField>
+            <FormField name="installments_count" label={t("installmentsCount")} required error={fieldErr.installments_count} style={{ width: "140px" }}>
               <input type="number" min={1} value={installmentsCount} onChange={(e) => setInstallmentsCount(e.target.value)} required />
-            </div>
-            <div className="form-field" style={{ minWidth: "220px" }}>
-              <label>{t("firstPeriod")}</label>
+            </FormField>
+            <FormField name="first_period" label={t("firstPeriod")} required error={fieldErr.first_period} style={{ minWidth: "220px" }}>
               <select value={firstPeriod} onChange={(e) => setFirstPeriod(e.target.value)} required>
                 <option value="" disabled>—</option>
                 {periods.map((p) => (
                   <option key={p.id} value={p.id}>{p.start_date} — {p.end_date}</option>
                 ))}
               </select>
-            </div>
+            </FormField>
           </div>
 
-          {error && <p className="error-text">{error}</p>}
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           <button className="secondary" type="submit" style={{ marginTop: "0.75rem" }}>
             {t("previewSchedule")}
           </button>

@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api, generalError } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { FormField } from "@/components/FormField";
 import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import { useLocale } from "@/lib/i18n";
 import type { OpeningBalanceEntry, ReadinessItem } from "@/lib/types";
 
@@ -131,7 +133,7 @@ export default function OpeningBalanceDetailPage() {
         )}
       </div>
 
-      {error && <p className="error-text">{error}</p>}
+      <WarningsBanner warnings={error ? [error] : []} variant="error" />
 
       {entry.status === "draft" && (
         <div className="card">
@@ -141,10 +143,9 @@ export default function OpeningBalanceDetailPage() {
 
       {entry.status === "pending_approval" && (
         <div className="card">
-          <div className="form-field" style={{ maxWidth: "480px" }}>
-            <label>{t("attestationText")}</label>
+          <FormField name="attestation_text" label={t("attestationText")} style={{ maxWidth: "480px" }}>
             <textarea value={attestation} onChange={(e) => setAttestation(e.target.value)} rows={3} />
-          </div>
+          </FormField>
           <button
             className="primary"
             style={{ marginTop: "0.5rem" }}
@@ -168,12 +169,14 @@ export default function OpeningBalanceDetailPage() {
           </button>
           {showReject && (
             <div style={{ marginTop: "0.5rem" }}>
-              <input
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                placeholder={t("reason")}
-                style={{ minWidth: "260px" }}
-              />
+              <FormField name="reason" style={{ display: "inline-block", maxWidth: "300px" }}>
+                <input
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder={t("reason")}
+                  style={{ minWidth: "260px" }}
+                />
+              </FormField>
               <button
                 className="secondary"
                 style={{ marginInlineStart: "0.5rem" }}

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiError, generalError } from "@/lib/api";
+import { api, ApiError, fieldErrors, generalError } from "@/lib/api";
+import { FormField } from "@/components/FormField";
 import { Money } from "@/components/Money";
 import { WarningsBanner } from "@/components/WarningsBanner";
 import { useLocale } from "@/lib/i18n";
@@ -149,11 +150,13 @@ function ImportStatementForm({
   const [amountCol, setAmountCol] = useState("Amount");
   const [descCol, setDescCol] = useState("Description");
   const [submitting, setSubmitting] = useState(false);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
 
   const submit = async () => {
     if (!file) return;
     setSubmitting(true);
     onError(null);
+    setFieldErr({});
     const formData = new FormData();
     formData.append("bank", bankId);
     formData.append("file", file);
@@ -172,6 +175,7 @@ function ImportStatementForm({
       const result = await api.upload<{ warnings?: string[] }>(`/bank-statements/import/`, formData);
       onDone(result.warnings || []);
     } catch (e) {
+      setFieldErr(fieldErrors(e instanceof ApiError ? e.body : null));
       onError(generalError(e instanceof ApiError ? e.body : null, t("couldNotSave")));
     } finally {
       setSubmitting(false);
@@ -180,48 +184,39 @@ function ImportStatementForm({
 
   return (
     <div className="card" style={{ background: "var(--surface-2)" }}>
-      <label>
-        {t("statementFormat")}
+      <FormField name="format" label={t("statementFormat")} error={fieldErr.format}>
         <select value={format} onChange={(e) => setFormat(e.target.value as typeof format)}>
           <option value="csv">CSV</option>
           <option value="xlsx">Excel</option>
           <option value="mt940">MT940</option>
         </select>
-      </label>
-      <label>
-        {t("statementFile")}
+      </FormField>
+      <FormField name="file" label={t("statementFile")} required error={fieldErr.file}>
         <input type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-      </label>
-      <label>
-        {t("periodStart")}
+      </FormField>
+      <FormField name="period_start" label={t("periodStart")} error={fieldErr.period_start}>
         <input type="date" value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} />
-      </label>
-      <label>
-        {t("periodEnd")}
+      </FormField>
+      <FormField name="period_end" label={t("periodEnd")} error={fieldErr.period_end}>
         <input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
-      </label>
-      <label>
-        {t("openingBalance")}
+      </FormField>
+      <FormField name="opening_balance" label={t("openingBalance")} error={fieldErr.opening_balance}>
         <input value={opening} onChange={(e) => setOpening(e.target.value)} />
-      </label>
-      <label>
-        {t("closingBalance")}
+      </FormField>
+      <FormField name="closing_balance" label={t("closingBalance")} error={fieldErr.closing_balance}>
         <input value={closing} onChange={(e) => setClosing(e.target.value)} />
-      </label>
+      </FormField>
       {format !== "mt940" && (
         <>
-          <label>
-            {t("dateColumn")}
+          <FormField name="date_column" label={t("dateColumn")}>
             <input value={dateCol} onChange={(e) => setDateCol(e.target.value)} />
-          </label>
-          <label>
-            {t("amountColumn")}
+          </FormField>
+          <FormField name="amount_column" label={t("amountColumn")}>
             <input value={amountCol} onChange={(e) => setAmountCol(e.target.value)} />
-          </label>
-          <label>
-            {t("descriptionColumn")}
+          </FormField>
+          <FormField name="description_column" label={t("descriptionColumn")}>
             <input value={descCol} onChange={(e) => setDescCol(e.target.value)} />
-          </label>
+          </FormField>
         </>
       )}
       <button className="primary" disabled={submitting || !file} onClick={submit} style={{ marginTop: "0.5rem" }}>
@@ -314,7 +309,7 @@ function StatementLinesPanel({
                       {candidates.map((c) => (
                         <li key={c.id}>
                           <label>
-                            <input
+                            <input // form-ok: مربع تحديد مرشّح مطابقة (اختيار متعدد)، لا تحقق حقل من الـAPI
                               type="checkbox"
                               checked={selectedCandidates.includes(c.id)}
                               onChange={(e) =>

@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, fieldErrors, generalError } from "@/lib/api";
 import { checkPartyDuplicate } from "@/lib/duplicateCheck";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
+import { FormField } from "@/components/FormField";
 import { EMPTY_STRUCTURED_ADDRESS, StructuredAddressFieldset } from "@/components/StructuredAddressFieldset";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import type { EmployeeParty, LegalEntity, Paginated, StructuredAddressFields } from "@/lib/types";
 
 const ROLE_LABEL_KEY: Record<string, string> = {
@@ -34,6 +36,7 @@ export default function EmployeesPage() {
   const [createLinkedCostCenter, setCreateLinkedCostCenter] = useState(false);
   const [structuredAddress, setStructuredAddress] = useState<StructuredAddressFields>(EMPTY_STRUCTURED_ADDRESS);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
 
@@ -63,6 +66,7 @@ export default function EmployeesPage() {
       city: party.city, postal_code: party.postal_code, short_address: party.short_address,
     });
     setError(null);
+    setFieldErr({});
   };
 
   const cancelEdit = () => {
@@ -78,6 +82,7 @@ export default function EmployeesPage() {
     setCreateLinkedCostCenter(false);
     setStructuredAddress(EMPTY_STRUCTURED_ADDRESS);
     setError(null);
+    setFieldErr({});
   };
 
   const buildPayload = () => ({
@@ -96,6 +101,7 @@ export default function EmployeesPage() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setFieldErr({});
 
     if (!editing && nationalIdOrCr) {
       setCheckingDuplicate(true);
@@ -126,8 +132,9 @@ export default function EmployeesPage() {
       }
       cancelEdit();
       setRefreshToken((n) => n + 1);
-    } catch {
-      setError("Could not save this employee.");
+    } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
 
@@ -139,25 +146,20 @@ export default function EmployeesPage() {
         <h3>{editing ? t("edit") : t("add")}</h3>
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            <div className="form-field">
-              <label>{t("name")}</label>
+            <FormField name="name" required error={fieldErr.name}>
               <input value={name} onChange={(e) => setName(e.target.value)} required />
-            </div>
-            <div className="form-field">
-              <label>{t("employeeNationalId")}</label>
+            </FormField>
+            <FormField name="national_id_or_cr" label={t("employeeNationalId")} error={fieldErr.national_id_or_cr}>
               <input value={nationalIdOrCr} onChange={(e) => setNationalIdOrCr(e.target.value)} />
-            </div>
-            <div className="form-field">
-              <label>{t("jobTitle")}</label>
+            </FormField>
+            <FormField name="job_title" error={fieldErr.job_title}>
               <input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
-            </div>
-            <div className="form-field">
-              <label>{t("phone")}</label>
+            </FormField>
+            <FormField name="phone" error={fieldErr.phone}>
               <input value={phone} onChange={(e) => setPhone(e.target.value)} />
-            </div>
+            </FormField>
             {needsBranchPicker && (
-              <div className="form-field">
-                <label>{t("branch")}</label>
+              <FormField name="branch" error={fieldErr.branch}>
                 <select value={branchId} onChange={(e) => setBranchId(e.target.value)}>
                   <option value="">{t("none")}</option>
                   {entities.map((entity) => (
@@ -166,14 +168,14 @@ export default function EmployeesPage() {
                     </option>
                   ))}
                 </select>
-              </div>
+              </FormField>
             )}
           </div>
 
           {!editing && (
             <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.5rem" }}>
               <input
-                type="checkbox"
+                type="checkbox" // form-ok: مربع اختيار وقت الإنشاء فقط، لا يعيد الـAPI خطأ حقل له
                 checked={createLinkedCostCenter}
                 onChange={(e) => setCreateLinkedCostCenter(e.target.checked)}
               />
@@ -184,24 +186,21 @@ export default function EmployeesPage() {
           <details style={{ marginTop: "0.75rem" }}>
             <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
-              <div className="form-field">
-                <label>{t("hireDate")}</label>
+              <FormField name="hire_date" error={fieldErr.hire_date}>
                 <input type="date" value={hireDate} onChange={(e) => setHireDate(e.target.value)} />
-              </div>
-              <div className="form-field">
-                <label>{t("directManager")}</label>
+              </FormField>
+              <FormField name="direct_manager" error={fieldErr.direct_manager}>
                 <input value={directManager} onChange={(e) => setDirectManager(e.target.value)} />
-              </div>
-              <div className="form-field">
-                <label>{t("salaryCurrency")}</label>
+              </FormField>
+              <FormField name="salary_currency" error={fieldErr.salary_currency}>
                 <input value={salaryCurrency} onChange={(e) => setSalaryCurrency(e.target.value)} maxLength={3} />
-              </div>
+              </FormField>
             </div>
           </details>
 
-          <StructuredAddressFieldset value={structuredAddress} onChange={setStructuredAddress} />
+          <StructuredAddressFieldset value={structuredAddress} onChange={setStructuredAddress} fieldErr={fieldErr} />
 
-          {error && <p className="error-text">{error}</p>}
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           <button className="primary" type="submit" style={{ marginTop: "0.75rem" }} disabled={checkingDuplicate}>
             {checkingDuplicate ? t("checking") : editing ? t("saveChanges") : t("add")}
           </button>

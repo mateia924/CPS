@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, fieldErrors, generalError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { LegalEntityTree } from "@/components/LegalEntityTree";
 import { DataTable } from "@/components/DataTable";
+import { FormField } from "@/components/FormField";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import { useLocale } from "@/lib/i18n";
 import type { LegalEntity, LegalEntityTreeNode, LegalEntityType, Paginated } from "@/lib/types";
 
@@ -24,6 +26,7 @@ export default function OrganizationPage() {
   const [baseCurrency, setBaseCurrency] = useState("SAR");
   const [taxNumber, setTaxNumber] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [refreshToken, setRefreshToken] = useState(0);
 
   const loadTreeAndParents = async () => {
@@ -59,11 +62,14 @@ export default function OrganizationPage() {
     setCountryCode("SA");
     setBaseCurrency("SAR");
     setTaxNumber("");
+    setError(null);
+    setFieldErr({});
   };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setFieldErr({});
     const payload = {
       code,
       name,
@@ -82,8 +88,9 @@ export default function OrganizationPage() {
       cancelEdit();
       setRefreshToken((n) => n + 1);
       await refreshMe(); // adding/editing an entity may flip simplified_mode
-    } catch {
-      setError("Could not save this entity — check code uniqueness and parent rules.");
+    } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
 
@@ -98,16 +105,13 @@ export default function OrganizationPage() {
       <div className="card">
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            <div className="form-field">
-              <label>{t("code")}</label>
+            <FormField name="code" required error={fieldErr.code}>
               <input value={code} onChange={(e) => setCode(e.target.value)} required />
-            </div>
-            <div className="form-field">
-              <label>{t("name")}</label>
+            </FormField>
+            <FormField name="name" required error={fieldErr.name}>
               <input value={name} onChange={(e) => setName(e.target.value)} required />
-            </div>
-            <div className="form-field">
-              <label>{t("type")}</label>
+            </FormField>
+            <FormField name="entity_type" label={t("type")} error={fieldErr.entity_type}>
               <select value={entityType} onChange={(e) => setEntityType(e.target.value as LegalEntityType)}>
                 {TYPES.map((type) => (
                   <option key={type} value={type}>
@@ -115,9 +119,8 @@ export default function OrganizationPage() {
                   </option>
                 ))}
               </select>
-            </div>
-            <div className="form-field">
-              <label>{t("parent")}</label>
+            </FormField>
+            <FormField name="parent" error={fieldErr.parent}>
               <select value={parent} onChange={(e) => setParent(e.target.value)}>
                 <option value="">{t("none")}</option>
                 {flat
@@ -128,28 +131,25 @@ export default function OrganizationPage() {
                     </option>
                   ))}
               </select>
-            </div>
+            </FormField>
           </div>
 
           <details style={{ marginTop: "0.75rem" }}>
             <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
-              <div className="form-field">
-                <label>{t("taxNumber")}</label>
+              <FormField name="tax_number" error={fieldErr.tax_number}>
                 <input value={taxNumber} onChange={(e) => setTaxNumber(e.target.value)} />
-              </div>
-              <div className="form-field">
-                <label>{t("countryCode")}</label>
+              </FormField>
+              <FormField name="country_code" error={fieldErr.country_code}>
                 <input value={countryCode} onChange={(e) => setCountryCode(e.target.value)} maxLength={2} />
-              </div>
-              <div className="form-field">
-                <label>{t("currency")}</label>
+              </FormField>
+              <FormField name="base_currency" label={t("currency")} error={fieldErr.base_currency}>
                 <input value={baseCurrency} onChange={(e) => setBaseCurrency(e.target.value)} maxLength={3} />
-              </div>
+              </FormField>
             </div>
           </details>
 
-          {error && <p className="error-text">{error}</p>}
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           <button className="primary" type="submit" style={{ marginTop: "0.75rem" }}>
             {editing ? t("saveChanges") : t("add")}
           </button>

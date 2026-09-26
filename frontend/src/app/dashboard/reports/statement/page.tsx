@@ -106,6 +106,7 @@ function StatementReport() {
               }}
               placeholder={t("searchPartyPlaceholder")}
               style={{ minWidth: "260px" }}
+              // form-ok: بحث اختيار جهة، ليس حقل بيانات، لا تحقق حقل من الـAPI
             />
             <button type="button" className="secondary" onClick={search}>
               {t("search")}
@@ -130,11 +131,11 @@ function StatementReport() {
         <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "end" }}>
           <div className="form-field">
             <label>{t("dateFrom")}</label>
-            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} /> {/* form-ok: تصفية تقرير GET فقط، لا تحقق حقل من الـAPI */}
           </div>
           <div className="form-field">
             <label>{t("dateTo")}</label>
-            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} /> {/* form-ok: تصفية تقرير GET فقط، لا تحقق حقل من الـAPI */}
           </div>
           <button className="primary" onClick={load} disabled={!partyId}>
             {t("submit")}

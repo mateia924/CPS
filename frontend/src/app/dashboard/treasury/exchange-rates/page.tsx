@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { api } from "@/lib/api";
+import { api, fieldErrors, generalError } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { FormField } from "@/components/FormField";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import type { ExchangeRate } from "@/lib/types";
 
 export default function ExchangeRatesPage() {
@@ -15,12 +17,14 @@ export default function ExchangeRatesPage() {
   const [rate, setRate] = useState("");
   const [source, setSource] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [refreshToken, setRefreshToken] = useState(0);
   const [attachmentsFor, setAttachmentsFor] = useState<string | null>(null);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setFieldErr({});
     try {
       await api.post("/exchange-rates/", {
         from_currency: fromCurrency,
@@ -32,8 +36,9 @@ export default function ExchangeRatesPage() {
       setRate("");
       setSource("");
       setRefreshToken((n) => n + 1);
-    } catch {
-      setError("Could not save this exchange rate.");
+    } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
 
@@ -45,28 +50,23 @@ export default function ExchangeRatesPage() {
         <h3>{t("addExchangeRate")}</h3>
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            <div className="form-field">
-              <label>{t("fromCurrency")}</label>
+            <FormField name="from_currency" label={t("fromCurrency")} required error={fieldErr.from_currency}>
               <input value={fromCurrency} onChange={(e) => setFromCurrency(e.target.value)} maxLength={3} required />
-            </div>
-            <div className="form-field">
-              <label>{t("toCurrency")}</label>
+            </FormField>
+            <FormField name="to_currency" label={t("toCurrency")} required error={fieldErr.to_currency}>
               <input value={toCurrency} onChange={(e) => setToCurrency(e.target.value)} maxLength={3} required />
-            </div>
-            <div className="form-field">
-              <label>{t("date")}</label>
+            </FormField>
+            <FormField name="date" label={t("date")} required error={fieldErr.date}>
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
-            </div>
-            <div className="form-field">
-              <label>{t("rate")}</label>
+            </FormField>
+            <FormField name="rate" label={t("rate")} required error={fieldErr.rate}>
               <input type="number" step="0.00000001" value={rate} onChange={(e) => setRate(e.target.value)} required />
-            </div>
-            <div className="form-field">
-              <label>{t("rateSource")}</label>
+            </FormField>
+            <FormField name="source" label={t("rateSource")} error={fieldErr.source}>
               <input value={source} onChange={(e) => setSource(e.target.value)} />
-            </div>
+            </FormField>
           </div>
-          {error && <p className="error-text">{error}</p>}
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           <button className="primary" type="submit" style={{ marginTop: "0.75rem" }}>
             {t("add")}
           </button>

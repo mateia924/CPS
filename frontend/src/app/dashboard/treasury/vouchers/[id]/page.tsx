@@ -6,8 +6,10 @@ import Link from "next/link";
 import { api, generalError } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
 import { ChangeHistoryTab } from "@/components/ChangeHistoryTab";
+import { FormField } from "@/components/FormField";
 import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import { useLocale } from "@/lib/i18n";
 import type { Voucher } from "@/lib/types";
 
@@ -126,12 +128,14 @@ export default function VoucherDetailPage() {
         </div>
       )}
 
-      {error && <p className="error-text">{error}</p>}
+      <WarningsBanner warnings={error ? [error] : []} variant="error" />
 
       {reasonMode ? (
         <div className="card">
           <h3>{reasonMode === "reject" ? t("rejectReason") : t("confirmReverseVoucher")}</h3>
-          <input value={reasonText} onChange={(e) => setReasonText(e.target.value)} style={{ minWidth: "300px" }} />
+          <FormField name="reason" required style={{ maxWidth: "320px" }}>
+            <input value={reasonText} onChange={(e) => setReasonText(e.target.value)} style={{ minWidth: "300px" }} />
+          </FormField>
           <div style={{ marginTop: "0.75rem" }}>
             <button className="primary" onClick={submitReason}>{t("save")}</button>
             <button type="button" className="secondary" style={{ marginInlineStart: "0.5rem" }} onClick={() => { setReasonMode(null); setReasonText(""); }}>{t("cancel")}</button>

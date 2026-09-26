@@ -3,11 +3,12 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { api, generalError } from "@/lib/api";
+import { api, fieldErrors, generalError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
+import { FormField } from "@/components/FormField";
 import { Money } from "@/components/Money";
 import { WarningsBanner } from "@/components/WarningsBanner";
 import type {
@@ -84,6 +85,7 @@ function OpeningBalancesContent() {
   );
   const [lines, setLines] = useState<LineDraft[]>([{ ...EMPTY_LINE }, { ...EMPTY_LINE }]);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [warnings, setWarnings] = useState<string[]>([]);
   const [refreshToken, setRefreshToken] = useState(0);
 
@@ -133,6 +135,7 @@ function OpeningBalancesContent() {
     setKind("initial");
     setLines([{ ...EMPTY_LINE }, { ...EMPTY_LINE }]);
     setError(null);
+    setFieldErr({});
   };
 
   // Same-currency eyeball total only — the authoritative check is
@@ -144,6 +147,7 @@ function OpeningBalancesContent() {
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setFieldErr({});
     const payload = {
       legal_entity: legalEntityId,
       kind,
@@ -172,6 +176,7 @@ function OpeningBalancesContent() {
       resetForm();
       setRefreshToken((n) => n + 1);
     } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
       setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
@@ -207,29 +212,26 @@ function OpeningBalancesContent() {
         <h3>{t("createOpeningBalance")}</h3>
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            <div className="form-field" style={{ minWidth: "260px" }}>
-              <label>{t("legalEntity")}</label>
+            <FormField name="legal_entity" label={t("legalEntity")} required error={fieldErr.legal_entity} style={{ minWidth: "260px" }}>
               <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
                 <option value="" disabled>—</option>
                 {entities.map((entity) => (
                   <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>
                 ))}
               </select>
-            </div>
-            <div className="form-field">
-              <label>{t("kind")}</label>
+            </FormField>
+            <FormField name="kind" label={t("kind")} error={fieldErr.kind}>
               <select value={kind} onChange={(e) => setKind(e.target.value as OpeningBalanceKind)}>
                 <option value="initial">{t("initial")}</option>
                 <option value="adjustment">{t("adjustment")}</option>
               </select>
-            </div>
+            </FormField>
           </div>
 
           {lines.map((line, i) => (
             <div key={i} className="card" style={{ background: "var(--surface-2, transparent)" }}>
               <div style={{ display: "flex", gap: "0.75rem", alignItems: "end", flexWrap: "wrap" }}>
-                <div className="form-field">
-                  <label>{t("lineByAccount")} / {t("lineByParty")}</label>
+                <FormField name="mode" label={`${t("lineByAccount")} / ${t("lineByParty")}`}>
                   <select
                     value={line.mode}
                     onChange={(e) => updateLine(i, { mode: e.target.value as "account" | "party" })}
@@ -237,31 +239,28 @@ function OpeningBalancesContent() {
                     <option value="account">{t("lineByAccount")}</option>
                     <option value="party">{t("lineByParty")}</option>
                   </select>
-                </div>
+                </FormField>
 
                 {line.mode === "account" ? (
-                  <div className="form-field" style={{ flex: 1, minWidth: "220px" }}>
-                    <label>{t("account")}</label>
+                  <FormField name="account" style={{ flex: 1, minWidth: "220px" }}>
                     <select value={line.account} onChange={(e) => updateLine(i, { account: e.target.value })} required>
                       <option value="" disabled>—</option>
                       {leafAccounts.map((a) => (
                         <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
                       ))}
                     </select>
-                  </div>
+                  </FormField>
                 ) : (
                   <>
-                    <div className="form-field" style={{ flex: 1, minWidth: "180px" }}>
-                      <label>{t("party")}</label>
+                    <FormField name="party" style={{ flex: 1, minWidth: "180px" }}>
                       <select value={line.party} onChange={(e) => updateLine(i, { party: e.target.value })} required>
                         <option value="" disabled>—</option>
                         {parties.map((p) => (
                           <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
                         ))}
                       </select>
-                    </div>
-                    <div className="form-field" style={{ minWidth: "160px" }}>
-                      <label>{t("partyRole")}</label>
+                    </FormField>
+                    <FormField name="party_role" style={{ minWidth: "160px" }}>
                       <select
                         value={line.partyRole}
                         onChange={(e) => updateLine(i, { partyRole: e.target.value as PartyRoleType })}
@@ -272,34 +271,30 @@ function OpeningBalancesContent() {
                           <option key={r.value} value={r.value}>{t(r.labelKey)}</option>
                         ))}
                       </select>
-                    </div>
+                    </FormField>
                   </>
                 )}
 
                 {showCostCenterUI && (
-                  <div className="form-field" style={{ minWidth: "160px" }}>
-                    <label>{t("costCenter")}</label>
+                  <FormField name="cost_center" style={{ minWidth: "160px" }}>
                     <select value={line.costCenter} onChange={(e) => updateLine(i, { costCenter: e.target.value })}>
                       <option value="">{t("none")}</option>
                       {costCenters.map((cc) => (
                         <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
                       ))}
                     </select>
-                  </div>
+                  </FormField>
                 )}
 
-                <div className="form-field" style={{ width: "90px" }}>
-                  <label>{t("currency")}</label>
+                <FormField name="currency" style={{ width: "90px" }}>
                   <input value={line.currency} onChange={(e) => updateLine(i, { currency: e.target.value })} maxLength={3} />
-                </div>
-                <div className="form-field" style={{ width: "130px" }}>
-                  <label>{t("debitFc")}</label>
+                </FormField>
+                <FormField name="debit_fc" style={{ width: "130px" }}>
                   <input type="number" step="0.01" value={line.debitFc} onChange={(e) => updateLine(i, { debitFc: e.target.value })} />
-                </div>
-                <div className="form-field" style={{ width: "130px" }}>
-                  <label>{t("creditFc")}</label>
+                </FormField>
+                <FormField name="credit_fc" style={{ width: "130px" }}>
                   <input type="number" step="0.01" value={line.creditFc} onChange={(e) => updateLine(i, { creditFc: e.target.value })} />
-                </div>
+                </FormField>
                 <button type="button" className="secondary" onClick={() => removeLine(i)}>×</button>
               </div>
 
@@ -308,12 +303,13 @@ function OpeningBalancesContent() {
                   <summary style={{ cursor: "pointer" }}>{t("openItems")}</summary>
                   {line.openItems.map((item, oi) => (
                     <div key={oi} style={{ display: "flex", gap: "0.5rem", marginTop: "0.4rem", flexWrap: "wrap" }}>
+                      {/* form-ok: صف بند مفتوح فرعي (رابع مستوى تعشيش) — لا تخطئة حقل من الـAPI على هذا العمق، placeholder بدل تسمية لضيق المساحة */}
                       <input
                         placeholder={t("openItemRef")}
                         value={item.ref}
                         onChange={(e) => updateOpenItem(i, oi, { ref: e.target.value })}
                       />
-                      <input type="date" value={item.date} onChange={(e) => updateOpenItem(i, oi, { date: e.target.value })} />
+                      <input type="date" value={item.date} onChange={(e) => updateOpenItem(i, oi, { date: e.target.value })} /> {/* form-ok: بند مفتوح فرعي، لا تخطئة حقل بهذا العمق */}
                       <input
                         type="number" step="0.01" placeholder={t("amount")}
                         value={item.amountFc}
@@ -338,7 +334,7 @@ function OpeningBalancesContent() {
             {t("difference")}: <Money amount={String(rawDebit - rawCredit)} /> ({t("balanced")}: {rawDebit === rawCredit ? "✓" : "✗"})
           </p>
 
-          {error && <p className="error-text">{error}</p>}
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           <button className="primary" type="submit">{t("createOpeningBalance")}</button>
         </form>
       </div>

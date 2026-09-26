@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { api } from "@/lib/api";
+import { api, fieldErrors, generalError } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
+import { FormField } from "@/components/FormField";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import { EMPTY_STRUCTURED_ADDRESS, StructuredAddressFieldset } from "@/components/StructuredAddressFieldset";
 import type { Party, PartyRoleType, StructuredAddressFields } from "@/lib/types";
 
@@ -34,6 +36,7 @@ export default function PartiesPage() {
   const [createLinkedCostCenter, setCreateLinkedCostCenter] = useState(false);
   const [structuredAddress, setStructuredAddress] = useState<StructuredAddressFields>(EMPTY_STRUCTURED_ADDRESS);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [refreshToken, setRefreshToken] = useState(0);
 
   const [addingRoleTo, setAddingRoleTo] = useState<Party | null>(null);
@@ -56,6 +59,7 @@ export default function PartiesPage() {
       city: party.city, postal_code: party.postal_code, short_address: party.short_address,
     });
     setError(null);
+    setFieldErr({});
   };
 
   const cancelEdit = () => {
@@ -73,11 +77,13 @@ export default function PartiesPage() {
     setCreateLinkedCostCenter(false);
     setStructuredAddress(EMPTY_STRUCTURED_ADDRESS);
     setError(null);
+    setFieldErr({});
   };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setFieldErr({});
     const basePayload = {
       name,
       name_en: nameEn,
@@ -102,8 +108,9 @@ export default function PartiesPage() {
       }
       cancelEdit();
       setRefreshToken((n) => n + 1);
-    } catch {
-      setError("Could not save this party.");
+    } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
 
@@ -115,8 +122,8 @@ export default function PartiesPage() {
       await api.post(`/parties/${addingRoleTo.id}/add-role/`, { role: newRole });
       setAddingRoleTo(null);
       setRefreshToken((n) => n + 1);
-    } catch {
-      setAddRoleError("Could not add this role — the party may already hold it.");
+    } catch (err) {
+      setAddRoleError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
 
@@ -128,24 +135,20 @@ export default function PartiesPage() {
         <h3>{editing ? t("edit") : t("add")}</h3>
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            <div className="form-field">
-              <label>{t("name")}</label>
+            <FormField name="name" label={t("name")} required error={fieldErr.name}>
               <input value={name} onChange={(e) => setName(e.target.value)} required />
-            </div>
-            <div className="form-field">
-              <label>{t("partyType")}</label>
+            </FormField>
+            <FormField name="party_type" label={t("partyType")} error={fieldErr.party_type}>
               <select value={partyType} onChange={(e) => setPartyType(e.target.value as typeof partyType)}>
                 <option value="organization">{t("partyTypeOrganization")}</option>
                 <option value="individual">{t("individual")}</option>
               </select>
-            </div>
-            <div className="form-field">
-              <label>{t("phone")}</label>
+            </FormField>
+            <FormField name="phone" label={t("phone")} error={fieldErr.phone}>
               <input value={phone} onChange={(e) => setPhone(e.target.value)} />
-            </div>
+            </FormField>
             {!editing && (
-              <div className="form-field">
-                <label>{t("roles")}</label>
+              <FormField name="role" label={t("roles")} error={fieldErr.role}>
                 <select value={role} onChange={(e) => setRole(e.target.value as PartyRoleType)}>
                   {ROLES.map((r) => (
                     <option key={r} value={r}>
@@ -153,17 +156,13 @@ export default function PartiesPage() {
                     </option>
                   ))}
                 </select>
-              </div>
+              </FormField>
             )}
           </div>
 
           {!editing && role === "employee" && (
             <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.5rem" }}>
-              <input
-                type="checkbox"
-                checked={createLinkedCostCenter}
-                onChange={(e) => setCreateLinkedCostCenter(e.target.checked)}
-              />
+              <input type="checkbox" checked={createLinkedCostCenter} onChange={(e) => setCreateLinkedCostCenter(e.target.checked)} /* form-ok: مربع اختيار إجراء إضافي، لا يُرجع خطأ حقل من الـAPI */ />
               {t("createLinkedCostCenter")}
             </label>
           )}
@@ -171,40 +170,34 @@ export default function PartiesPage() {
           <details style={{ marginTop: "0.75rem" }}>
             <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
-              <div className="form-field">
-                <label>{t("nameEnglish")}</label>
+              <FormField name="name_en" label={t("nameEnglish")} error={fieldErr.name_en}>
                 <input value={nameEn} onChange={(e) => setNameEn(e.target.value)} />
-              </div>
-              <div className="form-field">
-                <label>{t("email")}</label>
+              </FormField>
+              <FormField name="email" label={t("email")} error={fieldErr.email}>
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-              </div>
-              <div className="form-field">
-                <label>{t("taxNumber")}</label>
+              </FormField>
+              <FormField name="tax_number" label={t("taxNumber")} error={fieldErr.tax_number}>
                 <input value={taxNumber} onChange={(e) => setTaxNumber(e.target.value)} />
-              </div>
-              <div className="form-field">
-                <label>{t("nationalIdOrCr")}</label>
+              </FormField>
+              <FormField name="national_id_or_cr" label={t("nationalIdOrCr")} error={fieldErr.national_id_or_cr}>
                 <input value={nationalIdOrCr} onChange={(e) => setNationalIdOrCr(e.target.value)} />
-              </div>
-              <div className="form-field">
-                <label>{t("defaultCurrency")}</label>
+              </FormField>
+              <FormField name="default_currency" label={t("defaultCurrency")} error={fieldErr.default_currency}>
                 <input
                   value={defaultCurrency}
                   onChange={(e) => setDefaultCurrency(e.target.value)}
                   maxLength={3}
                 />
-              </div>
-              <div className="form-field" style={{ flex: 1, minWidth: "200px" }}>
-                <label>{t("notes")}</label>
+              </FormField>
+              <FormField name="notes" label={t("notes")} error={fieldErr.notes} style={{ flex: 1, minWidth: "200px" }}>
                 <input value={notes} onChange={(e) => setNotes(e.target.value)} />
-              </div>
+              </FormField>
             </div>
           </details>
 
           <StructuredAddressFieldset value={structuredAddress} onChange={setStructuredAddress} />
 
-          {error && <p className="error-text">{error}</p>}
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           <button className="primary" type="submit" style={{ marginTop: "0.75rem" }}>
             {editing ? t("saveChanges") : t("add")}
           </button>
@@ -228,13 +221,15 @@ export default function PartiesPage() {
           </h3>
           <form onSubmit={onAddRole}>
             <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
-              <select value={newRole} onChange={(e) => setNewRole(e.target.value as PartyRoleType)}>
-                {ROLES.map((r) => (
-                  <option key={r} value={r}>
-                    {t(ROLE_LABEL_KEY[r])}
-                  </option>
-                ))}
-              </select>
+              <FormField name="role" label={t("roles")}>
+                <select value={newRole} onChange={(e) => setNewRole(e.target.value as PartyRoleType)}>
+                  {ROLES.map((r) => (
+                    <option key={r} value={r}>
+                      {t(ROLE_LABEL_KEY[r])}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
               <button className="primary" type="submit">
                 {t("save")}
               </button>
@@ -242,7 +237,7 @@ export default function PartiesPage() {
                 {t("cancel")}
               </button>
             </div>
-            {addRoleError && <p className="error-text">{addRoleError}</p>}
+            <WarningsBanner warnings={addRoleError ? [addRoleError] : []} variant="error" />
           </form>
         </div>
       )}

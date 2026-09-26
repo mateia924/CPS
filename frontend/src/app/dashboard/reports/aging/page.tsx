@@ -40,7 +40,7 @@ export default function AgingReportPage() {
         <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "end" }}>
           <div className="form-field">
             <label>{t("legalEntity")}</label>
-            <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)}>
+            <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)}> {/* form-ok: تصفية تقرير GET فقط، لا تحقق حقل من الـAPI */}
               <option value="">{t("all")}</option>
               {entities.map((entity) => (
                 <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>
@@ -49,7 +49,7 @@ export default function AgingReportPage() {
           </div>
           <div className="form-field">
             <label>{t("asOf")}</label>
-            <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
+            <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} /> {/* form-ok: تصفية تقرير GET فقط، لا تحقق حقل من الـAPI */}
           </div>
           <button className="primary" onClick={load}>{t("submit")}</button>
         </div>

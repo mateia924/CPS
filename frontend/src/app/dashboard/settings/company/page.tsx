@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { api, fieldErrors, generalError } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { FormField } from "@/components/FormField";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import { useLocale } from "@/lib/i18n";
 import type { LegalEntity, Paginated, TenantFeaturesSettings } from "@/lib/types";
 
@@ -91,7 +93,7 @@ export default function CompanySettingsPage() {
       {entities.length > 1 && (
         <div className="form-field" style={{ maxWidth: "320px", marginBottom: "1rem" }}>
           <label>{t("legalEntity")}</label>
-          <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}>
+          <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}> {/* form-ok: محدد أي كيان يُعرض للتعديل، ليس حقلًا يُرسَل للـAPI */}
             {entities.map((entity) => (
               <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>
             ))}
@@ -103,38 +105,32 @@ export default function CompanySettingsPage() {
         <h3>{t("companySettings")}</h3>
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            <div className="form-field" style={{ flex: 1, minWidth: "220px" }}>
-              <label>{t("legalName")}</label>
+            <FormField name="name" label={t("legalName")} required error={fieldErr.name} style={{ flex: 1, minWidth: "220px" }}>
               <input value={name} onChange={(e) => setName(e.target.value)} required />
-            </div>
-            <div className="form-field">
-              <label>{t("taxNumber")}</label>
+            </FormField>
+            <FormField name="tax_number" label={t("taxNumber")} error={fieldErr.tax_number}>
               <input value={taxNumber} onChange={(e) => setTaxNumber(e.target.value)} />
-              {fieldErr.tax_number && <p className="error-text">{fieldErr.tax_number}</p>}
-            </div>
+            </FormField>
           </div>
 
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
             {FIELD_KEYS.map((key) => (
-              <div className="form-field" key={key} style={{ minWidth: "200px" }}>
-                <label>
-                  {t(FIELD_LABEL_KEY[key])}
-                  {!fields[key] && selected.effective_profile[key] && (
-                    <span style={{ color: "var(--muted)", fontSize: "0.75rem" }}> {t("inheritedFromParent")}</span>
-                  )}
-                </label>
+              <FormField
+                key={key} name={key} label={t(FIELD_LABEL_KEY[key])} error={fieldErr[key]}
+                hint={!fields[key] && selected.effective_profile[key] ? t("inheritedFromParent") : undefined}
+                style={{ minWidth: "200px" }}
+              >
                 <input
                   value={fields[key] ?? ""}
                   onChange={(e) => setFields((prev) => ({ ...prev, [key]: e.target.value }))}
                   placeholder={selected.effective_profile[key] || ""}
                 />
-                {fieldErr[key] && <p className="error-text">{fieldErr[key]}</p>}
-              </div>
+              </FormField>
             ))}
           </div>
 
           <br />
-          {error && <p className="error-text">{error}</p>}
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           {saved && <p style={{ color: "var(--success)" }}>✓</p>}
           <button className="primary" type="submit">{t("saveChanges")}</button>
         </form>
@@ -189,27 +185,22 @@ function TenantPolicyCard() {
     <div className="card">
       <h3>{t("tenantPolicySettings")}</h3>
       <form onSubmit={onSubmit}>
-        <div className="form-field" style={{ maxWidth: "320px" }}>
-          <label>{t("creditLimitMode")}</label>
+        <FormField name="credit_limit_mode" label={t("creditLimitMode")} style={{ maxWidth: "320px" }}>
           <select value={creditLimitMode} onChange={(e) => setCreditLimitMode(e.target.value as "warn" | "block")}>
             <option value="warn">{t("creditLimitModeWarn")}</option>
             <option value="block">{t("creditLimitModeBlock")}</option>
           </select>
-        </div>
+        </FormField>
 
         <div className="form-field" style={{ marginTop: "0.5rem" }}>
           <label>
-            <input
-              type="checkbox"
-              checked={costCenterRequired}
-              onChange={(e) => setCostCenterRequired(e.target.checked)}
-            />{" "}
+            <input type="checkbox" checked={costCenterRequired} onChange={(e) => setCostCenterRequired(e.target.checked)} /* form-ok: مربع اختيار سياسة تشغيلية، لا يُرجع خطأ حقل من الـAPI */ />{" "}
             {t("costCenterRequired")}
           </label>
         </div>
 
         <br />
-        {error && <p className="error-text">{error}</p>}
+        <WarningsBanner warnings={error ? [error] : []} variant="error" />
         {saved && <p style={{ color: "var(--success)" }}>✓</p>}
         <button className="primary" type="submit">{t("saveChanges")}</button>
       </form>

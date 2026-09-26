@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, generalError } from "@/lib/api";
+import { api, fieldErrors, generalError } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
+import { FormField } from "@/components/FormField";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import type { FiscalPeriod, FiscalPeriodicStatus, FiscalYear, Paginated, PeriodChecklistItem } from "@/lib/types";
 
 const STATUS_LABEL_KEY: Record<FiscalPeriodicStatus, string> = {
@@ -31,6 +33,7 @@ export default function FiscalYearsPage() {
   const [periodLength, setPeriodLength] = useState<"monthly" | "quarterly" | "custom">("monthly");
   const [customDates, setCustomDates] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [actionError, setActionError] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
   const [checklistFor, setChecklistFor] = useState<FiscalPeriod | null>(null);
@@ -47,6 +50,7 @@ export default function FiscalYearsPage() {
   const submitCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setFieldErr({});
     try {
       await api.post("/fiscal-years/", {
         name,
@@ -64,6 +68,7 @@ export default function FiscalYearsPage() {
       setCustomDates("");
       setRefreshToken((n) => n + 1);
     } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
       setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
@@ -116,34 +121,32 @@ export default function FiscalYearsPage() {
         {showCreate && (
           <form onSubmit={submitCreate} style={{ marginTop: "1rem" }}>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-              <div className="form-field">
-                <label>{t("fiscalYearName")}</label>
+              <FormField name="name" label={t("fiscalYearName")} required error={fieldErr.name}>
                 <input value={name} onChange={(e) => setName(e.target.value)} required />
-              </div>
-              <div className="form-field">
-                <label>{t("periodStart")}</label>
+              </FormField>
+              <FormField name="start_date" label={t("periodStart")} required error={fieldErr.start_date}>
                 <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
-              </div>
-              <div className="form-field">
-                <label>{t("periodEnd")}</label>
+              </FormField>
+              <FormField name="end_date" label={t("periodEnd")} required error={fieldErr.end_date}>
                 <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
-              </div>
-              <div className="form-field">
-                <label>{t("periodLength")}</label>
+              </FormField>
+              <FormField name="period_length" label={t("periodLength")} error={fieldErr.period_length}>
                 <select value={periodLength} onChange={(e) => setPeriodLength(e.target.value as typeof periodLength)}>
                   <option value="monthly">{t("monthly")}</option>
                   <option value="quarterly">{t("quarterly")}</option>
                   <option value="custom">{t("custom")}</option>
                 </select>
-              </div>
+              </FormField>
               {periodLength === "custom" && (
-                <div className="form-field" style={{ flex: 1, minWidth: "260px" }}>
-                  <label>{t("custom")} — end dates (YYYY-MM-DD, comma-separated)</label>
+                <FormField
+                  name="custom_period_end_dates" label={`${t("custom")} — end dates (YYYY-MM-DD, comma-separated)`}
+                  error={fieldErr.custom_period_end_dates} style={{ flex: 1, minWidth: "260px" }}
+                >
                   <input value={customDates} onChange={(e) => setCustomDates(e.target.value)} />
-                </div>
+                </FormField>
               )}
             </div>
-            {error && <p className="error-text">{error}</p>}
+            <WarningsBanner warnings={error ? [error] : []} variant="error" />
             <button className="primary" type="submit" style={{ marginTop: "0.5rem" }}>
               {t("save")}
             </button>
@@ -151,7 +154,7 @@ export default function FiscalYearsPage() {
         )}
       </div>
 
-      {actionError && <p className="error-text">{actionError}</p>}
+      <WarningsBanner warnings={actionError ? [actionError] : []} variant="error" />
 
       {years.map((year) => (
         <div key={year.id} className="card">
@@ -244,19 +247,14 @@ export default function FiscalYearsPage() {
                   {checklistItems.some((item) => item.level === "warn") && (
                     <div className="form-field">
                       <label>
-                        <input
-                          type="checkbox"
-                          checked={acknowledgeWarnings}
-                          onChange={(e) => setAcknowledgeWarnings(e.target.checked)}
-                        />{" "}
+                        <input type="checkbox" checked={acknowledgeWarnings} onChange={(e) => setAcknowledgeWarnings(e.target.checked)} /* form-ok: مربع تأكيد قراءة التحذيرات، لا يُرجع خطأ حقل من الـAPI */ />{" "}
                         {t("acknowledgeWarnings")}
                       </label>
                     </div>
                   )}
-                  <div className="form-field" style={{ maxWidth: "360px" }}>
-                    <label>{t("closeNote")}</label>
+                  <FormField name="note" label={t("closeNote")} style={{ maxWidth: "360px" }}>
                     <input value={closeNote} onChange={(e) => setCloseNote(e.target.value)} />
-                  </div>
+                  </FormField>
                   <button
                     className="primary"
                     disabled={checklistItems.some((item) => item.level === "warn") && !acknowledgeWarnings}

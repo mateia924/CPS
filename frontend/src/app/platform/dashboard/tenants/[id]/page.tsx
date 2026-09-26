@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useLocale } from "@/lib/i18n";
-import { ApiError, generalError, platformApi } from "@/lib/api";
+import { ApiError, fieldErrors, generalError, platformApi } from "@/lib/api";
+import { FormField } from "@/components/FormField";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import type { Paginated, Plan, PlatformTenant, TenantStatus } from "@/lib/types";
 
 const STATUS_LABEL_KEY: Record<TenantStatus, string> = {
@@ -30,6 +32,7 @@ export default function PlatformTenantDetailPage() {
   const [trialEndsAt, setTrialEndsAt] = useState("");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   const load = async () => {
@@ -49,6 +52,7 @@ export default function PlatformTenantDetailPage() {
 
   const handleError = (err: unknown) => {
     if (err instanceof ApiError) {
+      setFieldErr(fieldErrors(err.body));
       setError(generalError(err.body, FALLBACK_ERROR[locale]));
     } else {
       setError(FALLBACK_ERROR[locale]);
@@ -60,6 +64,7 @@ export default function PlatformTenantDetailPage() {
     const plan = plans.find((p) => p.code === selectedPlan);
     if (!plan) return;
     setError(null);
+    setFieldErr({});
     setSaving(true);
     try {
       const updated = await platformApi.post<PlatformTenant>(
@@ -77,6 +82,7 @@ export default function PlatformTenantDetailPage() {
   const onExtendTrial = async () => {
     if (!tenant || !trialEndsAt) return;
     setError(null);
+    setFieldErr({});
     setSaving(true);
     try {
       const updated = await platformApi.post<PlatformTenant>(
@@ -98,6 +104,7 @@ export default function PlatformTenantDetailPage() {
       return;
     }
     setError(null);
+    setFieldErr({});
     setSaving(true);
     try {
       const updated = await platformApi.post<PlatformTenant>(
@@ -126,18 +133,20 @@ export default function PlatformTenantDetailPage() {
         {tenant.subdomain} — {t(STATUS_LABEL_KEY[tenant.status])}
       </p>
 
-      {error && <p className="error-text">{error}</p>}
+      <WarningsBanner warnings={error ? [error] : []} variant="error" />
 
       <div className="card">
         <h3>{t("changePlan")}</h3>
         <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
-          <select value={selectedPlan} onChange={(e) => setSelectedPlan(e.target.value)}>
-            {plans.map((plan) => (
-              <option key={plan.code} value={plan.code}>
-                {plan.name}
-              </option>
-            ))}
-          </select>
+          <FormField name="plan" error={fieldErr.plan}>
+            <select value={selectedPlan} onChange={(e) => setSelectedPlan(e.target.value)}>
+              {plans.map((plan) => (
+                <option key={plan.code} value={plan.code}>
+                  {plan.name}
+                </option>
+              ))}
+            </select>
+          </FormField>
           <button className="primary" onClick={onChangePlan} disabled={saving}>
             {t("save")}
           </button>
@@ -150,11 +159,13 @@ export default function PlatformTenantDetailPage() {
           {t("trialEndsAt")}: {tenant.trial_ends_at ? new Date(tenant.trial_ends_at).toLocaleString() : "—"}
         </p>
         <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
-          <input
-            type="datetime-local"
-            value={trialEndsAt}
-            onChange={(e) => setTrialEndsAt(e.target.value)}
-          />
+          <FormField name="trial_ends_at" error={fieldErr.trial_ends_at}>
+            <input
+              type="datetime-local"
+              value={trialEndsAt}
+              onChange={(e) => setTrialEndsAt(e.target.value)}
+            />
+          </FormField>
           <button className="primary" onClick={onExtendTrial} disabled={saving || !trialEndsAt}>
             {t("save")}
           </button>
@@ -163,10 +174,9 @@ export default function PlatformTenantDetailPage() {
 
       <div className="card">
         <h3>{t("suspend")} / {t("reactivateTenant")}</h3>
-        <div className="form-field">
-          <label>{t("reason")}</label>
+        <FormField name="reason" label={t("reason")} required error={fieldErr.reason}>
           <input value={reason} onChange={(e) => setReason(e.target.value)} />
-        </div>
+        </FormField>
         <button
           className="secondary"
           onClick={() => onSuspendOrActivate("suspend")}

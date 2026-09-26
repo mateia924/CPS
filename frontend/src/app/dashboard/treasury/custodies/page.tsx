@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, fieldErrors, generalError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { FormField } from "@/components/FormField";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import type { Custody, LegalEntity, Paginated, Party } from "@/lib/types";
 
 export default function CustodiesPage() {
@@ -21,6 +23,7 @@ export default function CustodiesPage() {
   const [currency, setCurrency] = useState("SAR");
   const [limitAmount, setLimitAmount] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
@@ -54,11 +57,13 @@ export default function CustodiesPage() {
     setCurrency("SAR");
     setLimitAmount("");
     setError(null);
+    setFieldErr({});
   };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setFieldErr({});
     const payload = {
       legal_entity: legalEntityId, employee: employeeId, name, currency,
       limit_amount: limitAmount || null,
@@ -71,8 +76,9 @@ export default function CustodiesPage() {
       }
       cancelEdit();
       setRefreshToken((n) => n + 1);
-    } catch {
-      setError("Could not save this custody — the employee must hold the Employee role.");
+    } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
 
@@ -84,12 +90,10 @@ export default function CustodiesPage() {
         <h3>{editing ? t("edit") : t("add")}</h3>
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            <div className="form-field">
-              <label>{t("name")}</label>
+            <FormField name="name" label={t("name")} required error={fieldErr.name}>
               <input value={name} onChange={(e) => setName(e.target.value)} required />
-            </div>
-            <div className="form-field">
-              <label>{t("custodyEmployee")}</label>
+            </FormField>
+            <FormField name="employee" label={t("custodyEmployee")} required error={fieldErr.employee}>
               <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} required>
                 <option value="" disabled>
                   —
@@ -100,14 +104,13 @@ export default function CustodiesPage() {
                   </option>
                 ))}
               </select>
-            </div>
+            </FormField>
           </div>
 
           <details style={{ marginTop: "0.75rem" }}>
             <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
-              <div className="form-field">
-                <label>{t("legalEntity")}</label>
+              <FormField name="legal_entity" label={t("legalEntity")} required error={fieldErr.legal_entity}>
                 <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
                   <option value="" disabled>
                     —
@@ -118,19 +121,17 @@ export default function CustodiesPage() {
                     </option>
                   ))}
                 </select>
-              </div>
-              <div className="form-field">
-                <label>{t("currency")}</label>
+              </FormField>
+              <FormField name="currency" label={t("currency")} error={fieldErr.currency}>
                 <input value={currency} onChange={(e) => setCurrency(e.target.value)} maxLength={3} />
-              </div>
-              <div className="form-field">
-                <label>{t("custodyLimit")}</label>
+              </FormField>
+              <FormField name="limit_amount" label={t("custodyLimit")} error={fieldErr.limit_amount}>
                 <input type="number" step="0.01" value={limitAmount} onChange={(e) => setLimitAmount(e.target.value)} />
-              </div>
+              </FormField>
             </div>
           </details>
 
-          {error && <p className="error-text">{error}</p>}
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           <button className="primary" type="submit" style={{ marginTop: "0.75rem" }}>
             {editing ? t("saveChanges") : t("add")}
           </button>

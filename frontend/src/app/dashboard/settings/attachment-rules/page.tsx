@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { api, generalError } from "@/lib/api";
+import { api, fieldErrors, generalError } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
+import { FormField } from "@/components/FormField";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import { CATEGORY_LABEL_KEY } from "@/components/AttachmentPanel";
 import type { AttachmentCategory, AttachmentRule, AttachmentRuleDocType } from "@/lib/types";
 
@@ -27,6 +29,7 @@ export default function AttachmentRulesPage() {
   const [minAmount, setMinAmount] = useState("0");
   const [requiredCategory, setRequiredCategory] = useState<AttachmentCategory>("fatura_original");
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [refreshToken, setRefreshToken] = useState(0);
 
   const startEdit = (rule: AttachmentRule) => {
@@ -35,6 +38,7 @@ export default function AttachmentRulesPage() {
     setMinAmount(rule.min_amount_base);
     setRequiredCategory(rule.required_category);
     setError(null);
+    setFieldErr({});
   };
 
   const cancelEdit = () => {
@@ -43,11 +47,13 @@ export default function AttachmentRulesPage() {
     setMinAmount("0");
     setRequiredCategory("fatura_original");
     setError(null);
+    setFieldErr({});
   };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setFieldErr({});
     const payload = { doc_type: docType, min_amount_base: minAmount, required_category: requiredCategory };
     try {
       if (editing) {
@@ -58,6 +64,7 @@ export default function AttachmentRulesPage() {
       cancelEdit();
       setRefreshToken((n) => n + 1);
     } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
       setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
@@ -70,28 +77,25 @@ export default function AttachmentRulesPage() {
         <h3>{editing ? t("edit") : t("add")}</h3>
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            <div className="form-field">
-              <label>{t("docType")}</label>
+            <FormField name="doc_type" label={t("docType")} error={fieldErr.doc_type}>
               <select value={docType} onChange={(e) => setDocType(e.target.value as AttachmentRuleDocType)}>
                 {DOC_TYPES.map((d) => (
                   <option key={d} value={d}>{t(DOC_TYPE_LABEL[d])}</option>
                 ))}
               </select>
-            </div>
-            <div className="form-field">
-              <label>{t("minAmount")}</label>
+            </FormField>
+            <FormField name="min_amount_base" label={t("minAmount")} required error={fieldErr.min_amount_base}>
               <input type="number" step="0.01" value={minAmount} onChange={(e) => setMinAmount(e.target.value)} required />
-            </div>
-            <div className="form-field">
-              <label>{t("requiredCategory")}</label>
+            </FormField>
+            <FormField name="required_category" label={t("requiredCategory")} error={fieldErr.required_category}>
               <select value={requiredCategory} onChange={(e) => setRequiredCategory(e.target.value as AttachmentCategory)}>
                 {CATEGORIES.map((c) => (
                   <option key={c} value={c}>{t(CATEGORY_LABEL_KEY[c])}</option>
                 ))}
               </select>
-            </div>
+            </FormField>
           </div>
-          {error && <p className="error-text">{error}</p>}
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           <button className="primary" type="submit" style={{ marginTop: "0.75rem" }}>
             {editing ? t("saveChanges") : t("add")}
           </button>

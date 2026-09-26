@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, fieldErrors, generalError } from "@/lib/api";
 import { CostCenterTree } from "@/components/CostCenterTree";
 import { DataTable } from "@/components/DataTable";
+import { FormField } from "@/components/FormField";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import { useLocale } from "@/lib/i18n";
 import type { CostCenter, CostCenterTreeNode, CostCenterType, Paginated } from "@/lib/types";
 
@@ -19,6 +21,7 @@ export default function CostCentersPage() {
   const [centerType, setCenterType] = useState<CostCenterType>("general");
   const [parent, setParent] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [refreshToken, setRefreshToken] = useState(0);
 
   const loadTreeAndParents = async () => {
@@ -48,11 +51,14 @@ export default function CostCentersPage() {
     setName("");
     setCenterType("general");
     setParent("");
+    setError(null);
+    setFieldErr({});
   };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setFieldErr({});
     const payload = { code, name, center_type: centerType, parent: parent || null };
     try {
       if (editing) {
@@ -62,8 +68,9 @@ export default function CostCentersPage() {
       }
       cancelEdit();
       setRefreshToken((n) => n + 1);
-    } catch {
-      setError("Could not save this cost center — check code uniqueness.");
+    } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
 
@@ -77,16 +84,13 @@ export default function CostCentersPage() {
 
       <div className="card">
         <form onSubmit={onSubmit} style={{ display: "flex", gap: "0.75rem", alignItems: "end", flexWrap: "wrap" }}>
-          <div className="form-field">
-            <label>{t("code")}</label>
+          <FormField name="code" required error={fieldErr.code}>
             <input value={code} onChange={(e) => setCode(e.target.value)} required />
-          </div>
-          <div className="form-field">
-            <label>{t("name")}</label>
+          </FormField>
+          <FormField name="name" required error={fieldErr.name}>
             <input value={name} onChange={(e) => setName(e.target.value)} required />
-          </div>
-          <div className="form-field">
-            <label>{t("type")}</label>
+          </FormField>
+          <FormField name="center_type" label={t("type")} error={fieldErr.center_type}>
             <select value={centerType} onChange={(e) => setCenterType(e.target.value as CostCenterType)}>
               {TYPES.map((type) => (
                 <option key={type} value={type}>
@@ -94,9 +98,8 @@ export default function CostCentersPage() {
                 </option>
               ))}
             </select>
-          </div>
-          <div className="form-field">
-            <label>{t("parent")}</label>
+          </FormField>
+          <FormField name="parent" error={fieldErr.parent}>
             <select value={parent} onChange={(e) => setParent(e.target.value)}>
               <option value="">{t("none")}</option>
               {flat
@@ -107,8 +110,8 @@ export default function CostCentersPage() {
                   </option>
                 ))}
             </select>
-          </div>
-          {error && <p className="error-text">{error}</p>}
+          </FormField>
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           <button className="primary" type="submit">
             {editing ? t("saveChanges") : t("add")}
           </button>

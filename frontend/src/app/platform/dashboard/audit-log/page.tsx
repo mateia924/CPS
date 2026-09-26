@@ -22,18 +22,18 @@ export default function PlatformAuditLogPage() {
       <div className="card">
         <h3>{t("filters")}</h3>
         <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-          <select value={actorType} onChange={(e) => setActorType(e.target.value)}>
+          <select value={actorType} onChange={(e) => setActorType(e.target.value)}> {/* form-ok: GET-only filter */}
             <option value="">{t("actorType")}: {t("all")}</option>
             <option value="platform">{t("platform")}</option>
             <option value="tenant_user">{t("tenantUser")}</option>
           </select>
-          <input
+          <input // form-ok: GET-only filter
             placeholder={t("action")}
             value={action}
             onChange={(e) => setAction(e.target.value)}
             style={{ padding: "0.5rem 0.7rem", border: "1px solid var(--border)", borderRadius: "8px" }}
           />
-          <input
+          <input // form-ok: GET-only filter
             placeholder={`${t("tenants")} ID`}
             value={tenantId}
             onChange={(e) => setTenantId(e.target.value)}
@@ -41,11 +41,11 @@ export default function PlatformAuditLogPage() {
           />
           <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.9rem" }}>
             {t("dateFrom")}
-            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} /> {/* form-ok: GET-only filter */}
           </label>
           <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.9rem" }}>
             {t("dateTo")}
-            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} /> {/* form-ok: GET-only filter */}
           </label>
         </div>
       </div>

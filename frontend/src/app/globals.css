@@ -57,6 +57,14 @@ input, select, button {
   border-width: 2px;
 }
 
+/* Sprint 6.5.6: FormField's own error state — a field with an API
+   error gets a red border, matching its error message underneath. */
+.form-field.has-error input,
+.form-field.has-error select,
+.form-field.has-error textarea {
+  border-color: var(--danger);
+}
+
 button.primary, a.primary {
   background: var(--color-primary);
   color: var(--color-on-primary);

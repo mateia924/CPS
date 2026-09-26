@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api } from "@/lib/api";
+import { api, fieldErrors, generalError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
+import { FormField } from "@/components/FormField";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import type { CashBox, LegalEntity, Paginated, Party } from "@/lib/types";
 
 export default function CashBoxesPage() {
@@ -21,6 +23,7 @@ export default function CashBoxesPage() {
   const [custodianId, setCustodianId] = useState("");
   const [maxBalance, setMaxBalance] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [refreshToken, setRefreshToken] = useState(0);
 
   useEffect(() => {
@@ -54,11 +57,13 @@ export default function CashBoxesPage() {
     setCustodianId("");
     setMaxBalance("");
     setError(null);
+    setFieldErr({});
   };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setFieldErr({});
     const payload = {
       legal_entity: legalEntityId,
       name,
@@ -74,8 +79,9 @@ export default function CashBoxesPage() {
       }
       cancelEdit();
       setRefreshToken((n) => n + 1);
-    } catch {
-      setError("Could not save this cash box.");
+    } catch (err) {
+      setFieldErr(fieldErrors((err as { body?: unknown }).body));
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }
   };
 
@@ -87,17 +93,15 @@ export default function CashBoxesPage() {
         <h3>{editing ? t("edit") : t("add")}</h3>
         <form onSubmit={onSubmit}>
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            <div className="form-field">
-              <label>{t("name")}</label>
+            <FormField name="name" label={t("name")} required error={fieldErr.name}>
               <input value={name} onChange={(e) => setName(e.target.value)} required />
-            </div>
+            </FormField>
           </div>
 
           <details style={{ marginTop: "0.75rem" }}>
             <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
-              <div className="form-field">
-                <label>{t("legalEntity")}</label>
+              <FormField name="legal_entity" label={t("legalEntity")} required error={fieldErr.legal_entity}>
                 <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
                   <option value="" disabled>
                     —
@@ -108,13 +112,11 @@ export default function CashBoxesPage() {
                     </option>
                   ))}
                 </select>
-              </div>
-              <div className="form-field">
-                <label>{t("currency")}</label>
+              </FormField>
+              <FormField name="currency" label={t("currency")} error={fieldErr.currency}>
                 <input value={currency} onChange={(e) => setCurrency(e.target.value)} maxLength={3} />
-              </div>
-              <div className="form-field">
-                <label>{t("custodian")}</label>
+              </FormField>
+              <FormField name="custodian" label={t("custodian")} error={fieldErr.custodian}>
                 <select value={custodianId} onChange={(e) => setCustodianId(e.target.value)}>
                   <option value="">{t("none")}</option>
                   {employees.map((employee) => (
@@ -123,15 +125,14 @@ export default function CashBoxesPage() {
                     </option>
                   ))}
                 </select>
-              </div>
-              <div className="form-field">
-                <label>{t("cashBoxMaxBalance")}</label>
+              </FormField>
+              <FormField name="max_balance" label={t("cashBoxMaxBalance")} error={fieldErr.max_balance}>
                 <input type="number" step="0.01" value={maxBalance} onChange={(e) => setMaxBalance(e.target.value)} />
-              </div>
+              </FormField>
             </div>
           </details>
 
-          {error && <p className="error-text">{error}</p>}
+          <WarningsBanner warnings={error ? [error] : []} variant="error" />
           <button className="primary" type="submit" style={{ marginTop: "0.75rem" }}>
             {editing ? t("saveChanges") : t("add")}
           </button>
