@@ -2,6 +2,31 @@
 
 import { useEffect, useState } from "react";
 
+// Sprint 6.5.8 (UAT bugfix): several backend service-layer catches
+// return {"detail": str(exc)} for a caught django.core.exceptions.
+// ValidationError — Django's own __str__ for it is `repr(list(self))`,
+// e.g. "['الاعتماد الاضطراري يشترط سببًا إلزاميًا']", a Python list
+// literal leaking into the UI verbatim instead of the clean message.
+// Recognized once here rather than at every backend call site, so
+// every screen using this one shared component is fixed at once — a
+// message that merely happens to start/end with brackets for real
+// never matches this narrow "whole string is a Python list of quoted
+// strings" shape, so it's never touched.
+const PY_LIST_OF_STRINGS = /^\[\s*(?:'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")(?:\s*,\s*(?:'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"))*\s*\]$/s;
+const QUOTED_ITEM = /'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"/g;
+
+function cleanWarningText(text: string): string {
+  const trimmed = text.trim();
+  if (!PY_LIST_OF_STRINGS.test(trimmed)) return text;
+  const items: string[] = [];
+  let m: RegExpExecArray | null;
+  QUOTED_ITEM.lastIndex = 0;
+  while ((m = QUOTED_ITEM.exec(trimmed)) !== null) {
+    items.push((m[1] ?? m[2]).replace(/\\(['"\\])/g, "$1"));
+  }
+  return items.length > 0 ? items.join("، ") : text;
+}
+
 // Sprint 6.9.1 (item B): every warnings[] the API returns (credit
 // limit, stale exchange rate, etc.) must reach the user somewhere —
 // before this, only fiscal-years' own checklist showed anything like
@@ -50,7 +75,7 @@ export function WarningsBanner({
     >
       <ul style={{ margin: 0, paddingInlineStart: "1.1rem" }}>
         {warnings.map((warning, i) => (
-          <li key={i}>{warning}</li>
+          <li key={i}>{cleanWarningText(warning)}</li>
         ))}
       </ul>
       <button

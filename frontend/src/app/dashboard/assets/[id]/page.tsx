@@ -105,6 +105,39 @@ export default function AssetDetailPage() {
     }
   };
 
+  // Sprint 6.5.8 (UAT bugfix): apps.approvals.services.approve() raises
+  // this exact (Arabic-only — the backend has no English catalog for
+  // it) message when the current user needs an owner emergency
+  // override — same pattern the approval inbox should use everywhere,
+  // not yet wired up anywhere before this fix.
+  const EMERGENCY_APPROVAL_REQUIRED = "الاعتماد الاضطراري يشترط سببًا إلزاميًا";
+
+  const approveSchedule = async () => {
+    setError(null);
+    setFieldErr({});
+    try {
+      await api.post(`/depreciation-schedules/${schedule!.id}/approve/`);
+      load();
+    } catch (err) {
+      const body = (err as { body?: unknown }).body;
+      if (generalError(body, "").includes(EMERGENCY_APPROVAL_REQUIRED)) {
+        const reason = window.prompt(t("emergencyApprovalReason"));
+        if (!reason) return;
+        try {
+          await api.post(`/depreciation-schedules/${schedule!.id}/approve/`, { emergency_reason: reason });
+          load();
+        } catch (err2) {
+          const body2 = (err2 as { body?: unknown }).body;
+          setFieldErr(fieldErrors(body2));
+          setError(generalError(body2, t("couldNotSave")));
+        }
+        return;
+      }
+      setFieldErr(fieldErrors(body));
+      setError(generalError(body, t("couldNotSave")));
+    }
+  };
+
   const startDepreciation = async () => {
     setError(null);
     setFieldErr({});
@@ -276,7 +309,9 @@ export default function AssetDetailPage() {
               </div>
               <div className="card" style={{ flex: 1 }}>
                 <div>{t("remainingInstallmentsCard")}</div>
-                <strong>{remainingInstallments}</strong>
+                <strong>
+                  {schedule.status === "approved" || schedule.status === "completed" ? remainingInstallments : "—"}
+                </strong>
               </div>
             </div>
 
@@ -286,9 +321,21 @@ export default function AssetDetailPage() {
               </button>
             )}
 
+            {schedule.status === "draft" && (
+              <div style={{ marginTop: "0.75rem" }}>
+                <button className="primary" onClick={() => runScheduleAction("submit")}>{t("submitForApproval")}</button>
+                <button
+                  className="secondary" style={{ marginInlineStart: "0.5rem" }}
+                  onClick={() => runScheduleAction("cancel")}
+                >
+                  {t("cancel")}
+                </button>
+              </div>
+            )}
+
             {schedule.status === "pending_approval" && (
               <div style={{ marginTop: "0.75rem" }}>
-                <button className="primary" onClick={() => runScheduleAction("approve")}>{t("approve")}</button>
+                <button className="primary" onClick={approveSchedule}>{t("approve")}</button>
                 <button
                   className="secondary" style={{ marginInlineStart: "0.5rem" }}
                   onClick={() => runScheduleAction("withdraw")}

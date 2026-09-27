@@ -164,6 +164,79 @@ def test_second_start_call_on_active_schedule_returns_409(tenant_a, owner_client
     assert second.status_code == 409, second.data
 
 
+def test_withdraw_cancels_schedule_and_frees_asset_for_a_fresh_start(tenant_a, user_a):
+    """Sprint 6.5.8 (UAT bugfix): the generic engine's withdraw() alone
+    only takes a schedule PENDING_APPROVAL -> DRAFT, which used to be a
+    dead end here (no edit form, and DRAFT still counts as "active" for
+    start_depreciation's own 409 check) — apps.assets.depreciation.
+    withdraw_depreciation_schedule now cancels it and detaches it from
+    the asset, so a second start-depreciation call (with a corrected
+    opening_accumulated_depreciation) succeeds immediately."""
+    _seed_depreciation_rule(tenant_a)
+    UserFactory(tenant=tenant_a, email="accountant@withdraw.test").roles.add(_roles(tenant_a)["Accountant"])
+    client = _client(user_a)
+    entity = _entity(tenant_a)
+    asset = AssetFactory(
+        tenant=tenant_a, legal_entity=entity, purchase_date="2026-01-01", purchase_cost="12000.00",
+        salvage_value="0", useful_life_months=12, opening_accumulated_depreciation="1000.00",
+    )
+    started = _start(client, asset.id)
+    assert started.status_code == 201, started.data
+    schedule_id = started.data["depreciation_schedule_id"]
+    entry = RecurringEntry.objects.get(id=schedule_id)
+    assert entry.status == "pending_approval"
+
+    withdrawn = client.post(f"/api/depreciation-schedules/{schedule_id}/withdraw/")
+    assert withdrawn.status_code == 200, withdrawn.data
+    assert withdrawn.data["status"] == "cancelled"
+
+    asset.refresh_from_db()
+    assert asset.depreciation_entry_id is None
+
+    retry = client.patch(f"/api/assets/{asset.id}/", {"opening_accumulated_depreciation": "500.00"}, format="json")
+    assert retry.status_code == 200, retry.data
+    second_start = _start(client, asset.id)
+    assert second_start.status_code == 201, second_start.data
+
+
+def test_draft_schedule_after_rejection_can_be_resubmitted_or_cancelled(tenant_a, user_a):
+    """Sprint 6.5.8 (UAT bugfix): reject() also leaves a schedule in
+    DRAFT (unlike withdraw, deliberately not redefined — an approver's
+    rejection reason may be fixable, so the creator gets a real choice:
+    resubmit via `submit`, or give up via `cancel` (which, like
+    withdraw, frees the asset for a fresh start-depreciation call)."""
+    role = _seed_depreciation_rule(tenant_a).required_role
+    UserFactory(tenant=tenant_a, email="second-owner@reject.test").roles.add(role)
+    client = _client(user_a)
+    entity = _entity(tenant_a)
+    asset = AssetFactory(
+        tenant=tenant_a, legal_entity=entity, purchase_date="2026-01-01", purchase_cost="12000.00",
+        salvage_value="0", useful_life_months=12,
+    )
+    started = _start(client, asset.id)
+    schedule_id = started.data["depreciation_schedule_id"]
+
+    rejected = client.post(f"/api/depreciation-schedules/{schedule_id}/reject/", {"reason": "خطأ في العمر الإنتاجي"})
+    assert rejected.status_code == 200, rejected.data
+    assert rejected.data["status"] == "draft"
+
+    resubmitted = client.post(f"/api/depreciation-schedules/{schedule_id}/submit/")
+    assert resubmitted.status_code == 200, resubmitted.data
+    assert resubmitted.data["status"] == "pending_approval"
+
+    rejected_again = client.post(f"/api/depreciation-schedules/{schedule_id}/reject/", {"reason": "still wrong"})
+    assert rejected_again.status_code == 200, rejected_again.data
+
+    cancelled = client.post(f"/api/depreciation-schedules/{schedule_id}/cancel/")
+    assert cancelled.status_code == 200, cancelled.data
+    assert cancelled.data["status"] == "cancelled"
+
+    asset.refresh_from_db()
+    assert asset.depreciation_entry_id is None
+    second_start = _start(client, asset.id)
+    assert second_start.status_code == 201, second_start.data
+
+
 def test_generate_first_installment_posts_journal_entry_with_cost_center(tenant_a, owner_client):
     entity = _entity(tenant_a)
     cost_center = CostCenterFactory(tenant=tenant_a)
@@ -319,6 +392,45 @@ def test_creator_cannot_approve_own_schedule_outside_single_user_mode(tenant_a, 
     assert entry.status == "pending_approval"
     response = client.post(f"/api/depreciation-schedules/{schedule_id}/approve/")
     assert response.status_code == 403, response.data
+
+
+def test_owner_can_emergency_approve_own_schedule_when_no_other_owner_holds_role(tenant_a, user_a):
+    """Sprint 6.5.8 (UAT bugfix): the asset detail screen's approve
+    button now retries with emergency_reason on this exact failure —
+    proving the API path it depends on actually behaves as expected:
+    blocked-but-emergency-eligible -> 400 without a reason, 200 with
+    one, logged as asset_depreciation.approved/is_emergency_approval."""
+    _seed_depreciation_rule(tenant_a)
+    UserFactory(tenant=tenant_a, email="accountant@depreciation.test").roles.add(_roles(tenant_a)["Accountant"])
+    client = _client(user_a)
+    entity = _entity(tenant_a)
+    asset = AssetFactory(
+        tenant=tenant_a, legal_entity=entity, purchase_date="2026-01-01", purchase_cost="12000.00",
+        salvage_value="0", useful_life_months=12,
+    )
+    started = _start(client, asset.id)
+    assert started.status_code == 201, started.data
+    schedule_id = started.data["depreciation_schedule_id"]
+    entry = RecurringEntry.objects.get(id=schedule_id)
+    assert entry.status == "pending_approval"
+
+    without_reason = client.post(f"/api/depreciation-schedules/{schedule_id}/approve/")
+    assert without_reason.status_code == 400, without_reason.data
+
+    with_reason = client.post(
+        f"/api/depreciation-schedules/{schedule_id}/approve/",
+        {"emergency_reason": "no accountant available"},
+        format="json",
+    )
+    assert with_reason.status_code == 200, with_reason.data
+    entry.refresh_from_db()
+    assert entry.status == "approved"
+
+    from apps.platform.models import AuditLog
+
+    log = AuditLog.objects.filter(target_id=entry.id, action="asset_depreciation.approved").order_by("-created_at").first()
+    assert log is not None
+    assert log.after["is_emergency_approval"] is True
 
 
 def test_tenant_isolation(tenant_a, tenant_b, owner_client, user_b):

@@ -14,8 +14,10 @@ from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 from .depreciation import DepreciationAlreadyActive, NoActiveDepreciationSchedule
 from .depreciation import add_to_asset as _add_to_asset
 from .depreciation import approve_depreciation_schedule as _approve_depreciation_schedule
+from .depreciation import cancel_depreciation_schedule as _cancel_depreciation_schedule
 from .depreciation import reject_depreciation_schedule as _reject_depreciation_schedule
 from .depreciation import start_depreciation as _start_depreciation
+from .depreciation import submit_depreciation_schedule as _submit_depreciation_schedule
 from .depreciation import withdraw_depreciation_schedule as _withdraw_depreciation_schedule
 from .disposal import approve_disposal as _approve_disposal
 from .disposal import dispose_asset as _dispose_asset
@@ -174,6 +176,11 @@ class DepreciationScheduleViewSet(mixins.RetrieveModelMixin, viewsets.GenericVie
         "approve": "assets.depreciate",
         "reject": "assets.depreciate",
         "withdraw": "assets.depreciate",
+        # Sprint 6.5.8 (UAT bugfix): a DRAFT schedule (after a reject(),
+        # or one that never got auto-approved) needs its own way
+        # forward — same authority as the other schedule actions.
+        "submit": "assets.depreciate",
+        "cancel": "assets.depreciate",
     }
 
     def get_queryset(self):
@@ -215,6 +222,27 @@ class DepreciationScheduleViewSet(mixins.RetrieveModelMixin, viewsets.GenericVie
             return Response({"detail": str(exc)}, status=400)
         except PermissionDenied as exc:
             return Response({"detail": str(exc)}, status=403)
+        entry.refresh_from_db()
+        return Response(RecurringEntrySerializer(entry).data)
+
+    @action(detail=True, methods=["post"])
+    def submit(self, request, pk=None):
+        entry = self.get_object()
+        try:
+            _submit_depreciation_schedule(entry, request.user, request=request)
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        entry.refresh_from_db()
+        return Response(RecurringEntrySerializer(entry).data)
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        entry = self.get_object()
+        try:
+            _cancel_depreciation_schedule(entry, request.user, request=request)
+        except (ValidationError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=400)
+        entry.refresh_from_db()
         return Response(RecurringEntrySerializer(entry).data)
 
 

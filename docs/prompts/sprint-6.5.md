@@ -135,6 +135,22 @@ commit: `Sprint 6.5.6: voucher form legal_entity/treasury_id fixes, shared FormF
 
 commit: `Sprint 6.5.7: recurring entries no longer hidden by simplified mode, generate-due-now button scoped to one asset's schedule`
 
+### 6.5.8 — عطل يوقف UAT 6.5: سحب جدول إهلاك، إجراءات المسودة، رسائل الأخطاء، الاعتماد الاضطراري، الأشهر المتبقية
+
+**(1) «سحب» جدول إهلاك يُلغيه فعليًا:** المحرك العام لـ`withdraw()` ينقل أي مستند PENDING_APPROVAL إلى DRAFT فقط — يعمل جيدًا لمستند له فورم تعديل (سند، فاتورة)، لكن جدول الإهلاك ليس له فورم تعديل إطلاقًا؛ DRAFT كانت نهاية مسدودة (لا إرسال/تعديل/حذف) وتبقى «نشطة» حسب `_ACTIVE_SCHEDULE_STATUSES` فتمنع `start_depreciation` من قبول محاولة ثانية. `apps.assets.depreciation.withdraw_depreciation_schedule` الآن يستدعي المحرك العام (يُسجَّل «withdrawn» كالمعتاد) ثم يُلغي الجدول فعليًا (`cancel_recurring_entry`، الحالة CANCELLED) ويُصفِّر `Asset.depreciation_entry` — ففورم «بدء الإهلاك» يعود فورًا بكل الحقول قابلة للتعديل (بما فيها المجمّع الافتتاحي).
+
+**(2) إجراءات واضحة للجدول المسودة/المعلّق:** `reject()` العام يترك نفس النهاية المسدودة (PENDING_APPROVAL → DRAFT) — لكن هنا القرار مختلف: رفض المعتمِد قد يكون بسبب قابل للتصحيح، فيستحق المنشئ خيارًا حقيقيًا، لا إلغاءً فقط. إجراءان جديدان على `DepreciationScheduleViewSet` (`assets.depreciate`): `submit` (DRAFT ← إرسال جديد، نفس `submit_for_approval` العام) و`cancel` (نفس تأثير withdraw أعلاه: إلغاء + تصفير الأصل). صفحة تفاصيل الأصل: حالة `draft` تعرض «إرسال للاعتماد» و«إلغاء»؛ حالة `pending_approval` كما كانت (اعتماد/سحب/رفض).
+
+**(3) رسائل الأخطاء غير المرتبطة بحقل تُعرض نصًا نظيفًا:** عدة معالجات `except (ValidationError, ValueError)` في الواجهات الخلفية تُعيد `{"detail": str(exc)}` لـ`django.core.exceptions.ValidationError` — و`__str__` الخاص بها هو `repr(list(self))`، فتصل الواجهة رسالة مثل `"['الاعتماد الاضطراري يشترط سببًا إلزاميًا']"` حرفيًا. أُصلح مرة واحدة في `WarningsBanner.tsx` (`cleanWarningText`): يتعرّف على شكل «قائمة بايثون نصية كاملة» بدقة (لا يلمس رسالة عربية حقيقية تحوي أقواسًا جزئيًا) ويستخرج النص الفعلي — يفيد كل صفحة تستخدم `WarningsBanner` دفعة واحدة، بلا حاجة لتعديل كل معالج خلفي.
+
+**(4) زر «اعتماد» يطلب سبب الاعتماد الاضطراري عند الحاجة:** الواجهة الخلفية كانت تدعم `emergency_reason` أصلًا (`DepreciationScheduleViewSet.approve` يمرّره) لكن صفحة تفاصيل الأصل لم تكن تتعامل مع رفض 400 المطالب به — الآن `approveSchedule` يحاول الاعتماد العادي، وعند الرسالة المعروفة (`"الاعتماد الاضطراري يشترط سببًا إلزاميًا"` — النص العربي الوحيد الذي يرسله الخادم، لا كتالوج ترجمة إنجليزي له) يطلب السبب بـ`window.prompt` ويعيد المحاولة مع `emergency_reason`.
+
+**(5) «الأشهر المتبقية» تعرض «—» قبل الاعتماد:** الأقساط (`RecurringInstallment`) لا تُولَّد إلا عند التفعيل (`_activate_schedule`، عند الاعتماد فقط) — قبل ذلك `schedule.installments` فراغ فيظهر «0» مضلِّلًا (يبدو كأصل مُهلَك بالكامل). البطاقة تعرض العدد الحقيقي فقط حين `status` بـ`approved`/`completed`، و«—» غير ذلك.
+
+- **اختبارات:** سحب جدول معلّق ← يُصبح `cancelled`، `asset.depreciation_entry` يُصفَّر، تعديل المجمّع الافتتاحي وبدء إهلاك ثانٍ ينجح فورًا؛ رفض جدول ← DRAFT ← إرسال ينجح (يعود PENDING_APPROVAL) أو إلغاء ينجح (`cancelled` + تصفير الأصل + بدء ثانٍ ينجح)؛ اعتماد اضطراري لجدول إهلاك (مالك محظور عن اعتماد جدوله الخاص، بلا محاسب آخر نشط) ← 400 بلا سبب، 200 مع سبب، وتسجيل `asset_depreciation.approved`/`is_emergency_approval=True`. لا اختبار آلي لتصحيحي (3) و(5) — كلاهما تغيير عرض واجهة صِرف بلا منطق خلفي جديد يُختبَر؛ صحّته تحقّقت بسكربت Node مؤقت (حُذف) لـ(3) وبمنطق العرض المقروء لـ(5)، ومُغطَّاة بـ`tsc --noEmit`/`next build` النظيفين.
+
+commit: `Sprint 6.5.8: withdraw fully cancels a depreciation schedule and frees the asset, draft schedule gets submit/cancel actions, clean non-field error text, emergency-approval prompt, remaining-months placeholder before approval`
+
 ---
 
 ## معايير القبول الإجمالية

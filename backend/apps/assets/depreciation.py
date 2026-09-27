@@ -352,10 +352,53 @@ def reject_depreciation_schedule(entry, user, reason, request=None):
     return approvals_reject(entry, user, doc_type_for_entry(entry), reason, request=request)
 
 
+@transaction.atomic
+def _cancel_and_detach(entry, user, request=None):
+    """Sprint 6.5.8 (UAT bugfix): a depreciation schedule has no edit
+    form — unlike a voucher/invoice, the generic engine's DRAFT status
+    (what withdraw()/reject() normally leave behind) is a dead end here:
+    nothing to edit, nothing to resubmit from the asset screen, and
+    start_depreciation still refuses a second call while any of these
+    statuses is "active" (see _ACTIVE_SCHEDULE_STATUSES). Cancelling and
+    detaching from the asset is what actually frees it up again — with
+    opening_accumulated_depreciation and every other field editable
+    again on a fresh start-depreciation form."""
+    from apps.accounting.recurring import cancel_recurring_entry
+
+    cancel_recurring_entry(entry, user, request=request)
+    Asset.objects.filter(depreciation_entry=entry).update(depreciation_entry=None)
+    return entry
+
+
+def submit_depreciation_schedule(entry, user, request=None):
+    """DRAFT -> PENDING_APPROVAL (or straight to APPROVED if no rule
+    matches) — the "إرسال" action for a schedule a reject() sent back
+    to DRAFT, so the creator can fix whatever the approver objected to
+    and resubmit instead of only being able to cancel and start over."""
+    from apps.approvals.services import submit_for_approval
+
+    auto_approved = submit_for_approval(entry, user, doc_type_for_entry(entry), entry.total_amount_base, request=request)
+    if auto_approved:
+        _activate_schedule(entry)
+    return entry
+
+
+def cancel_depreciation_schedule(entry, user, request=None):
+    """The "إلغاء" action for a DRAFT schedule (nothing pending to
+    withdraw from) — same end state as withdraw_depreciation_schedule
+    below, just reachable from DRAFT instead of PENDING_APPROVAL."""
+    return _cancel_and_detach(entry, user, request=request)
+
+
 def withdraw_depreciation_schedule(entry, user, request=None):
+    """Sprint 6.5.8 (UAT bugfix): redefined from the generic engine's
+    PENDING_APPROVAL -> DRAFT to a full cancel — see _cancel_and_detach.
+    The generic withdraw() call still enforces "only the creator, only
+    while pending" and still logs "withdrawn" before this cancels it."""
     from apps.approvals.services import withdraw as approvals_withdraw
 
-    return approvals_withdraw(entry, user, doc_type_for_entry(entry), request=request)
+    approvals_withdraw(entry, user, doc_type_for_entry(entry), request=request)
+    return _cancel_and_detach(entry, user, request=request)
 
 
 @transaction.atomic
