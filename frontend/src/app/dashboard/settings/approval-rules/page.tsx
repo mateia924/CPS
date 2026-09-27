@@ -8,8 +8,14 @@ import { FormField } from "@/components/FormField";
 import { WarningsBanner } from "@/components/WarningsBanner";
 import type { ApprovalDocType, ApprovalRule, Paginated, Role } from "@/lib/types";
 
+// Sprint 6.5.9 (E2E discovery): asset_depreciation/asset_addition/
+// asset_disposal (decision 11, sprint 6.5) were always configurable
+// approval doc_types on the backend — this array (the "create a new
+// rule" doc_type picker) was simply never updated to offer them, so
+// there was no way to actually create one through the settings screen.
 const DOC_TYPES: ApprovalDocType[] = [
   "journal_entry", "invoice", "voucher_receipt", "voucher_payment", "voucher_settlement",
+  "asset_depreciation", "asset_addition", "asset_disposal",
 ];
 // iban_change/opening_balance are deliberately absent from DOC_TYPES
 // (below) — both are fixed, non-deletable system rules (approvals/

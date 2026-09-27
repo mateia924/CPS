@@ -60,6 +60,7 @@ export function WarningsBanner({
 
   return (
     <div
+      data-testid={`warnings-banner-${variant}`}
       style={{
         background: `var(${bgVar})`,
         color: `var(${colorVar})`,

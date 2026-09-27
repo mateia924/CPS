@@ -40,7 +40,7 @@ export function FormField({ name, label, required, error, hint, style, children 
     "aria-describedby": error ? `${name}-error` : undefined,
   });
   return (
-    <div className={`form-field${error ? " has-error" : ""}`} style={style}>
+    <div className={`form-field${error ? " has-error" : ""}`} data-field={name} style={style}>
       <label>
         {resolvedLabel}
         {required && <span style={{ color: "var(--danger)" }}> *</span>}

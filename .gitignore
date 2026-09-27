@@ -39,3 +39,9 @@ backups/
 media/
 node_modules/
 .next/
+
+# E2E (sprint 6.5.8) — browser session/token state and Playwright's own
+# run artifacts, never the spec files or config themselves.
+frontend/e2e/.auth/
+frontend/e2e/test-results/
+frontend/e2e/playwright-report/

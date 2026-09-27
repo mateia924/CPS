@@ -151,6 +151,21 @@ commit: `Sprint 6.5.7: recurring entries no longer hidden by simplified mode, ge
 
 commit: `Sprint 6.5.8: withdraw fully cancels a depreciation schedule and frees the asset, draft schedule gets submit/cancel actions, clean non-field error text, emergency-approval prompt, remaining-months placeholder before approval`
 
+### 6.5.9 — تحقق حي بمتصفح فعلي لسبرنت 6.5.8 + بنية E2E دائمة (docs/CPS_MASTER_PLAN.md §9.3)
+
+**الدافع:** طلب المالك تحقّقًا فعليًا على الواجهة لا عبر API فقط — لا Chrome على هذا السيرفر (Claude Code سطر أوامر)، فنُفِّذ بـ Playwright headless (صورة `mcr.microsoft.com/playwright` الرسمية؛ صورة الواجهة الخاصة بالمشروع Alpine/musl لا تُشغِّل Chromium إطلاقًا) بشبكة `--network host` على `docker exec infra-backend-1`/مستأجر `smoke-*` جديد فعليًا عبر النموذج المعروض، لا نداء مباشر.
+
+**اكتشافان أثناء البناء لا افتراضيًا:**
+1. **CORS:** التصفح إلى `http://localhost:3000` يفشل بصمت (طلبات API تذهب فعليًا إلى `NEXT_PUBLIC_API_URL` وهو عنوان IP العام للسيرفر — أصل مختلف يُرفض في CORS preflight). السكربت يشتق `BASE_URL` من `.env` (`NEXT_PUBLIC_API_URL` بلا `/api`) بدل افتراض localhost.
+2. **`settings/approval-rules` لا يمكنه إنشاء قاعدة اعتماد لأصل إطلاقًا:** مصفوفة `DOC_TYPES` (منتقي «إنشاء قاعدة جديدة») كانت تفتقد `asset_depreciation`/`asset_addition`/`asset_disposal` رغم أنها قابلة للتهيئة فعليًا على الواجهة الخلفية منذ قرار 11 (سبرنت 6.5) — لا طريقة لإنشاء إحداها عبر الشاشة كانت موجودة قط. أُصلح بإضافتها للمصفوفة.
+3. **لا واجهة منتج لإضافة مستخدم ثانٍ لمستأجر قائم:** شاشة «الأدوار والمستخدمون» تُعدِّل أدوار مستخدم **موجود** فقط (`POST /users/{id}/assign/`)؛ `RegisterView` ينشئ أول مستخدم فقط. سيناريو الاعتماد الاضطراري يحتاج مستأجرًا متعدد المستخدمين فعليًا — بلا هذه الواجهة، لا طريقة منتج حقيقية لبنائه. أمر إداري جديد **للاختبار فقط** `create_test_user` (مقيَّد بمستأجرات `smoke-*` فقط، نفس نمط `archive_smoke_tenants`) يسدّ الفجوة **لهذا الاختبار وحده** — الفجوة نفسها (لا واجهة دعوة مستخدم) دَين حقيقي مسجَّل في §11، لم يُبنَ حل له هنا (خارج الطلب).
+
+**بنية E2E دائمة:** `frontend/e2e/` (`@playwright/test`، مستقل عن `frontend/package.json` الرئيسي لأن الواجهة نفسها Alpine ولا تُشغِّل Playwright) بملفين: `01-setup-and-schedule.spec.ts` (تسجيل شركة، قاعدة اعتماد، سند قبض لتمويل الصندوق ثم سند صرف 12,000 مباشرة على 1700 (تحقّق حي لقرار 6.5.6-ج)، إنشاء أصل بلا عمر إنتاجي عمدًا لإظهار رسالة خطأ حقيقية نظيفة (بند 3)، تصحيحه، بدء الإهلاك ← سحب ← إعادة البدء بمجمّع افتتاحي 0 (بند 1، الأشهر المتبقية «—» — بند 5)) و`02-approve-and-generate.spec.ts` (يكمل نفس الجلسة عبر `storageState` بعد تزويد مستخدم محاسب: اعتماد يطلب سببًا اضطراريًا فعليًا عبر `window.prompt` معترَض (بند 4)، ثم «توليد المستحق الآن»). `FormField`/`WarningsBanner` اكتسبا `data-field`/`data-testid` لثبات المحدِّدات (Selectors) بلا اعتماد على نص التسمية. `scripts/e2e.sh` (`make e2e`) يُنسِّق الطورين حول أمر التزويد، ويؤرشف مستأجره في البداية والنهاية. 16 لقطة شاشة في `docs/uat/screens/6.5.8/`.
+
+- **اختبارات:** `make e2e` بالكامل ناجح على مستأجر `smoke-*` جديد بمرحلتين (استُعرِض بصريًا: رسالة الخطأ بند 3 بلا أقواس، حالة الاعتماد ورقم الأشهر المتبقية الحقيقي بعد الاعتماد الاضطراري). لا اختبار pytest جديد هنا (هذه الكتلة تحقّق واجهة، لا منطق خلفي جديد) عدا ما غطّته 6.5.8 نفسها.
+
+commit: `Sprint 6.5.9: real headless-browser E2E verification of 6.5.8, permanent Playwright suite (make e2e), asset approval-rule picker fix`
+
 ---
 
 ## معايير القبول الإجمالية

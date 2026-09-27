@@ -1,4 +1,4 @@
-.PHONY: dev-up dev-down dev-logs dev-build prod-up prod-down prod-config dev-config test lint check smoke backup
+.PHONY: dev-up dev-down dev-logs dev-build prod-up prod-down prod-config dev-config test lint check smoke backup e2e
 
 COMPOSE_DIR := infra
 ENV_FILE := .env
@@ -59,6 +59,13 @@ smoke:
 ## crontab at 03:00 daily; this target is for running it on demand.
 backup:
 	./scripts/backup.sh
+
+## Real headless-browser E2E suite (sprint 6.5.8, docs/CPS_MASTER_PLAN.md
+## §9.3) — required for any block that touches the UI. Creates and
+## archives its own smoke-* tenant; never touches a real one. See
+## scripts/e2e.sh and frontend/e2e/*.spec.ts.
+e2e:
+	./scripts/e2e.sh
 
 ## Prod (future production host only — never run on this dev host)
 prod-up:
