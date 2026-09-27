@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
+import { DialogHost } from "@/components/Dialog";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
 import type { PendingApproval } from "@/lib/types";
 
@@ -267,6 +268,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
         {children}
       </main>
+      <DialogHost />
     </div>
   );
 }

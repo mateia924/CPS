@@ -21,11 +21,75 @@ function getLocale(): string {
   return window.localStorage.getItem("cps_locale") ?? "ar";
 }
 
+/** Sprint 6.5.10 (UAT note 7): the tenant realm ("cps_access") can be
+ * silently refreshed via /auth/refresh/ — the platform realm
+ * ("cps_platform_access") has no refresh endpoint at all (apps/
+ * platform/urls.py), so a 401 there goes straight to redirectToLogin.
+ * One shared in-flight promise per token key so N concurrent 401s
+ * trigger exactly one refresh call, not N. */
+const refreshInFlight: Partial<Record<string, Promise<string>>> = {};
+
+function refreshTokenKeyFor(tokenKey: string): string {
+  return tokenKey === "cps_platform_access" ? "cps_platform_refresh" : "cps_refresh";
+}
+
+async function refreshAccessToken(tokenKey: string): Promise<string> {
+  if (tokenKey !== "cps_access") throw new Error("no refresh endpoint for this realm");
+  const existing = refreshInFlight[tokenKey];
+  if (existing) return existing;
+
+  const attempt = (async () => {
+    const refreshValue = window.localStorage.getItem(refreshTokenKeyFor(tokenKey));
+    if (!refreshValue) throw new Error("no refresh token stored");
+    const res = await fetch(`${API_BASE}/auth/refresh/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh: refreshValue }),
+    });
+    if (!res.ok) throw new Error("refresh call failed");
+    const data = (await res.json()) as { access: string };
+    window.localStorage.setItem(tokenKey, data.access);
+    return data.access;
+  })();
+
+  refreshInFlight[tokenKey] = attempt;
+  try {
+    return await attempt;
+  } finally {
+    delete refreshInFlight[tokenKey];
+  }
+}
+
+/** Clears this realm's stored tokens and hard-navigates to its login
+ * screen — a full navigation (not client-side routing) since this is a
+ * plain module, not a React component, and the whole point is to leave
+ * whatever screen was open when the session died. The query param is
+ * how the login page knows to show t("sessionExpired") instead of its
+ * normal empty state — never the raw backend body (SimpleJWT's own
+ * bundled Arabic translation for "token" is "تأشيرة", a real, wrong,
+ * upstream-package mistranslation this app must never surface). */
+function redirectToLogin(tokenKey: string) {
+  if (typeof window === "undefined") return;
+  if (tokenKey === "cps_platform_access") {
+    window.localStorage.removeItem("cps_platform_access");
+    window.localStorage.removeItem("cps_platform_refresh");
+    window.localStorage.removeItem("cps_platform_user");
+    window.location.href = "/platform/login?session_expired=1";
+  } else {
+    window.localStorage.removeItem("cps_access");
+    window.localStorage.removeItem("cps_refresh");
+    window.localStorage.removeItem("cps_user");
+    window.localStorage.removeItem("cps_tenant");
+    window.location.href = "/login?session_expired=1";
+  }
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
   auth = true,
-  tokenKey = "cps_access"
+  tokenKey = "cps_access",
+  isRetry = false
 ): Promise<T> {
   const headers = new Headers(options.headers);
   // FormData (file uploads) must NOT get a manual Content-Type — the
@@ -54,6 +118,23 @@ async function request<T>(
     throw new ApiError(0, { detail: "network_error" });
   }
 
+  // Sprint 6.5.10 (UAT note 7): a 401 on an authenticated call means
+  // the access token itself expired mid-session — never shown to the
+  // user as a form error (see fieldErrors' reserved-key skip below for
+  // the defense-in-depth side of this same bug). Try one silent
+  // refresh-and-retry; only redirect to login if that also fails.
+  // `auth=false` calls (login/register/refresh itself) are never
+  // retried — a 401 there is a real "wrong credentials", not a expiry.
+  if (res.status === 401 && auth && !isRetry) {
+    try {
+      await refreshAccessToken(tokenKey);
+      return await request<T>(path, options, auth, tokenKey, true);
+    } catch {
+      redirectToLogin(tokenKey);
+      return new Promise<T>(() => {}); // navigation is already underway
+    }
+  }
+
   const text = await res.text();
   let data: unknown = null;
   if (text) {
@@ -73,6 +154,17 @@ async function request<T>(
   return data as T;
 }
 
+// Sprint 6.5.10 (UAT note 6): never real field names in this codebase
+// — "detail"/"code" are DRF's/SimpleJWT's own generic-error keys
+// (e.g. {"detail": "Token is invalid or expired", "code":
+// "token_not_valid"} on a 401), and "non_field_errors" is what
+// generalError() already reads separately. Without this, a 401/403
+// whose body happens to include "code" would attach its message to
+// any FormField literally named "code" (tax codes, chart of accounts,
+// cost centers, assets, …) — exactly the "token_not_valid under the
+// كود field" bug this fixes.
+const RESERVED_ERROR_KEYS = new Set(["detail", "code", "non_field_errors"]);
+
 /** DRF's standard error shape: {field: [msg, ...]} plus optionally
  * non_field_errors / detail. Never assume it — the server can also
  * return a flat {detail: "..."} for auth/permission errors. */
@@ -80,6 +172,7 @@ export function fieldErrors(body: unknown): Record<string, string> {
   if (!body || typeof body !== "object") return {};
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+    if (RESERVED_ERROR_KEYS.has(key)) continue;
     if (Array.isArray(value)) {
       out[key] = value.map(String).join(" ");
     } else if (typeof value === "string") {

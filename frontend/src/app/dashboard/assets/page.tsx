@@ -36,6 +36,7 @@ export default function AssetsPage() {
   const [purchaseDate, setPurchaseDate] = useState("");
   const [purchaseCost, setPurchaseCost] = useState("");
   const [currency, setCurrency] = useState("SAR");
+  const [isDepreciable, setIsDepreciable] = useState(true);
   const [usefulLifeMonths, setUsefulLifeMonths] = useState("");
   const [salvageValue, setSalvageValue] = useState("0");
   const [custodianId, setCustodianId] = useState("");
@@ -69,6 +70,7 @@ export default function AssetsPage() {
     setPurchaseDate(asset.purchase_date);
     setPurchaseCost(asset.purchase_cost);
     setCurrency(asset.currency);
+    setIsDepreciable(asset.is_depreciable);
     setUsefulLifeMonths(asset.useful_life_months?.toString() || "");
     setSalvageValue(asset.salvage_value);
     setCustodianId(asset.custodian || "");
@@ -86,6 +88,7 @@ export default function AssetsPage() {
     setPurchaseDate("");
     setPurchaseCost("");
     setCurrency("SAR");
+    setIsDepreciable(true);
     setUsefulLifeMonths("");
     setSalvageValue("0");
     setCustodianId("");
@@ -107,7 +110,8 @@ export default function AssetsPage() {
       purchase_date: purchaseDate,
       purchase_cost: purchaseCost,
       currency,
-      useful_life_months: usefulLifeMonths || null,
+      is_depreciable: isDepreciable,
+      useful_life_months: isDepreciable ? usefulLifeMonths || null : null,
       salvage_value: salvageValue,
       custodian: custodianId || null,
       cost_center: costCenterId || null,
@@ -164,6 +168,47 @@ export default function AssetsPage() {
             </FormField>
           </div>
 
+          {/* Sprint 6.5.10 (UAT note 1): useful_life_months/salvage_value/
+              is_depreciable moved out of "متقدم" — whether an asset
+              depreciates, and for how long, is a decision made once at
+              registration, not an edge case to tuck away. */}
+          <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "end", marginTop: "0.5rem" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", paddingBottom: "0.5rem" }}>
+              <input
+                type="checkbox"
+                checked={isDepreciable}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setIsDepreciable(checked);
+                  if (!checked) setUsefulLifeMonths("");
+                  // form-ok: toggles which sibling field is required, no field error of its own
+                }}
+              />
+              {t("isDepreciable")}
+            </label>
+            <FormField
+              name="useful_life_months"
+              required={isDepreciable}
+              error={fieldErr.useful_life_months}
+            >
+              <input
+                type="number"
+                value={usefulLifeMonths}
+                onChange={(e) => setUsefulLifeMonths(e.target.value)}
+                disabled={!isDepreciable}
+                required={isDepreciable}
+              />
+            </FormField>
+            <FormField name="salvage_value" error={fieldErr.salvage_value}>
+              <input
+                type="number"
+                step="0.01"
+                value={salvageValue}
+                onChange={(e) => setSalvageValue(e.target.value)}
+              />
+            </FormField>
+          </div>
+
           {!editing && category === "vehicle" && (
             <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.5rem" }}>
               <input
@@ -193,21 +238,6 @@ export default function AssetsPage() {
               </FormField>
               <FormField name="currency" error={fieldErr.currency}>
                 <input value={currency} onChange={(e) => setCurrency(e.target.value)} maxLength={3} />
-              </FormField>
-              <FormField name="useful_life_months" error={fieldErr.useful_life_months}>
-                <input
-                  type="number"
-                  value={usefulLifeMonths}
-                  onChange={(e) => setUsefulLifeMonths(e.target.value)}
-                />
-              </FormField>
-              <FormField name="salvage_value" error={fieldErr.salvage_value}>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={salvageValue}
-                  onChange={(e) => setSalvageValue(e.target.value)}
-                />
               </FormField>
               <FormField name="custodian" error={fieldErr.custodian}>
                 <select value={custodianId} onChange={(e) => setCustodianId(e.target.value)}>

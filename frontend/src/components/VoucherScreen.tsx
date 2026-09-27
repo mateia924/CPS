@@ -261,7 +261,12 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
             <FormField name="date" label={t("voucherDate")} required error={fieldErr.date}>
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
             </FormField>
-            <FormField name="treasury_id" label={t("treasuryAccount")} required error={fieldErr.treasury_id}>
+            <FormField
+              name="treasury_id"
+              label={isReceipt ? t("treasuryAccountTo") : t("treasuryAccountFrom")}
+              required
+              error={fieldErr.treasury_id}
+            >
               <select
                 value={treasuryValue}
                 onChange={(e) => {

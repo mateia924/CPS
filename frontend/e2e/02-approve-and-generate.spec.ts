@@ -8,7 +8,12 @@ import * as path from "path";
  * files, via create_test_user (see 01-setup-and-schedule.spec.ts's own
  * header comment for why that's a management command and not a UI
  * flow). Exercises item 4 (the approve button's emergency-reason
- * prompt) and the "توليد المستحق الآن" button (sprint 6.5.7). */
+ * prompt) and the "توليد المستحق الآن" button (sprint 6.5.7).
+ *
+ * Sprint 6.5.10 (item 9): the reason prompt is DialogHost's own
+ * system-styled modal now, not a native window.prompt() — no
+ * page.on("dialog") to intercept, just normal DOM interaction with the
+ * modal's own input/confirm button. */
 
 const SCREENSHOTS_DIR = path.join(__dirname, "../../docs/uat/screens/6.5.8");
 const AUTH_DIR = path.join(__dirname, ".auth");
@@ -30,14 +35,14 @@ test("6.5.8 UAT part 2: emergency-approval prompt, generate due now", async ({ p
   await expect(page.getByText("بانتظار الاعتماد").first()).toBeVisible();
   await shot(page, "resumed-pending-approval");
 
-  await test.step("item 4: approve prompts for an emergency reason when needed, then succeeds", async () => {
-    let promptSeen = "";
-    page.once("dialog", async (dialog) => {
-      promptSeen = dialog.message();
-      await dialog.accept("لا محاسب آخر نشط متاح لاعتماد هذا الجدول");
-    });
+  await test.step("item 4/9: approve opens the system-styled Dialog for an emergency reason, then succeeds", async () => {
     await page.getByRole("button", { name: "اعتماد", exact: true }).click();
-    await expect.poll(() => promptSeen).not.toBe("");
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await shot(page, "emergency-reason-dialog");
+    await dialog.locator("input").fill("لا محاسب آخر نشط متاح لاعتماد هذا الجدول");
+    await dialog.getByRole("button", { name: "تأكيد" }).click();
+    await expect(dialog).toBeHidden();
     await expect(page.getByText("معتمدة").first()).toBeVisible();
     await shot(page, "approved-via-emergency-reason");
 

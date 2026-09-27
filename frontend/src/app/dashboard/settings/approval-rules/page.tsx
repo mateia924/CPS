@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api, fieldErrors, generalError } from "@/lib/api";
-import { useLocale } from "@/lib/i18n";
+import { roleLabel, useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
 import { FormField } from "@/components/FormField";
 import { WarningsBanner } from "@/components/WarningsBanner";
@@ -114,7 +114,7 @@ export default function ApprovalRulesPage() {
                 </option>
                 {roles.map((role) => (
                   <option key={role.id} value={role.id}>
-                    {role.name}
+                    {roleLabel(t, role.name)}
                   </option>
                 ))}
               </select>

@@ -56,6 +56,13 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     organization: "الهيكل التنظيمي",
     costCenters: "مراكز التكلفة",
     rolesAndUsers: "الأدوار والمستخدمون",
+    // Sprint 6.5.10 (UAT note 8): POST /users/ + /users/{id}/assign/
+    // already existed on the backend (sprint 2, max_users 402 already
+    // tested) — this screen just never had a button that called them.
+    newUser: "مستخدم جديد",
+    temporaryPassword: "كلمة مرور مؤقتة",
+    maxUsersReached: "بلغت الحد الأقصى لعدد المستخدمين في باقتك الحالية. رقِّ الباقة لإضافة المزيد.",
+    couldNotSaveLastOwnerHint: "تعذّر الحفظ — قد يكون هذا آخر مالك نشط في المستأجر.",
     code: "الكود",
     type: "النوع",
     parent: "الأب",
@@ -77,6 +84,14 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     distributeCostCenters: "توزيع على مراكز تكلفة",
     roles: "الأدوار",
     entities: "الكيانات المسموحة",
+    // Sprint 6.5.10 (UAT note 3): RBAC role names shown in Arabic
+    // everywhere — the English key (Role.name, e.g. "Owner") stays the
+    // internal identifier (permission checks, ApprovalRule.required_role
+    // matching, etc.), never touched. See roleLabel() below.
+    roleOwner: "مالك",
+    roleAccountant: "محاسب",
+    roleSales: "مبيعات",
+    roleViewer: "مشاهد",
     save: "حفظ",
     countryCode: "رمز الدولة",
     currency: "العملة",
@@ -86,6 +101,8 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     edit: "تعديل",
     activate: "تفعيل",
     cancel: "إلغاء",
+    confirm: "تأكيد",
+    fieldRequired: "هذا الحقل مطلوب.",
     noData: "لا توجد بيانات لعرضها.",
     confirmDeactivate: "هل أنت متأكد من تعطيل هذا العنصر؟",
     confirmActivate: "هل تريد إعادة تفعيل هذا العنصر؟",
@@ -449,6 +466,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     // --- Sprint 4.8: /me failure must show a clear error, never a
     // silently truncated menu ---
     meLoadError: "تعذّر تحميل بيانات الحساب. قد لا تظهر كل خيارات القائمة حتى يُحل هذا.",
+    sessionExpired: "انتهت الجلسة — سجّل الدخول مرة أخرى.",
     retry: "إعادة المحاولة",
 
     // --- Sprint 5.2: AttachmentPanel ---
@@ -495,6 +513,12 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     editVoucher: "تعديل السند",
     voucherDate: "التاريخ",
     treasuryAccount: "الحساب",
+    // Sprint 6.5.10 (UAT note 4): the single treasury_id field on the
+    // combined receipt/payment voucher screen names its direction —
+    // "من حساب" (money leaving it) on a صرف, "إلى حساب" (money
+    // entering it) on a قبض — instead of the generic "الحساب" either way.
+    treasuryAccountFrom: "من حساب (بنك/صندوق)",
+    treasuryAccountTo: "إلى حساب (بنك/صندوق)",
     treasuryKind: "نوع الخزينة",
     bank: "بنك",
     cashBox: "صندوق",
@@ -605,6 +629,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     structuredAddressSection: "العنوان المهيكل — للفاتورة الإلكترونية",
     emergencyApproval: "اعتماد اضطراري",
     emergencyApprovalReason: "سبب الاعتماد الاضطراري",
+    emergencyApprovalReasonHint: "لا يوجد مستخدم آخر نشط يحمل الدور المطلوب لاعتماد هذا المستند — اذكر السبب لتسجيل هذا التجاوز في سجل التدقيق.",
     noEmergencyApprovals: "لا اعتمادات اضطرارية.",
     document: "المستند",
     approvedBy: "المعتمِد",
@@ -733,6 +758,10 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     organization: "Organization structure",
     costCenters: "Cost centers",
     rolesAndUsers: "Roles & users",
+    newUser: "New user",
+    temporaryPassword: "Temporary password",
+    maxUsersReached: "You've reached your plan's maximum number of users. Upgrade your plan to add more.",
+    couldNotSaveLastOwnerHint: "Could not save — this may be the tenant's last active Owner.",
     code: "Code",
     type: "Type",
     parent: "Parent",
@@ -754,6 +783,10 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     distributeCostCenters: "Distribute across cost centers",
     roles: "Roles",
     entities: "Allowed entities",
+    roleOwner: "Owner",
+    roleAccountant: "Accountant",
+    roleSales: "Sales",
+    roleViewer: "Viewer",
     save: "Save",
     countryCode: "Country code",
     currency: "Currency",
@@ -763,6 +796,8 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     edit: "Edit",
     activate: "Activate",
     cancel: "Cancel",
+    confirm: "Confirm",
+    fieldRequired: "This field is required.",
     noData: "No data to show.",
     confirmDeactivate: "Are you sure you want to deactivate this item?",
     confirmActivate: "Reactivate this item?",
@@ -1114,6 +1149,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     foldCurrencyFx: "Currency & exchange rate",
 
     meLoadError: "Could not load your account data. Some menu options may be missing until this is resolved.",
+    sessionExpired: "Your session has expired — please log in again.",
     retry: "Retry",
 
     // --- Sprint 5.2: AttachmentPanel ---
@@ -1160,6 +1196,8 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     editVoucher: "Edit voucher",
     voucherDate: "Date",
     treasuryAccount: "Account",
+    treasuryAccountFrom: "From account (bank/cash box)",
+    treasuryAccountTo: "To account (bank/cash box)",
     treasuryKind: "Treasury kind",
     bank: "Bank",
     cashBox: "Cash box",
@@ -1270,6 +1308,7 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     structuredAddressSection: "Structured address — for e-invoicing",
     emergencyApproval: "Emergency approval",
     emergencyApprovalReason: "Emergency approval reason",
+    emergencyApprovalReasonHint: "No other active user holds the role required to approve this document — state a reason; this override is logged in the audit trail.",
     noEmergencyApprovals: "No emergency approvals.",
     document: "Document",
     approvedBy: "Approved by",
@@ -1348,6 +1387,25 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     confirmed: "Confirmed",
   },
 };
+
+const ROLE_NAME_KEY: Record<string, string> = {
+  Owner: "roleOwner",
+  Accountant: "roleAccountant",
+  Sales: "roleSales",
+  Viewer: "roleViewer",
+};
+
+/** Sprint 6.5.10 (UAT note 3): the display form of an RBAC Role's raw
+ * `name` (Role.name — "Owner"/"Accountant"/"Sales"/"Viewer", the
+ * internal identifier used for permission checks and
+ * ApprovalRule.required_role matching, never translated at that layer).
+ * Falls back to the raw name for anything not one of the four system
+ * roles — there is no UI to create a custom role today, but this must
+ * never crash or show blank if one existed. */
+export function roleLabel(t: (key: string) => string, name: string): string {
+  const key = ROLE_NAME_KEY[name];
+  return key ? t(key) : name;
+}
 
 interface LocaleContextValue {
   locale: Locale;

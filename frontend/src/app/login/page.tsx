@@ -47,6 +47,17 @@ export default function LoginPage() {
     if (remembered) setSubdomain(remembered);
   }, []);
 
+  // Sprint 6.5.10 (UAT note 7): api.ts's redirectToLogin() hard-navigates
+  // here with this flag after a 401 that a silent refresh couldn't fix
+  // — read via window.location directly (not useSearchParams) so this
+  // page needs no Suspense boundary just for a one-time flag on mount.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("session_expired") === "1") {
+      setGeneralErrorText(t("sessionExpired"));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrors({});

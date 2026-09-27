@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { usePlatformAuth } from "@/lib/platform-auth-context";
 import { useLocale } from "@/lib/i18n";
@@ -26,6 +26,15 @@ export default function PlatformLoginPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [generalErrorText, setGeneralErrorText] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Sprint 6.5.10 (UAT note 7): see login/page.tsx's own copy of this
+  // effect for why window.location is read directly here.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("session_expired") === "1") {
+      setGeneralErrorText(t("sessionExpired"));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onSubmitCredentials = async (e: React.FormEvent) => {
     e.preventDefault();

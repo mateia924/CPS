@@ -58,7 +58,9 @@ test("6.5.8 UAT part 1: register, approval rule, voucher on FIXED_ASSETS, asset,
     // approval-rules/page.tsx).
     await page.goto("/dashboard/settings/approval-rules");
     await field(page, "doc_type").selectOption("asset_depreciation");
-    await field(page, "required_role").selectOption({ label: "Owner" });
+    // Sprint 6.5.10 (item 3): role names render in Arabic now (roleLabel())
+    // — "مالك", not the raw "Owner" Role.name.
+    await field(page, "required_role").selectOption({ label: "مالك" });
     await page.getByRole("button", { name: "إضافة", exact: true }).click();
     await expect(page.locator("tr", { hasText: "جدول إهلاك أصل" })).toBeVisible();
     await shot(page, "approval-rule-created");
@@ -112,12 +114,21 @@ test("6.5.8 UAT part 1: register, approval rule, voucher on FIXED_ASSETS, asset,
     await shot(page, "voucher-posted");
   });
 
-  const assetId = await test.step("create the asset (useful_life_months left blank on purpose)", async () => {
+  const assetId = await test.step("create the asset, not depreciable on purpose (item 1: the field is basic now, and required only when depreciable)", async () => {
     await page.goto("/dashboard/assets");
     await field(page, "code").fill("AST-E2E");
     await field(page, "name").fill("أصل اختبار E2E");
     await field(page, "purchase_date").fill("2026-08-01");
     await field(page, "purchase_cost").fill("12000");
+    // Sprint 6.5.10 (item 1): useful_life_months/salvage_value/
+    // is_depreciable moved to the basic section, and the first is now
+    // `required` client-side whenever is_depreciable is checked (the
+    // default) — so leaving it blank the way this test used to (to
+    // reach the same backend validation error for item 3 below) would
+    // just be blocked by the browser itself. Unchecking "قابل للإهلاك"
+    // here instead legitimately leaves it blank AND exercises the new
+    // checkbox itself.
+    await page.getByRole("checkbox", { name: "قابل للإهلاك" }).uncheck();
     await page.getByRole("button", { name: "إضافة", exact: true }).click();
     await expect(page.getByText("AST-E2E").first()).toBeVisible();
     await shot(page, "asset-created");
@@ -130,23 +141,23 @@ test("6.5.8 UAT part 1: register, approval rule, voucher on FIXED_ASSETS, asset,
   });
 
   await test.step("item 3: a real non-field error renders clean text, no Python list brackets", async () => {
-    // useful_life_months is blank on this asset -> start_depreciation
-    // raises a plain django ValidationError, caught as
+    // is_depreciable=false on this asset -> start_depreciation raises
+    // a plain django ValidationError ("هذا الأصل لا يُهلك."), caught as
     // {"detail": str(exc)} — before the fix this reached the UI as
-    // "['العمر الإنتاجي مطلوب لبدء الإهلاك.']" verbatim.
+    // "['هذا الأصل لا يُهلك.']" verbatim.
     await page.getByRole("button", { name: "بدء الإهلاك" }).click();
     const banner = page.getByTestId("warnings-banner-error");
-    await expect(banner).toContainText("العمر الإنتاجي مطلوب لبدء الإهلاك");
+    await expect(banner).toContainText("هذا الأصل لا يُهلك");
     await expect(banner).not.toContainText("[");
     await expect(banner).not.toContainText("]");
     await shot(page, "clean-error-no-brackets");
   });
 
-  await test.step("fix the asset (useful_life_months=12) via the edit action", async () => {
+  await test.step("fix the asset (is_depreciable=true, useful_life_months=12) via the edit action", async () => {
     await page.goto("/dashboard/assets");
     const row = page.locator("tr", { hasText: "AST-E2E" });
     await row.getByRole("button", { name: "تعديل" }).click();
-    await page.getByText("متقدم").click();
+    await page.getByRole("checkbox", { name: "قابل للإهلاك" }).check();
     await field(page, "useful_life_months").fill("12");
     await page.getByRole("button", { name: "حفظ التعديلات" }).click();
     await shot(page, "asset-edited");

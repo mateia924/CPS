@@ -44,6 +44,7 @@
   /* shape & type */
   --radius-sm: 8px; --radius: 12px; --radius-lg: 16px; --radius-pill: 999px;
   --shadow: 0 8px 24px rgba(27, 42, 68, 0.08);
+  --overlay: rgba(15, 26, 46, 0.5); /* sprint 6.5.10: Dialog's backdrop */
   --font-display: 'Tajawal', 'IBM Plex Sans Arabic', system-ui, sans-serif;
   --font-body: 'IBM Plex Sans Arabic', 'IBM Plex Sans', system-ui, sans-serif;
   --font-size-base: 15px; --line-height: 1.6;
@@ -62,6 +63,7 @@
   --danger: #F08A8A; --danger-bg: #3C1616;
   --info: #8FD0EE; --info-bg: #0E2A3A;
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --overlay: rgba(0, 0, 0, 0.65);
 }
 
 /* base */

@@ -35,9 +35,28 @@ interface FormFieldProps {
 export function FormField({ name, label, required, error, hint, style, children }: FormFieldProps) {
   const { t } = useLocale();
   const resolvedLabel = label ?? t(snakeToCamel(name));
+  // Sprint 6.5.10 (UAT note 5): a date input's native calendar icon is
+  // a tiny click target — showPicker() opens the same picker from a
+  // click anywhere in the field. Guarded (support + disabled state)
+  // since showPicker() throws on an unsupported/disabled input rather
+  // than no-op.
+  const isDateInput = children.props.type === "date";
   const child = cloneElement(children, {
     "aria-invalid": error ? true : undefined,
     "aria-describedby": error ? `${name}-error` : undefined,
+    ...(isDateInput && {
+      onClick: (e: React.MouseEvent<HTMLInputElement>) => {
+        children.props.onClick?.(e);
+        const input = e.currentTarget;
+        if (!input.disabled && typeof input.showPicker === "function") {
+          try {
+            input.showPicker();
+          } catch {
+            // Unsupported in this browser, or picker already open — no-op.
+          }
+        }
+      },
+    }),
   });
   return (
     <div className={`form-field${error ? " has-error" : ""}`} data-field={name} style={style}>

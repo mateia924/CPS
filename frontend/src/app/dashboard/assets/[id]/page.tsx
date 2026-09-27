@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { api, fieldErrors, generalError } from "@/lib/api";
 import { flattenLeafAccounts, type FlatAccountOption } from "@/lib/accounts";
+import { promptDialog } from "@/components/Dialog";
 import { FormField } from "@/components/FormField";
 import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -121,7 +123,10 @@ export default function AssetDetailPage() {
     } catch (err) {
       const body = (err as { body?: unknown }).body;
       if (generalError(body, "").includes(EMERGENCY_APPROVAL_REQUIRED)) {
-        const reason = window.prompt(t("emergencyApprovalReason"));
+        const reason = await promptDialog({
+          title: t("emergencyApprovalReason"),
+          message: t("emergencyApprovalReasonHint"),
+        });
         if (!reason) return;
         try {
           await api.post(`/depreciation-schedules/${schedule!.id}/approve/`, { emergency_reason: reason });
@@ -454,6 +459,16 @@ export default function AssetDetailPage() {
         ) : (
           <>
             <p>{t("noDepreciationSchedule")}</p>
+            {/* Sprint 6.5.10 (UAT note 2): read-only so the accountant
+                doesn't have to scroll up to the summary card while
+                filling this form in — an edit link, not an inline
+                field, since these live on the asset's own record. */}
+            <p style={{ color: "var(--muted)" }}>
+              {t("usefulLifeMonths")}: {asset.useful_life_months ?? "—"} · {t("salvageValue")}:{" "}
+              <Money amount={asset.salvage_value} currency={asset.currency} />
+              {" — "}
+              <Link href="/dashboard/assets">{t("edit")}</Link>
+            </p>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
               <FormField name="in_service_date" error={fieldErr.in_service_date}>
                 <input type="date" value={inServiceDate} onChange={(e) => setInServiceDate(e.target.value)} />
