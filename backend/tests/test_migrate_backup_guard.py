@@ -123,6 +123,22 @@ def test_guard_skips_when_nothing_is_pending(tmp_path):
         Command()._guard_recent_backup()  # must not raise
 
 
+@pytest.mark.django_db
+def test_guard_does_not_block_a_real_restart_with_nothing_pending(tmp_path):
+    """Integration-level, no MigrationExecutor mock at all — the exact
+    thing docker-compose's own `migrate --noinput` runs on every
+    backend container restart. The pytest test database is already
+    fully migrated by the time any test runs, standing in for "a real,
+    up-to-date database"; only the test_-prefix pretense and the
+    backups.log path are faked, so this exercises the real Django
+    migration executor against a real connection end to end. Without
+    the "nothing pending -> skip" check, this would raise even though
+    backups.log is missing — exactly the regression this test guards."""
+    with patch.dict(connection.settings_dict, {"NAME": "cps"}), \
+         patch("apps.tenants.management.commands.migrate.BACKUPS_LOG_PATH", tmp_path / "missing.log"):
+        Command()._guard_recent_backup()  # must not raise
+
+
 def test_guard_skips_a_brand_new_database_with_nothing_applied_yet(tmp_path):
     with patch.dict(connection.settings_dict, {"NAME": "cps"}), \
          patch("apps.tenants.management.commands.migrate.BACKUPS_LOG_PATH", tmp_path / "missing.log"), \
