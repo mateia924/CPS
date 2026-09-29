@@ -128,6 +128,16 @@ class Account(TenantScopedModel):
             node = node.parent
 
     def save(self, *args, **kwargs):
+        # Sprint 6.5.17 (UAT item 1): an auto-generated sub-account
+        # (Bank/CashBox/Custody/party sub-ledger) always passes
+        # type=parent.type explicitly today, but a future caller that
+        # doesn't (or a historical row from before that convention)
+        # must never end up with a blank type — derive it from the
+        # parent the same way normal_balance is already derived from
+        # type, rather than letting _DEFAULT_NORMAL_BALANCE_BY_TYPE[""]
+        # raise KeyError below.
+        if not self.type and self.parent_id:
+            self.type = self.parent.type
         if not self.normal_balance:
             self.normal_balance = self._DEFAULT_NORMAL_BALANCE_BY_TYPE[self.type]
         self.level = (self.parent.level + 1) if self.parent_id else 0

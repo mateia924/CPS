@@ -69,6 +69,22 @@ function BalanceSheetPrint() {
         {section(t("liabilityType"), report.liabilities, report.total_liabilities)}
         {section(t("equityType"), report.equity, report.total_equity)}
 
+        {/* Sprint 6.5.17 (UAT item 3): the same identity check as the
+            live screen, printed too. */}
+        <p
+          style={{
+            marginTop: "1rem", fontWeight: "bold",
+            color: report.check.balanced ? "var(--success)" : "var(--danger)",
+          }}
+        >
+          {t("balanceSheetIdentity")} — {report.check.balanced ? t("balanced") : t("notReconciled")}
+          {!report.check.balanced && (
+            <>
+              {" "}({t("difference")}: <Money amount={report.check.difference} />)
+            </>
+          )}
+        </p>
+
         <div className="print-signatures">
           <div>{t("signatureAccountant")}</div>
           <div>{t("signatureManager")}</div>

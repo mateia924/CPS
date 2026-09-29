@@ -1012,6 +1012,10 @@ export interface BalanceSheetReport {
   total_assets: string;
   total_liabilities: string;
   total_equity: string;
+  // Sprint 6.5.17 (UAT item 3, "الأصول = الخصوم + حقوق الملكية"): a
+  // real identity check, not just a display label — a nonzero
+  // difference means a real data problem, never silently omitted.
+  check: { balanced: boolean; difference: string };
   as_of: string;
   generated_at: string;
   prepared_by: string;

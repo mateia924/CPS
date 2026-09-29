@@ -116,8 +116,7 @@ class BalanceSheetView(APIView):
             "total_assets": str(result["total_assets"]),
             "total_liabilities": str(result["total_liabilities"]),
             "total_equity": str(result["total_equity"]),
-            "is_balanced": result["is_balanced"],
-            "difference": str(result["difference"]),
+            "check": {"balanced": result["check"]["balanced"], "difference": str(result["check"]["difference"])},
             "as_of": result["as_of"],
         }
         return Response(_report_envelope(request, legal_entity, payload))

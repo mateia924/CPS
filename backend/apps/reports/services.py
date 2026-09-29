@@ -44,13 +44,30 @@ def _level1_ancestor(account):
 
 
 def account_balances(tenant, legal_entity=None, include_children=True, date_from=None, date_to=None, cost_center=None):
-    """Decision 11: for every *postable* account (a non-leaf chart
-    parent never receives a JournalLine directly — 3.4's "لا ترحيل على
-    حساب له أبناء" — so it structurally never needs its own row here):
-    opening/period debit/period credit/closing, in base currency, same
+    """Decision 11 (corrected sprint 6.5.17 item 2 — "التقرير يُبنى من
+    الشجرة لا من خصائص الحساب"): opening/period debit/period credit/
+    closing for every active account, in base currency, same
     REPORTABLE_STATUSES basis as ledger_lines/compute_trial_balance.
     Returns {account_id: {"account", "sign", "opening", "debit",
     "credit", "closing"}}.
+
+    Every active account is included here, whether or not it currently
+    has children — the earlier version excluded any account referenced
+    as someone's parent, on the assumption that "لا ترحيل على حساب له
+    أبناء" (3.4) makes a non-leaf account's own balance structurally
+    always zero. That's only true going forward for a *new* posting
+    (Account.can_post is checked at post time); an account that was a
+    leaf when it *was* posted to and only later gained children still
+    carries that real, historical balance — confirmed live on tenant
+    "fatma"'s own "1000"/"4000" chart roots, whose direct postings
+    were silently missing from every balance-sheet/income-statement
+    total (a real ≈39,385.34 imbalance) purely because of this
+    pre-filter, never because the ledger itself was actually wrong
+    (compute_trial_balance, which never filters by leaf/parent status
+    at all, always summed to a balanced total). A well-formed parent
+    with zero direct postings of its own simply computes a zero
+    closing balance and is excluded naturally by each report's own
+    "!= 0" check — this changes nothing for the ordinary case.
     """
     from apps.accounting.models import Account, JournalLine
     from apps.accounting.services import REPORTABLE_STATUSES
@@ -77,13 +94,7 @@ def account_balances(tenant, legal_entity=None, include_children=True, date_from
         row["account_id"]: row for row in period_qs.values("account_id").annotate(debit=Sum("debit"), credit=Sum("credit"))
     }
 
-    # Postable = not referenced as anyone else's parent — the same
-    # "leaf" concept Account.is_leaf checks per-instance, done here as
-    # one extra query instead of N.
-    parent_ids = set(
-        Account.objects.filter(tenant=tenant, parent__isnull=False).values_list("parent_id", flat=True)
-    )
-    accounts = Account.objects.filter(tenant=tenant, is_active=True).exclude(id__in=parent_ids).select_related("parent")
+    accounts = Account.objects.filter(tenant=tenant, is_active=True).select_related("parent")
 
     result = {}
     for account in accounts:
@@ -166,17 +177,20 @@ def balance_sheet(tenant, legal_entity=None, include_children=True, as_of=None, 
     total_assets = sum((r["amount"] for r in sections[Account.Type.ASSET]), Decimal("0"))
     total_liabilities = sum((r["amount"] for r in sections[Account.Type.LIABILITY]), Decimal("0"))
     total_equity = sum((r["amount"] for r in equity_rows), Decimal("0"))
-    # Sprint 6.5.15 (UAT item 2): "الأصول = الخصوم + حقوق الملكية" —
-    # a real check, not just a display label. Double-entry construction
-    # already guarantees this holds whenever every account's sign is
-    # correct (see the normal_balance backfill this same block ships
-    # with); a nonzero difference means a real data problem upstream,
-    # never a footer to silently omit.
+    # Sprint 6.5.15/6.5.17 (UAT item 2): "الأصول = الخصوم + حقوق الملكية"
+    # — a real check, not just a display label. Double-entry
+    # construction already guarantees this holds whenever every
+    # account's sign is correct AND every account with a real posted
+    # balance is actually included (both fixed by now — see
+    # account_balances()'s own docstring for the "1000"/"4000" parent-
+    # exclusion bug this was still hiding as of 6.5.15); a nonzero
+    # difference means a real data problem upstream, never a footer to
+    # silently omit.
     difference = total_assets - (total_liabilities + total_equity)
     return {
         "assets": sections[Account.Type.ASSET], "liabilities": sections[Account.Type.LIABILITY], "equity": equity_rows,
         "total_assets": total_assets, "total_liabilities": total_liabilities, "total_equity": total_equity,
-        "is_balanced": difference == 0, "difference": difference,
+        "check": {"balanced": difference == 0, "difference": difference},
         "as_of": as_of,
     }
 

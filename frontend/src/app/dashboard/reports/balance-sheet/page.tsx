@@ -86,6 +86,23 @@ export default function BalanceSheetPage() {
           {section(t("liabilityType"), result.liabilities, result.total_liabilities)}
           {section(t("equityType"), result.equity, result.total_equity)}
 
+          {/* Sprint 6.5.17 (UAT item 3): "الأصول = الخصوم + حقوق
+              الملكية" — a real check against the API's own computed
+              difference, not just a static label. */}
+          <p
+            style={{
+              marginTop: "1rem", fontWeight: "bold",
+              color: result.check.balanced ? "var(--success)" : "var(--danger)",
+            }}
+          >
+            {t("balanceSheetIdentity")} — {result.check.balanced ? t("balanced") : t("notReconciled")}
+            {!result.check.balanced && (
+              <>
+                {" "}({t("difference")}: <Money amount={result.check.difference} />)
+              </>
+            )}
+          </p>
+
           <a
             href={`/print/reports/balance-sheet?${new URLSearchParams({
               ...(legalEntityId ? { legal_entity: legalEntityId } : {}),

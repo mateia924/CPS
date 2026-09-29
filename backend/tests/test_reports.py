@@ -302,8 +302,8 @@ def test_balance_sheet_shows_overdrawn_asset_and_contra_asset_with_correct_signs
     total_liabilities = Decimal(response.data["total_liabilities"])
     total_equity = Decimal(response.data["total_equity"])
     assert total_assets == total_liabilities + total_equity
-    assert response.data["is_balanced"] is True
-    assert Decimal(response.data["difference"]) == Decimal("0")
+    assert response.data["check"]["balanced"] is True
+    assert Decimal(response.data["check"]["difference"]) == Decimal("0")
 
     income = client_a.get("/api/reports/income-statement/?from=2026-01-01&to=2026-12-31").data
     net_income_row = next(r for r in response.data["equity"] if r["account_id"] is None)
@@ -321,7 +321,7 @@ def test_balance_sheet_flags_unbalanced_when_difference_exists(tenant_a, client_
     _post_je(tenant_a, user_a, entity, date(2026, 3, 1), "1900", "3100", "500.00")
 
     result = balance_sheet(tenant_a, as_of=date(2026, 3, 31))
-    assert result["is_balanced"] is True
+    assert result["check"]["balanced"] is True
 
     # Force a genuine mismatch the way a real bug would — one section's
     # total no longer equals assets, without touching any real data.
@@ -365,3 +365,96 @@ def test_backfill_blank_normal_balance_migration_fixes_sign(tenant_a, user_a):
     result = balance_sheet(tenant_a, as_of=date(2026, 3, 31))
     accum_row = next(r for r in result["assets"] if r["code"] == "1750")
     assert accum_row["amount"] == Decimal("-1000.00")
+
+
+# ---------------------------------------------------------------------
+# Sprint 6.5.17 (UAT item 1/2/3, completion of 6.5.15 item 2): a leaf
+# account that later gains children still carries its own real,
+# historical postings — account_balances() used to silently drop it
+# (confirmed live on tenant "fatma"'s own "1000"/"4000" chart roots, a
+# real ≈39,385.34 imbalance); a blank Account.type/normal_balance now
+# derives from the parent instead of crashing or defaulting wrong.
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_leaf_account_that_later_gains_children_still_shows_its_own_balance(tenant_a, user_a):
+    """The exact live "fatma" bug: an account posted to while still a
+    leaf, which later gains a child, must not silently vanish from
+    every report that used to pre-filter "is this a parent" before
+    computing balances."""
+    from apps.reports.services import account_balances, balance_sheet
+
+    entity = _branch(tenant_a)
+    root = _acc(tenant_a, "1900")  # a genuine leaf in the template, currently postable
+
+    # Post directly to it while it's still a leaf — a real,
+    # historical, structurally-valid posting at the time it happened.
+    _post_je(tenant_a, user_a, entity, date(2026, 3, 1), "1900", "3100", "800.00")
+
+    # Now give it a child — 1900 is no longer a leaf, exactly like
+    # fatma's real "1000" (النقدية) chart node evolved over time.
+    Account.objects.create(tenant=tenant_a, parent=root, code="1900.001", name="Sub-account", type=root.type)
+
+    balances = account_balances(tenant_a, date_to=date(2026, 3, 31))
+    assert balances[root.id]["closing"] == Decimal("800.00")
+
+    result = balance_sheet(tenant_a, as_of=date(2026, 3, 31))
+    root_row = next(r for r in result["assets"] if r["code"] == "1900")
+    assert root_row["amount"] == Decimal("800.00")
+    assert result["check"]["balanced"] is True
+    assert result["check"]["difference"] == Decimal("0")
+
+
+@pytest.mark.django_db
+def test_overdrawn_auto_generated_account_with_no_explicit_type_shows_negative_and_stays_balanced(tenant_a, user_a):
+    """Item 4's literal scenario: a book seeded with an account that
+    mimics an auto-generated sub-account created with no explicit
+    type/normal_balance (Account.save()'s new defensive derivation,
+    sprint 6.5.17 item 1) — overdrawn, must show negative under assets
+    with the balance sheet still balanced exactly."""
+    from apps.reports.services import balance_sheet
+
+    entity = _branch(tenant_a)
+    parent = _acc(tenant_a, "1000")
+    auto_account = Account(tenant=tenant_a, parent=parent, code="1000.999", name="صندوق تلقائي")
+    # Deliberately blank — the whole point of this test.
+    assert auto_account.type == ""
+    assert auto_account.normal_balance == ""
+    auto_account.save()
+    auto_account.refresh_from_db()
+    assert auto_account.type == parent.type
+    assert auto_account.normal_balance == "debit"
+
+    _initial_opening(tenant_a, user_a, entity, "1000.00")
+    # Overdraw the new account: credit it more than its opening funds.
+    _post_je(tenant_a, user_a, entity, date(2026, 3, 1), "1900", "1000.999", "4000.00")
+
+    result = balance_sheet(tenant_a, as_of=date(2026, 3, 31))
+    row = next(r for r in result["assets"] if r["code"] == "1000.999")
+    assert row["amount"] == Decimal("-4000.00")
+    assert result["check"]["balanced"] is True
+    assert result["check"]["difference"] == Decimal("0")
+
+
+@pytest.mark.django_db
+def test_backfill_blank_account_type_and_normal_balance_migration(tenant_a):
+    """Migration accounting/0032 — derives a blank type/normal_balance
+    from the account's own top-level tree root, tenant-wide, for any
+    account (not just the six system_keys 0030 already covers)."""
+    import importlib
+
+    from django.apps import apps as django_apps
+
+    root = _acc(tenant_a, "1000")
+    orphaned = Account.objects.create(tenant=tenant_a, parent=root, code="1000.888", name="حساب بلا نوع")
+    Account.objects.filter(id=orphaned.id).update(type="", normal_balance="")
+    orphaned.refresh_from_db()
+    assert orphaned.type == "" and orphaned.normal_balance == ""
+
+    migration = importlib.import_module("apps.accounting.migrations.0032_backfill_blank_account_type_and_normal_balance")
+    migration.backfill_blank_account_type_and_normal_balance(django_apps, None)
+
+    orphaned.refresh_from_db()
+    assert orphaned.type == root.type
+    assert orphaned.normal_balance == "debit"
