@@ -21,6 +21,18 @@ function getLocale(): string {
   return window.localStorage.getItem("cps_locale") ?? "ar";
 }
 
+// Sprint 6.5.14 item 7: a non-JSON API response (Django's own bare 500
+// page, an nginx 502/504 HTML page, or an empty body on a failing
+// status) must never reach a screen as raw text — one unified message,
+// on every screen that calls generalError(), not just login. Kept here
+// rather than in lib/i18n.tsx: this file has no React context to read
+// the active locale from, and every existing sentinel (network_error)
+// already resolves through the same plain getLocale() below.
+const SERVER_ERROR_MESSAGE: Record<string, string> = {
+  ar: "خطأ في الخادم — حاول مرة أخرى بعد قليل",
+  en: "Server error — please try again shortly.",
+};
+
 /** Sprint 6.5.10 (UAT note 7): the tenant realm ("cps_access") can be
  * silently refreshed via /auth/refresh/ — the platform realm
  * ("cps_platform_access") has no refresh endpoint at all (apps/
@@ -137,19 +149,26 @@ async function request<T>(
 
   const text = await res.text();
   let data: unknown = null;
+  let nonJson = false;
   if (text) {
     try {
       data = JSON.parse(text);
     } catch {
-      // Non-JSON body — an nginx/proxy error page (502/504 HTML) is the
-      // usual cause. Wrap it so callers only ever deal with ApiError,
-      // never a raw SyntaxError that bypasses their error handling.
-      data = { detail: text.slice(0, 500) };
+      // Non-JSON body — Django's own bare 500 page, or an nginx/proxy
+      // error page (502/504 HTML), never DRF's JSON error shape. The
+      // raw text stays in the browser console for a developer to read
+      // (sprint 6.5.14 item 7: no screen may ever render it) — see
+      // generalError()'s "non_json_response" sentinel below.
+      console.error("Non-JSON API response", res.status, text.slice(0, 500));
+      nonJson = true;
     }
   }
 
   if (!res.ok) {
-    throw new ApiError(res.status, data);
+    // Sprint 6.5.14 item 7: an empty body on a failing response (some
+    // 502/504s send none at all) is exactly as unrecoverable to a real
+    // user as a non-empty HTML one — same sentinel either way.
+    throw new ApiError(res.status, nonJson || data === null ? { detail: "non_json_response" } : data);
   }
   return data as T;
 }
@@ -187,8 +206,9 @@ export function fieldErrors(body: unknown): Record<string, string> {
 export function generalError(body: unknown, fallback: string): string {
   if (!body || typeof body !== "object") return fallback;
   const obj = body as Record<string, unknown>;
-  if (typeof obj.detail === "string" && obj.detail !== "network_error") return obj.detail;
   if (obj.detail === "network_error") return fallback;
+  if (obj.detail === "non_json_response") return SERVER_ERROR_MESSAGE[getLocale()] ?? SERVER_ERROR_MESSAGE.ar;
+  if (typeof obj.detail === "string") return obj.detail;
   if (Array.isArray(obj.non_field_errors)) return obj.non_field_errors.map(String).join(" ");
   return fallback;
 }

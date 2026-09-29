@@ -75,6 +75,13 @@ docker run --rm --network host \
   "$PLAYWRIGHT_IMAGE" \
   sh -c "npx playwright test 03-non-emergency-approval.spec.ts --reporter=list"
 
+echo "[e2e] phase 4: raw non-JSON API responses never leak HTML — unified message on login and an authenticated screen"
+docker run --rm --network host \
+  -e E2E_BASE_URL="$BASE_URL" \
+  -v "$ROOT_DIR:/repo" -w /repo/frontend/e2e \
+  "$PLAYWRIGHT_IMAGE" \
+  sh -c "npx playwright test 04-server-error-message.spec.ts --reporter=list"
+
 echo "[e2e] archiving the smoke-* tenant this run created"
 docker exec infra-backend-1 python manage.py archive_smoke_tenants
 
