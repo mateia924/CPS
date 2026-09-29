@@ -52,6 +52,29 @@ docker run --rm --network host \
   "$PLAYWRIGHT_IMAGE" \
   sh -c "npx playwright test 02-approve-and-generate.spec.ts --reporter=list"
 
+# Sprint 6.5.10 (item 6): genuine creator != approver — this phase
+# creates its own second user through the "مستخدم جديد" UI (not
+# create_test_user, which exists only for phase 2's emergency scenario
+# above), so it needs no extra backend seeding step of its own. It DOES
+# need phase 2's seeded Accountant out of the way first, though: the
+# Free plan's own max_users=2 (Owner + that seeded Accountant already
+# fills it) would otherwise 402 phase 3's own user-creation step — a
+# real plan-limit collision between two independent scenarios sharing
+# one tenant, not a bug in either. Deactivating (never deleting) frees
+# the seat; phase 2 is already done with it by this point.
+echo "[e2e] deactivating phase 2's seeded Accountant to free a seat under the Free plan's max_users=2"
+docker exec infra-backend-1 python manage.py shell -c "
+from apps.accounts.models import User
+User.objects.filter(tenant__subdomain='$SUBDOMAIN', email='accountant@$SUBDOMAIN.test').update(is_active=False)
+"
+
+echo "[e2e] phase 3: real (non-emergency) approval by a second user made through the UI"
+docker run --rm --network host \
+  -e E2E_BASE_URL="$BASE_URL" \
+  -v "$ROOT_DIR:/repo" -w /repo/frontend/e2e \
+  "$PLAYWRIGHT_IMAGE" \
+  sh -c "npx playwright test 03-non-emergency-approval.spec.ts --reporter=list"
+
 echo "[e2e] archiving the smoke-* tenant this run created"
 docker exec infra-backend-1 python manage.py archive_smoke_tenants
 
