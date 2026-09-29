@@ -82,10 +82,20 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
   const [prefilled, setPrefilled] = useState(false);
 
   const showCostCenterUI = !!me && me.features.cost_centers;
+  // Sprint 6.5.15 (UAT item 5): only the document's OWN legal entity's
+  // treasury accounts — a bank/cash box/custody sitting on a different
+  // entity than this voucher's own can never legitimately post here
+  // (the exact live bug: a cash box left on the company entity while
+  // vouchers now post on the branch). Falls back to showing everything
+  // before an entity is even chosen, so the picker isn't empty during
+  // the brief moment legalEntityId hasn't loaded yet.
   const treasuryOptions: { kind: TreasuryKind; id: string; label: string }[] = [
-    ...banks.map((b) => ({ kind: "bank" as TreasuryKind, id: b.id, label: `${t("bank")}: ${b.name}` })),
-    ...cashBoxes.map((c) => ({ kind: "cash_box" as TreasuryKind, id: c.id, label: `${t("cashBox")}: ${c.name}` })),
-    ...custodies.map((c) => ({ kind: "custody" as TreasuryKind, id: c.id, label: `${t("custody")}: ${c.name}` })),
+    ...banks.filter((b) => !legalEntityId || b.legal_entity === legalEntityId)
+      .map((b) => ({ kind: "bank" as TreasuryKind, id: b.id, label: `${t("bank")}: ${b.name}` })),
+    ...cashBoxes.filter((c) => !legalEntityId || c.legal_entity === legalEntityId)
+      .map((c) => ({ kind: "cash_box" as TreasuryKind, id: c.id, label: `${t("cashBox")}: ${c.name}` })),
+    ...custodies.filter((c) => !legalEntityId || c.legal_entity === legalEntityId)
+      .map((c) => ({ kind: "custody" as TreasuryKind, id: c.id, label: `${t("custody")}: ${c.name}` })),
   ];
   const treasuryValue = treasuryId ? `${treasuryKind}:${treasuryId}` : "";
 
@@ -266,6 +276,7 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
               label={isReceipt ? t("treasuryAccountTo") : t("treasuryAccountFrom")}
               required
               error={fieldErr.treasury_id}
+              hint={legalEntityId && treasuryOptions.length === 0 ? t("noTreasuryOnThisEntity") : undefined}
             >
               <select
                 value={treasuryValue}
@@ -275,6 +286,7 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
                   setTreasuryId(id);
                 }}
                 required
+                disabled={treasuryOptions.length === 0}
               >
                 <option value="" disabled>—</option>
                 {treasuryOptions.map((opt) => (

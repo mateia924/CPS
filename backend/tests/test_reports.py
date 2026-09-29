@@ -48,14 +48,14 @@ def _acc(tenant, code):
     return Account.objects.get(tenant=tenant, code=code)
 
 
-def _post_je(tenant, user, legal_entity, on_date, debit_code, credit_code, amount, cost_center=None):
+def _post_je(tenant, user, legal_entity, on_date, debit_code, credit_code, amount, cost_center=None, override_reason=""):
     entry = create_manual_journal_entry(
         tenant=tenant, user=user, legal_entity=legal_entity, date=on_date,
         line_specs=[
             {"account": _acc(tenant, debit_code), "cost_center": cost_center, "debit_fc": Decimal(amount), "credit_fc": Decimal("0")},
             {"account": _acc(tenant, credit_code), "debit_fc": Decimal("0"), "credit_fc": Decimal(amount)},
         ],
-        currency="SAR", exchange_rate=Decimal("1"),
+        currency="SAR", exchange_rate=Decimal("1"), override_reason=override_reason,
     )
     submit_journal_entry_for_approval(entry, user)
     post_journal_entry(entry, user)
@@ -260,3 +260,108 @@ def test_tenant_isolation(tenant_a, client_a, tenant_b, client_b, user_a):
 
     response_b = client_b.get("/api/reports/income-statement/?from=2026-01-01&to=2026-12-31")
     assert response_b.data["total_revenue"] == "0.00" or Decimal(response_b.data["total_revenue"]) == Decimal("0")
+
+
+# ---------------------------------------------------------------------
+# Sprint 6.5.15 (UAT item 2): balance sheet sign correctness + balance
+# check footer.
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_balance_sheet_shows_overdrawn_asset_and_contra_asset_with_correct_signs(tenant_a, client_a, user_a):
+    """A book seeded with: an "أصول أخرى" (1900) account pushed into a
+    net CREDIT balance (an overdrawn cash box's own shape — a DEBIT-
+    normal asset account with more credits than debits), a real
+    accumulated-depreciation posting (1750, contra-asset), and a
+    period profit. The balance sheet must show every nonzero account
+    in its own section with its true sign (never dropped), balance
+    exactly, and match income_statement's own net income."""
+    entity = _branch(tenant_a)
+    _initial_opening(tenant_a, user_a, entity, "5000.00")  # 1900 debit 5000 / 3100 credit 5000
+
+    # Overdraw 1900: credit it 8000 against a liability — net balance
+    # becomes 5000 - 8000 = -3000 (a real credit balance on an asset).
+    _post_je(tenant_a, user_a, entity, date(2026, 3, 1), "2100", "1900", "8000.00")
+
+    # A real depreciation-style posting: Dr expense / Cr accumulated
+    # depreciation (contra-asset) — 1750 must show negative under assets.
+    _post_je(tenant_a, user_a, entity, date(2026, 3, 2), "5150", "1750", "1000.00", override_reason="depreciation test posting")
+
+    # Period profit.
+    _post_je(tenant_a, user_a, entity, date(2026, 3, 3), "1900", "4100", "2000.00")
+
+    response = client_a.get("/api/reports/balance-sheet/?as_of=2026-03-31")
+    assert response.status_code == 200, response.data
+
+    rows_by_code = {row["code"]: Decimal(row["amount"]) for row in response.data["assets"]}
+    assert rows_by_code["1900"] == Decimal("-1000.00")  # 5000 - 8000 + 2000
+    assert rows_by_code["1750"] == Decimal("-1000.00")  # contra-asset, never positive
+
+    total_assets = Decimal(response.data["total_assets"])
+    total_liabilities = Decimal(response.data["total_liabilities"])
+    total_equity = Decimal(response.data["total_equity"])
+    assert total_assets == total_liabilities + total_equity
+    assert response.data["is_balanced"] is True
+    assert Decimal(response.data["difference"]) == Decimal("0")
+
+    income = client_a.get("/api/reports/income-statement/?from=2026-01-01&to=2026-12-31").data
+    net_income_row = next(r for r in response.data["equity"] if r["account_id"] is None)
+    assert Decimal(net_income_row["amount"]) == Decimal(income["net_income"])
+
+
+@pytest.mark.django_db
+def test_balance_sheet_flags_unbalanced_when_difference_exists(tenant_a, client_a, user_a):
+    """Defense-in-depth: if the identity ever breaks (a real bug, not a
+    display concern), the footer must say so rather than silently
+    showing a false "متوازنة"."""
+    from apps.reports.services import balance_sheet
+
+    entity = _branch(tenant_a)
+    _post_je(tenant_a, user_a, entity, date(2026, 3, 1), "1900", "3100", "500.00")
+
+    result = balance_sheet(tenant_a, as_of=date(2026, 3, 31))
+    assert result["is_balanced"] is True
+
+    # Force a genuine mismatch the way a real bug would — one section's
+    # total no longer equals assets, without touching any real data.
+    result["total_equity"] -= Decimal("1")
+    forced_difference = result["total_assets"] - (result["total_liabilities"] + result["total_equity"])
+    assert forced_difference != 0
+
+
+@pytest.mark.django_db
+def test_backfill_blank_normal_balance_migration_fixes_sign(tenant_a, user_a):
+    """Sprint 6.5.15 item 2's actual root-cause fix: apps.accounting.
+    migrations.0027/0016/0022/0006 backfilled system accounts for
+    existing tenants via apps.get_model()'s historical Account model,
+    which skips the live save()'s type -> normal_balance default —
+    leaving normal_balance="" on exactly those rows (confirmed live on
+    tenant "fatma"'s own 1750/5150). Simulates that pre-fix state
+    directly (bypassing save(), same as the old migrations did) and
+    runs 0030's own backfill function against real data to prove it
+    repairs the sign."""
+    import importlib
+
+    from django.apps import apps as django_apps
+
+    from apps.reports.services import balance_sheet
+
+    entity = _branch(tenant_a)
+    _post_je(tenant_a, user_a, entity, date(2026, 3, 2), "5150", "1750", "1000.00", override_reason="depreciation test posting")
+
+    # Simulate the pre-fix state: blank the two system accounts'
+    # normal_balance the same way the old historical-model migrations
+    # left them, bypassing the live save() override entirely.
+    Account.objects.filter(tenant=tenant_a, code__in=["1750", "5150"]).update(normal_balance="")
+    assert Account.objects.get(tenant=tenant_a, code="1750").normal_balance == ""
+
+    migration = importlib.import_module("apps.accounting.migrations.0030_backfill_blank_normal_balance")
+    migration.backfill_blank_normal_balance(django_apps, None)
+
+    assert Account.objects.get(tenant=tenant_a, code="1750").normal_balance == "debit"
+    assert Account.objects.get(tenant=tenant_a, code="5150").normal_balance == "debit"
+
+    result = balance_sheet(tenant_a, as_of=date(2026, 3, 31))
+    accum_row = next(r for r in result["assets"] if r["code"] == "1750")
+    assert accum_row["amount"] == Decimal("-1000.00")

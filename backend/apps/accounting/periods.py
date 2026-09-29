@@ -327,8 +327,23 @@ def create_next_fiscal_year_for_tenant(tenant, latest=None):
 
         return seed_fiscal_year_for_tenant(tenant, start_date=timezone.localdate())
     next_start = latest.end_date + timedelta(days=1)
-    length_days = (latest.end_date - latest.start_date).days
-    next_end = next_start + timedelta(days=length_days)
+    # Sprint 6.5.15 (UAT item 3): calendar-month arithmetic, not a fixed
+    # day-count — the previous version computed next_end as next_start
+    # + (latest.end_date - latest.start_date).days, which drifts by a
+    # day the moment a leap year is involved (365 vs 366) and then
+    # compounds on every subsequent auto-created year, since each one
+    # inherits the previous (already-wrong) day-count. _add_months
+    # instead re-derives "the same number of months later," which is
+    # exactly what "the next fiscal year" means and needs no day-count
+    # at all — confirmed live on tenant "fatma"'s own auto-created
+    # FY2028 (drifted to end 2028-12-30) and its declining-balance
+    # schedule's installments 29-36 (dates drifting to .30/.27 instead
+    # of true calendar month-ends).
+    months_span = (
+        (latest.end_date.year - latest.start_date.year) * 12
+        + (latest.end_date.month - latest.start_date.month) + 1
+    )
+    next_end = _add_months(next_start, months_span) - timedelta(days=1)
     period_length = "quarterly" if latest.periods.count() <= 4 else "monthly"
     return create_fiscal_year_with_periods(
         tenant=tenant,

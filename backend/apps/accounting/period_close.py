@@ -123,6 +123,21 @@ def _posted_documents_without_attachment(tenant, period):
     return missing
 
 
+def _legacy_duplicate_document_numbers(tenant_id):
+    """Sprint 6.5.15 (UAT item 1): a tenant-wide, historical count — not
+    period-scoped, since a flagged row's own date could be anywhere and
+    the debt itself is permanent (grandfathered, never renumbered)."""
+    from apps.accounting.models import JournalEntry
+    from apps.sales.models import Invoice
+    from apps.vouchers.models import Voucher
+
+    return (
+        JournalEntry.objects.filter(tenant_id=tenant_id, legacy_duplicate_number=True).count()
+        + Voucher.objects.filter(tenant_id=tenant_id, legacy_duplicate_number=True).count()
+        + Invoice.objects.filter(tenant_id=tenant_id, legacy_duplicate_number=True).count()
+    )
+
+
 _CONTENT_TYPE_CACHE = {}
 
 
@@ -249,6 +264,15 @@ def period_checklist(period):
                     _("سجل الأصول لا يطابق الدليل: فرق التكلفة %(cost_diff)s، فرق المجمّع %(accum_diff)s.")
                     % {"cost_diff": reconciliation["cost_diff"], "accum_diff": reconciliation["accum_diff"]}
                 ),
+            }
+        )
+
+    duplicate_numbers = _legacy_duplicate_document_numbers(tenant.id)
+    if duplicate_numbers:
+        items.append(
+            {
+                "level": "warn", "code": "legacy_duplicate_document_numbers",
+                "message": str(_("أرقام مستندات مكررة تاريخية: %(count)s.") % {"count": duplicate_numbers}),
             }
         )
 

@@ -199,6 +199,63 @@ def test_withdraw_cancels_schedule_and_frees_asset_for_a_fresh_start(tenant_a, u
     assert second_start.status_code == 201, second_start.data
 
 
+def test_cancel_and_withdraw_return_409_once_an_installment_is_generated(tenant_a, owner_client):
+    """Sprint 6.5.15 (UAT item 6): cancel_recurring_entry only cancels
+    still-DUE installments, but _cancel_and_detach also nulls
+    Asset.depreciation_entry — once real depreciation has posted,
+    cancelling would silently orphan that history and let a second
+    start-depreciation call double-count. Only disposal is the correct
+    correction path from here on."""
+    entity = _entity(tenant_a)
+    asset = AssetFactory(
+        tenant=tenant_a, legal_entity=entity, purchase_date="2026-01-01", purchase_cost="12000.00",
+        salvage_value="0", useful_life_months=12,
+    )
+    started = _start(owner_client, asset.id)
+    assert started.status_code == 201, started.data
+    schedule_id = started.data["depreciation_schedule_id"]
+
+    result = generate_due_installments(tenant=tenant_a)
+    assert result["generated"] >= 1
+
+    cancelled = owner_client.post(f"/api/depreciation-schedules/{schedule_id}/cancel/")
+    assert cancelled.status_code == 409, cancelled.data
+
+    # withdraw() can never actually reach this guard in practice — the
+    # generic approvals engine's own precondition (PENDING_APPROVAL
+    # only) already blocks it on an APPROVED entry with a 400 before
+    # _cancel_and_detach is ever reached; installments only exist once
+    # a schedule is APPROVED and activated. The guard in
+    # _cancel_and_detach still covers it defensively since both
+    # cancel_depreciation_schedule and withdraw_depreciation_schedule
+    # share that one function.
+    withdrawn = owner_client.post(f"/api/depreciation-schedules/{schedule_id}/withdraw/")
+    assert withdrawn.status_code == 400, withdrawn.data
+
+    # Untouched — still the asset's real, active schedule.
+    asset.refresh_from_db()
+    assert str(asset.depreciation_entry_id) == schedule_id
+
+
+def test_schedule_gets_a_real_number_not_stuck_on_draft(tenant_a, owner_client):
+    """Sprint 6.5.15 (UAT item 7): start_depreciation/submit_depreciation_
+    schedule/add_to_asset all called submit_for_approval directly,
+    unlike apps.accounting.recurring.submit_recurring_entry — entry.
+    number stayed permanently blank, so the schedule detail page's
+    title always showed "(مسودة)" regardless of real status."""
+    entity = _entity(tenant_a)
+    asset = AssetFactory(
+        tenant=tenant_a, legal_entity=entity, purchase_date="2026-01-01", purchase_cost="12000.00",
+        salvage_value="0", useful_life_months=12,
+    )
+    started = _start(owner_client, asset.id)
+    assert started.status_code == 201, started.data
+    entry = RecurringEntry.objects.get(id=started.data["depreciation_schedule_id"])
+    assert entry.status == "approved"
+    assert entry.number
+    assert entry.number.startswith("RE-")
+
+
 def test_draft_schedule_after_rejection_can_be_resubmitted_or_cancelled(tenant_a, user_a):
     """Sprint 6.5.8 (UAT bugfix): reject() also leaves a schedule in
     DRAFT (unlike withdraw, deliberately not redefined — an approver's

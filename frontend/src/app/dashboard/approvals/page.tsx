@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, generalError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { FormField } from "@/components/FormField";
 import { Money } from "@/components/Money";
+import { WarningsBanner } from "@/components/WarningsBanner";
 import { useLocale } from "@/lib/i18n";
 import type { EmergencyApproval, PendingApproval } from "@/lib/types";
 
@@ -78,6 +80,14 @@ export default function ApprovalInboxPage() {
   const [tab, setTab] = useState<"inbox" | "emergency">("inbox");
   const [rows, setRows] = useState<PendingApproval[]>([]);
   const [emergencyRows, setEmergencyRows] = useState<EmergencyApproval[] | null>(null);
+  // Sprint 6.5.15 (UAT item 7): "رفض بسبب" inline in the row, matching
+  // the spec's own inbox mock — no separate screen needed for the
+  // common case (opening_balance still routes to its own detail
+  // screen, same as approve — its own attestation flow needs a real
+  // form, not a one-line reason).
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  const [rejectError, setRejectError] = useState<string | null>(null);
 
   const showEmergencyTab = !!me && me.roles.includes("Owner");
 
@@ -107,6 +117,18 @@ export default function ApprovalInboxPage() {
     }
     await api.post(`/${DOC_TYPE_PATH[row.doc_type]}/${row.id}/approve/`);
     load();
+  };
+
+  const confirmReject = async (row: PendingApproval) => {
+    setRejectError(null);
+    try {
+      await api.post(`/${DOC_TYPE_PATH[row.doc_type]}/${row.id}/reject/`, { reason: rejectReason });
+      setRejectingId(null);
+      setRejectReason("");
+      load();
+    } catch (err) {
+      setRejectError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
+    }
   };
 
   return (
@@ -141,18 +163,50 @@ export default function ApprovalInboxPage() {
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={`${row.doc_type}-${row.id}`}>
-                  <td>{t(DOC_TYPE_LABEL[row.doc_type])}</td>
-                  <td>{row.number}</td>
-                  <td>{row.date}</td>
-                  <td>{row.description}</td>
-                  <td>{row.amount_base}</td>
-                  <td>
-                    <button className="secondary" onClick={() => approve(row)}>
-                      {REQUIRES_DETAIL_SCREEN.has(row.doc_type) ? t("viewDetails") : t("approve")}
-                    </button>
-                  </td>
-                </tr>
+                <Fragment key={`${row.doc_type}-${row.id}`}>
+                  <tr>
+                    <td>{t(DOC_TYPE_LABEL[row.doc_type])}</td>
+                    <td>{row.number}</td>
+                    <td>{row.date}</td>
+                    <td>{row.description}</td>
+                    <td><Money amount={row.amount_base} /></td>
+                    <td style={{ display: "flex", gap: "0.5rem" }}>
+                      <button className="secondary" onClick={() => approve(row)}>
+                        {REQUIRES_DETAIL_SCREEN.has(row.doc_type) ? t("viewDetails") : t("approve")}
+                      </button>
+                      {!REQUIRES_DETAIL_SCREEN.has(row.doc_type) && (
+                        <button
+                          className="secondary"
+                          onClick={() => {
+                            setRejectingId(rejectingId === row.id ? null : row.id);
+                            setRejectReason("");
+                            setRejectError(null);
+                          }}
+                        >
+                          {t("rejectWithReason")}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                  {rejectingId === row.id && (
+                    <tr>
+                      <td colSpan={6}>
+                        <div style={{ display: "flex", gap: "0.5rem", alignItems: "start" }}>
+                          <FormField name="reason" label={t("reason")} required style={{ minWidth: "260px" }}>
+                            <input value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} />
+                          </FormField>
+                          <button
+                            className="secondary" style={{ marginTop: "1.6rem" }}
+                            onClick={() => confirmReject(row)}
+                          >
+                            {t("save")}
+                          </button>
+                        </div>
+                        <WarningsBanner warnings={rejectError ? [rejectError] : []} variant="error" />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>

@@ -194,10 +194,26 @@ class JournalEntry(TenantScopedModel, DocumentStateMixin):
     # the only correction path is a new OpeningBalanceEntry(kind=
     # ADJUSTMENT), never a reversal.
     is_opening = models.BooleanField(_("opening entry"), default=False)
+    # Sprint 6.5.15 (UAT item 1): before the sequence-merge fix in
+    # apps.numbering.services, a simplified-mode tenant's company and
+    # branch could each issue the same displayed number (their own
+    # independent counters, no entity code). True only on a pre-fix row
+    # a migration found already colliding with another entry's number —
+    # grandfathered in, excluded from the DB-level uniqueness below so
+    # historical data never needed rewriting; every entry created going
+    # forward is covered by the fix at the source and never gets this.
+    legacy_duplicate_number = models.BooleanField(_("legacy duplicate number"), default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["-date", "-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "number"],
+                name="unique_journal_entry_number_per_tenant",
+                condition=~models.Q(number="") & models.Q(legacy_duplicate_number=False),
+            )
+        ]
 
     def __str__(self):
         return f"{self.date} {self.memo}"

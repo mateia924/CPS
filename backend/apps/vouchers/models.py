@@ -152,6 +152,13 @@ class Voucher(TenantScopedModel, DocumentStateMixin):
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
+    # Sprint 6.5.15 (UAT item 1): same grandfather flag as
+    # JournalEntry.legacy_duplicate_number, added for uniformity across
+    # every numbered document — the DB constraint below already caught
+    # duplicate voucher numbers before this sprint (no live tenant has
+    # ever had one), so a migration finding any to flag is expected to
+    # be a no-op in practice.
+    legacy_duplicate_number = models.BooleanField(_("legacy duplicate number"), default=False)
 
     class Meta:
         ordering = ["-date", "-created_at"]
@@ -159,7 +166,7 @@ class Voucher(TenantScopedModel, DocumentStateMixin):
             models.UniqueConstraint(
                 fields=["tenant", "number"],
                 name="unique_voucher_number_per_tenant",
-                condition=~models.Q(number=""),
+                condition=~models.Q(number="") & models.Q(legacy_duplicate_number=False),
             ),
             models.CheckConstraint(
                 name="voucher_exactly_one_treasury_account",

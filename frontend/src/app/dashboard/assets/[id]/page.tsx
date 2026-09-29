@@ -29,6 +29,16 @@ const INSTALLMENT_STATUS_LABEL: Record<RecurringInstallmentStatus, string> = {
   cancelled: "cancelled",
 };
 
+// Sprint 6.5.15 (UAT item 7): a "due" installment is only genuinely
+// "مستحق" (payable now) once its own date has actually arrived —
+// before that it's still just "مجدول" (scheduled), a real distinction
+// an accountant reads at a glance rather than treating every future
+// installment as if it were already overdue.
+function installmentStatusLabelKey(status: RecurringInstallmentStatus, dueDate: string): string {
+  if (status === "due" && dueDate > new Date().toISOString().slice(0, 10)) return "scheduledStatus";
+  return INSTALLMENT_STATUS_LABEL[status];
+}
+
 export default function AssetDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -389,7 +399,7 @@ export default function AssetDetailPage() {
                     <td>{installment.seq}</td>
                     <td>{installment.due_date}</td>
                     <td><Money amount={installment.amount_base} /></td>
-                    <td>{t(INSTALLMENT_STATUS_LABEL[installment.status])}</td>
+                    <td>{t(installmentStatusLabelKey(installment.status, installment.due_date))}</td>
                     <td>
                       {installment.journal_entry && (
                         <a href={`/dashboard/accounting/journal-entries/${installment.journal_entry}`}>

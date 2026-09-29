@@ -37,14 +37,40 @@ def test_next_document_number_is_sequential_and_gap_free(db):
 
 
 @pytest.mark.django_db
-def test_sequence_scope_is_per_legal_entity(db):
+def test_sequence_scope_is_per_legal_entity_only_when_entity_code_is_shown(db):
+    """Sprint 6.5.15 (UAT item 1) correction: scope is only genuinely
+    independent per entity once the number actually carries that
+    entity's own code (more than one active branch) — see
+    test_two_branches_issuing_first_invoice_get_different_numbers for
+    that case. Two entities that would BOTH display no code at all
+    (here: two bare companies, no branch — branch_count stays 0) must
+    share one counter instead; keeping them independent is exactly the
+    live "JV-2026-00001 twice" bug this sprint fixed."""
+    from apps.organization.models import LegalEntity
+
     tenant = TenantFactory()
-    entity_a = LegalEntityFactory(tenant=tenant)
-    entity_b = LegalEntityFactory(tenant=tenant)
+    entity_a = LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.COMPANY)
+    entity_b = LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.COMPANY)
     first_a = next_document_number(tenant, "invoice", legal_entity=entity_a, date=date(2026, 1, 1))
     first_b = next_document_number(tenant, "invoice", legal_entity=entity_b, date=date(2026, 1, 1))
     assert first_a == "INV-2026-00001"
-    assert first_b == "INV-2026-00001"  # independent scope, not a shared counter
+    assert first_b == "INV-2026-00002"  # shared counter — never colliding as the same string
+
+
+@pytest.mark.django_db
+def test_simplified_mode_company_and_branch_share_one_sequence(db):
+    """The exact live "fatma" bug (docs/prompts/sprint-6.5.md §6.5.15):
+    a simplified-mode tenant's company entity and its one branch each
+    issuing a journal entry must get two different, sequential numbers
+    — never the same string twice."""
+    tenant = TenantFactory()
+    company, branch = create_default_legal_entities(tenant, tenant.name)
+
+    on_branch = next_document_number(tenant, "journal_entry", legal_entity=branch, date=date(2026, 1, 1))
+    on_company = next_document_number(tenant, "journal_entry", legal_entity=company, date=date(2026, 1, 1))
+
+    assert on_branch == "JV-2026-00001"
+    assert on_company == "JV-2026-00002"
 
 
 @pytest.mark.django_db
@@ -119,19 +145,27 @@ def test_include_entity_code_setting_can_force_it_on(db):
 
 @pytest.mark.django_db
 def test_include_entity_code_setting_can_force_it_off(db):
+    """Sprint 6.5.15 (UAT item 1): forcing include_entity_code=False for
+    a genuinely multi-branch tenant means NEITHER branch's number will
+    ever carry a code — the sequence must then be shared between them,
+    or their two independent "00001"s would collide as the identical
+    displayed string despite the DocumentSequence.legal_entity FK
+    scoping being unrelated to what's actually shown."""
     from apps.organization.models import LegalEntity
 
     tenant = TenantFactory()
     company = LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.COMPANY)
     branch_a = LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.BRANCH, parent=company)
-    LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.BRANCH, parent=company)
+    branch_b = LegalEntityFactory(tenant=tenant, entity_type=LegalEntity.Type.BRANCH, parent=company)
     DocumentNumberingSetting.objects.create(
         tenant=tenant, doc_type="invoice", prefix="INV", include_entity_code=False
     )
 
-    number = next_document_number(tenant, "invoice", legal_entity=branch_a, date=date(2026, 1, 1))
+    number_a = next_document_number(tenant, "invoice", legal_entity=branch_a, date=date(2026, 1, 1))
+    number_b = next_document_number(tenant, "invoice", legal_entity=branch_b, date=date(2026, 1, 1))
 
-    assert number == "INV-2026-00001"
+    assert number_a == "INV-2026-00001"
+    assert number_b == "INV-2026-00002"
 
 
 @pytest.mark.django_db

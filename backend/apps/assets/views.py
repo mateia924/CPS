@@ -13,7 +13,11 @@ from apps.accounting.serializers import OpeningBalanceReasonSerializer, Recurrin
 from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 from apps.organization.services import get_accessible_entity_ids
 
-from .depreciation import DepreciationAlreadyActive, NoActiveDepreciationSchedule
+from .depreciation import (
+    DepreciationAlreadyActive,
+    NoActiveDepreciationSchedule,
+    ScheduleHasGeneratedInstallments,
+)
 from .depreciation import add_to_asset as _add_to_asset
 from .depreciation import approve_depreciation_schedule as _approve_depreciation_schedule
 from .depreciation import cancel_depreciation_schedule as _cancel_depreciation_schedule
@@ -249,6 +253,8 @@ class DepreciationScheduleViewSet(mixins.RetrieveModelMixin, viewsets.GenericVie
         entry = self.get_object()
         try:
             _withdraw_depreciation_schedule(entry, request.user, request=request)
+        except ScheduleHasGeneratedInstallments as exc:
+            return Response({"detail": str(exc)}, status=409)
         except (ValidationError, ValueError) as exc:
             return Response({"detail": str(exc)}, status=400)
         except PermissionDenied as exc:
@@ -271,6 +277,8 @@ class DepreciationScheduleViewSet(mixins.RetrieveModelMixin, viewsets.GenericVie
         entry = self.get_object()
         try:
             _cancel_depreciation_schedule(entry, request.user, request=request)
+        except ScheduleHasGeneratedInstallments as exc:
+            return Response({"detail": str(exc)}, status=409)
         except (ValidationError, ValueError) as exc:
             return Response({"detail": str(exc)}, status=400)
         entry.refresh_from_db()

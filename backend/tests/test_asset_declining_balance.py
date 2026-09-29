@@ -73,6 +73,43 @@ def test_declining_balance_recomputed_per_fiscal_year(tenant_a, owner_client):
     assert total_charged == Decimal("1000.00")  # ends exactly at salvage_value
 
 
+def test_36_month_schedule_due_dates_are_all_true_calendar_month_ends(tenant_a, owner_client):
+    """Sprint 6.5.15 (UAT item 3): the exact live "fatma" bug — a 36-
+    month schedule starting 2026-08-01 needs fiscal years 2027/2028/
+    2029 auto-created (apps.accounting.periods.
+    create_next_fiscal_year_for_tenant), crossing 2028's leap-year
+    boundary. Every installment's due_date must be the true calendar
+    month-end of (start month + seq - 1) — never a day-count drift
+    (the old bug's exact symptom: 2028-12-30, 2029-01-30, 02-27, ...
+    instead of 12-31, 01-31, 02-28, ...)."""
+    import calendar
+    from datetime import date
+
+    entity = _entity(tenant_a)
+    asset = AssetFactory(
+        tenant=tenant_a, legal_entity=entity, purchase_date="2026-08-01", purchase_cost="10000.00",
+        salvage_value="1000.00", useful_life_months=36, depreciation_method=Asset.DepreciationMethod.DECLINING_BALANCE,
+        declining_balance_rate="40",
+    )
+    response = _start(owner_client, asset.id)
+    assert response.status_code == 201, response.data
+    entry = RecurringEntry.objects.get(id=response.data["depreciation_schedule_id"])
+    due_dates = list(entry.installments.order_by("seq").values_list("due_date", flat=True))
+
+    assert len(due_dates) == 36
+    for seq, due_date in enumerate(due_dates, start=1):
+        month_index = (8 - 1 + seq - 1)  # August 2026 is month 0 of the schedule
+        year = 2026 + month_index // 12
+        month = month_index % 12 + 1
+        expected = date(year, month, calendar.monthrange(year, month)[1])
+        assert due_date == expected, f"seq {seq}: expected {expected}, got {due_date}"
+
+    # The exact dates the live bug reported, confirmed correct here.
+    assert due_dates[28] == date(2028, 12, 31)  # seq 29
+    assert due_dates[29] == date(2029, 1, 31)  # seq 30
+    assert due_dates[35] == date(2029, 7, 31)  # seq 36
+
+
 def test_partial_first_year_same_monthly_amount_then_recomputes_in_january(tenant_a, owner_client):
     entity = _entity(tenant_a)
     asset = AssetFactory(

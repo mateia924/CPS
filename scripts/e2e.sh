@@ -82,6 +82,13 @@ docker run --rm --network host \
   "$PLAYWRIGHT_IMAGE" \
   sh -c "npx playwright test 04-server-error-message.spec.ts --reporter=list"
 
+echo "[e2e] phase 5: a 400 on a field hidden inside a collapsed 'متقدم' section still reaches the general banner"
+docker run --rm --network host \
+  -e E2E_BASE_URL="$BASE_URL" \
+  -v "$ROOT_DIR:/repo" -w /repo/frontend/e2e \
+  "$PLAYWRIGHT_IMAGE" \
+  sh -c "npx playwright test 05-hidden-field-error.spec.ts --reporter=list"
+
 echo "[e2e] archiving the smoke-* tenant this run created"
 docker exec infra-backend-1 python manage.py archive_smoke_tenants
 

@@ -201,6 +201,42 @@ export function fieldErrors(body: unknown): Record<string, string> {
   return out;
 }
 
+// Sprint 6.5.15 (UAT item 4): a handful of fields are only ever
+// rendered inside a collapsed <details> ("متقدم") in some screens —
+// FormField still receives the error prop and the [data-field] element
+// still exists, but a closed <details> gives it no layout box at all,
+// so the message is technically "shown" yet invisible (the exact live
+// bug: legal_entity on a treasury account form, 400 body correctly
+// carrying {"legal_entity": [...]}, user sees only "تعذّر الحفظ."). A
+// field genuinely absent from this screen's form entirely has the same
+// problem. Checked against the live DOM rather than a per-screen list
+// so every screen is covered automatically, with zero per-screen
+// plumbing — this file has no React context, but `document` is always
+// available client-side by the time a submit's catch block runs.
+function isFieldVisible(name: string): boolean {
+  if (typeof document === "undefined") return false;
+  const el = document.querySelector(`[data-field="${name}"]`);
+  if (!el) return false;
+  // A closed <details> ("متقدم") clips its content via the ANCESTOR
+  // <details> box, not by shrinking the field's own box — offsetParent,
+  // getClientRects() and even the field's own getBoundingClientRect()
+  // all still report it as if unclipped (only the ancestor is
+  // collapsed). checkVisibility() is the one API built to answer "can
+  // the user actually see this," walking every ancestor's display/
+  // visibility/content-visibility for exactly this case.
+  if (typeof (el as { checkVisibility?: () => boolean }).checkVisibility === "function") {
+    return (el as unknown as { checkVisibility: (opts?: object) => boolean }).checkVisibility({
+      checkOpacity: true, checkVisibilityCSS: true,
+    });
+  }
+  const rect = el.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+const FIELD_LABELS: Record<string, Record<string, string>> = {
+  legal_entity: { ar: "الشركة / الفرع", en: "Company / Branch" },
+};
+
 /** A single message to show when there's no better field to attach the
  * error to (network failure, {detail: "..."}, or an unrecognized shape). */
 export function generalError(body: unknown, fallback: string): string {
@@ -208,6 +244,15 @@ export function generalError(body: unknown, fallback: string): string {
   const obj = body as Record<string, unknown>;
   if (obj.detail === "network_error") return fallback;
   if (obj.detail === "non_json_response") return SERVER_ERROR_MESSAGE[getLocale()] ?? SERVER_ERROR_MESSAGE.ar;
+
+  const unmatched: string[] = [];
+  for (const [key, value] of Object.entries(obj)) {
+    if (RESERVED_ERROR_KEYS.has(key) || isFieldVisible(key)) continue;
+    const message = Array.isArray(value) ? value.map(String).join(" ") : typeof value === "string" ? value : null;
+    if (message !== null) unmatched.push(`${FIELD_LABELS[key]?.[getLocale()] ?? key}: ${message}`);
+  }
+  if (unmatched.length > 0) return unmatched.join(" — ");
+
   if (typeof obj.detail === "string") return obj.detail;
   if (Array.isArray(obj.non_field_errors)) return obj.non_field_errors.map(String).join(" ");
   return fallback;

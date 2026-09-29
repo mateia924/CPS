@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import models
 from rest_framework import serializers
 
 from apps.common.serializers import validate_iban_field
@@ -42,14 +43,33 @@ class _TenantScopedRelationsMixin:
                 self.fields[field_name].queryset = _employee_party_queryset(tenant)
 
 
+def _has_voucher_movements(tenant_id, field_name, obj_id):
+    """Sprint 6.5.15 (UAT item 5): whether any Voucher (either side of
+    a transfer) has ever posted against this treasury account — the
+    same "does it have real history" check the entity-move migration
+    itself uses, exposed here so the frontend can make `legal_entity`
+    read-only instead of letting an edit silently detach a real
+    movement's own posting entity from what the account now claims."""
+    from apps.vouchers.models import Voucher
+
+    return Voucher.objects.filter(tenant_id=tenant_id).filter(
+        models.Q(**{field_name: obj_id}) | models.Q(**{f"counter_{field_name}": obj_id})
+    ).exists()
+
+
 class BankSerializer(_TenantScopedRelationsMixin, serializers.ModelSerializer):
+    has_movements = serializers.SerializerMethodField()
+
     class Meta:
         model = Bank
         fields = (
             "id", "legal_entity", "name", "bank_name", "account_number", "iban", "swift",
-            "currency", "is_active", "created_at",
+            "currency", "is_active", "has_movements", "created_at",
         )
-        read_only_fields = ("id", "created_at")
+        read_only_fields = ("id", "has_movements", "created_at")
+
+    def get_has_movements(self, obj):
+        return _has_voucher_movements(obj.tenant_id, "bank", obj.id)
 
     def validate_iban(self, value):
         # Sprint 5.5 (block 5.5.0, CFO_REVIEW_1 C10): first entry free,
@@ -61,24 +81,34 @@ class BankSerializer(_TenantScopedRelationsMixin, serializers.ModelSerializer):
 
 class CashBoxSerializer(_TenantScopedRelationsMixin, serializers.ModelSerializer):
     party_fields = ("custodian",)
+    has_movements = serializers.SerializerMethodField()
 
     class Meta:
         model = CashBox
         fields = (
-            "id", "legal_entity", "name", "currency", "custodian", "max_balance", "is_active", "created_at",
+            "id", "legal_entity", "name", "currency", "custodian", "max_balance", "is_active",
+            "has_movements", "created_at",
         )
-        read_only_fields = ("id", "created_at")
+        read_only_fields = ("id", "has_movements", "created_at")
+
+    def get_has_movements(self, obj):
+        return _has_voucher_movements(obj.tenant_id, "cash_box", obj.id)
 
 
 class CustodySerializer(_TenantScopedRelationsMixin, serializers.ModelSerializer):
     party_fields = ("employee",)
+    has_movements = serializers.SerializerMethodField()
 
     class Meta:
         model = Custody
         fields = (
-            "id", "legal_entity", "employee", "name", "currency", "limit_amount", "is_active", "created_at",
+            "id", "legal_entity", "employee", "name", "currency", "limit_amount", "is_active",
+            "has_movements", "created_at",
         )
-        read_only_fields = ("id", "created_at")
+        read_only_fields = ("id", "has_movements", "created_at")
+
+    def get_has_movements(self, obj):
+        return _has_voucher_movements(obj.tenant_id, "custody", obj.id)
 
 
 class ExchangeRateSerializer(serializers.ModelSerializer):

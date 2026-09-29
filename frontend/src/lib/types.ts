@@ -309,6 +309,9 @@ export interface Bank {
   swift: string;
   currency: string;
   is_active: boolean;
+  // Sprint 6.5.15 (UAT item 5): true once any voucher has posted
+  // against it — the entity field then stays read-only in the UI.
+  has_movements: boolean;
   created_at: string;
 }
 
@@ -320,6 +323,7 @@ export interface CashBox {
   custodian: string | null;
   max_balance: string | null;
   is_active: boolean;
+  has_movements: boolean;
   created_at: string;
 }
 
@@ -331,6 +335,7 @@ export interface Custody {
   currency: string;
   limit_amount: string | null;
   is_active: boolean;
+  has_movements: boolean;
   created_at: string;
 }
 

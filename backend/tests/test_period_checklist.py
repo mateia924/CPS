@@ -134,6 +134,45 @@ def test_bank_out_of_balance_warns_and_requires_acknowledgment(tenant_a, client_
 
 
 @pytest.mark.django_db
+def test_legacy_duplicate_document_numbers_warns_and_requires_acknowledgment(tenant_a, client_a, user_a):
+    """Sprint 6.5.15 (UAT item 1): a grandfathered legacy_duplicate_number
+    row (never renumbered, never touched otherwise) must still surface
+    as a WARN on every period close, tenant-wide, not just the period
+    the flagged document happens to fall in — the debt is permanent
+    until someone renumbers it by hand, so it's never period-scoped."""
+    from apps.accounting.models import JournalEntry
+    from apps.accounting.services import (
+        create_manual_journal_entry,
+        post_journal_entry,
+        submit_journal_entry_for_approval,
+    )
+
+    entity = _branch(tenant_a)
+    entry = create_manual_journal_entry(
+        tenant=tenant_a, user=user_a, legal_entity=entity, date=date(2026, 1, 15),
+        line_specs=[
+            {"account": Account.objects.get(tenant=tenant_a, code="1900"), "debit_fc": Decimal("10.00"), "credit_fc": Decimal("0")},
+            {"account": Account.objects.get(tenant=tenant_a, code="3100"), "debit_fc": Decimal("0"), "credit_fc": Decimal("10.00")},
+        ],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+    submit_journal_entry_for_approval(entry, user_a)
+    post_journal_entry(entry, user_a)
+    JournalEntry.objects.filter(id=entry.id).update(legacy_duplicate_number=True)
+
+    period = _period(tenant_a, 1)
+    checklist = client_a.get(f"/api/fiscal-periods/{period.id}/checklist/")
+    codes = [item["code"] for item in checklist.data["items"]]
+    assert "legacy_duplicate_document_numbers" in codes
+
+    rejected = client_a.post(f"/api/fiscal-periods/{period.id}/close/", {}, format="json")
+    assert rejected.status_code == 400, rejected.data
+
+    closed = client_a.post(f"/api/fiscal-periods/{period.id}/close/", {"acknowledge_warnings": True}, format="json")
+    assert closed.status_code == 200, closed.data
+
+
+@pytest.mark.django_db
 def test_tenant_isolation(tenant_a, client_a, tenant_b, client_b):
     period_a = _period(tenant_a, 1)
     period_b = _period(tenant_b, 1)

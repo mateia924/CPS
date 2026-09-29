@@ -166,9 +166,17 @@ def balance_sheet(tenant, legal_entity=None, include_children=True, as_of=None, 
     total_assets = sum((r["amount"] for r in sections[Account.Type.ASSET]), Decimal("0"))
     total_liabilities = sum((r["amount"] for r in sections[Account.Type.LIABILITY]), Decimal("0"))
     total_equity = sum((r["amount"] for r in equity_rows), Decimal("0"))
+    # Sprint 6.5.15 (UAT item 2): "الأصول = الخصوم + حقوق الملكية" —
+    # a real check, not just a display label. Double-entry construction
+    # already guarantees this holds whenever every account's sign is
+    # correct (see the normal_balance backfill this same block ships
+    # with); a nonzero difference means a real data problem upstream,
+    # never a footer to silently omit.
+    difference = total_assets - (total_liabilities + total_equity)
     return {
         "assets": sections[Account.Type.ASSET], "liabilities": sections[Account.Type.LIABILITY], "equity": equity_rows,
         "total_assets": total_assets, "total_liabilities": total_liabilities, "total_equity": total_equity,
+        "is_balanced": difference == 0, "difference": difference,
         "as_of": as_of,
     }
 

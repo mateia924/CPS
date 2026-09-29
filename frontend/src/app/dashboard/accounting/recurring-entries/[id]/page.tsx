@@ -15,6 +15,14 @@ const INSTALLMENT_STATUS_LABEL: Record<RecurringInstallmentStatus, string> = {
   cancelled: "cancelled",
 };
 
+// Sprint 6.5.15 (UAT item 7): see the identical helper on the asset
+// detail page — "due" only reads "مستحق" once its own date has
+// actually arrived, "مجدول" (scheduled) before that.
+function installmentStatusLabelKey(status: RecurringInstallmentStatus, dueDate: string): string {
+  if (status === "due" && dueDate > new Date().toISOString().slice(0, 10)) return "scheduledStatus";
+  return INSTALLMENT_STATUS_LABEL[status];
+}
+
 export default function RecurringEntryDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -61,8 +69,21 @@ export default function RecurringEntryDetailPage() {
 
       <div className="card">
         <p>{t("legalEntity")}: {entry.legal_entity_name}</p>
-        <p>{t("toAccount")}: {entry.to_account_code} — {entry.to_account_name}</p>
-        <p>{t("fromAccount")}: {entry.from_account_code} — {entry.from_account_name}</p>
+        {/* Sprint 6.5.15 (UAT item 7): to_account is always the DEBIT
+            side, from_account always CREDIT (apps.accounting.recurring.
+            _generate_one) — a depreciation schedule's own two accounts
+            are always expense (debit) / accumulated depreciation
+            (credit) specifically, so it gets its own clearer labels
+            instead of the generic "من حساب/إلى حساب" every other
+            recurring entry kind still uses. */}
+        <p>
+          {t(entry.kind === "depreciation" ? "depreciationDebitAccount" : "toAccount")}:{" "}
+          {entry.to_account_code} — {entry.to_account_name}
+        </p>
+        <p>
+          {t(entry.kind === "depreciation" ? "depreciationCreditAccount" : "fromAccount")}:{" "}
+          {entry.from_account_code} — {entry.from_account_name}
+        </p>
         <p>{t("total")}: <Money amount={entry.total_amount_base} /></p>
         <p>{t("installmentsCount")}: {entry.installments_count}</p>
       </div>
@@ -130,7 +151,7 @@ export default function RecurringEntryDetailPage() {
                 <td>{installment.due_date}</td>
                 <td><Money amount={installment.amount_base} /></td>
                 <td>
-                  {t(INSTALLMENT_STATUS_LABEL[installment.status])}
+                  {t(installmentStatusLabelKey(installment.status, installment.due_date))}
                   {installment.status === "skipped" && installment.skip_reason && (
                     <div style={{ color: "var(--muted)", fontSize: "0.8rem" }}>{installment.skip_reason}</div>
                   )}

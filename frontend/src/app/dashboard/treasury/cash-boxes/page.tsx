@@ -101,8 +101,14 @@ export default function CashBoxesPage() {
           <details style={{ marginTop: "0.75rem" }}>
             <summary style={{ cursor: "pointer" }}>{t("advanced")}</summary>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.75rem" }}>
-              <FormField name="legal_entity" label={t("legalEntity")} required error={fieldErr.legal_entity}>
-                <select value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required>
+              <FormField
+                name="legal_entity" label={t("legalEntity")} required error={fieldErr.legal_entity}
+                hint={editing?.has_movements ? t("legalEntityLockedHasMovements") : undefined}
+              >
+                <select
+                  value={legalEntityId} onChange={(e) => setLegalEntityId(e.target.value)} required
+                  disabled={!!editing?.has_movements}
+                >
                   <option value="" disabled>
                     —
                   </option>

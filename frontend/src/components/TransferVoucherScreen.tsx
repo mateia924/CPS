@@ -46,10 +46,15 @@ export function TransferVoucherScreen() {
   const [reasonText, setReasonText] = useState("");
   const [prefilled, setPrefilled] = useState(false);
 
+  // Sprint 6.5.15 (UAT item 5): same filter as VoucherScreen — only
+  // treasury accounts on this document's own legal entity.
   const treasuryOptions: { kind: TreasuryKind; id: string; label: string; currency: string }[] = [
-    ...banks.map((b) => ({ kind: "bank" as TreasuryKind, id: b.id, label: `${t("bank")}: ${b.name}`, currency: b.currency })),
-    ...cashBoxes.map((c) => ({ kind: "cash_box" as TreasuryKind, id: c.id, label: `${t("cashBox")}: ${c.name}`, currency: c.currency })),
-    ...custodies.map((c) => ({ kind: "custody" as TreasuryKind, id: c.id, label: `${t("custody")}: ${c.name}`, currency: c.currency })),
+    ...banks.filter((b) => !legalEntityId || b.legal_entity === legalEntityId)
+      .map((b) => ({ kind: "bank" as TreasuryKind, id: b.id, label: `${t("bank")}: ${b.name}`, currency: b.currency })),
+    ...cashBoxes.filter((c) => !legalEntityId || c.legal_entity === legalEntityId)
+      .map((c) => ({ kind: "cash_box" as TreasuryKind, id: c.id, label: `${t("cashBox")}: ${c.name}`, currency: c.currency })),
+    ...custodies.filter((c) => !legalEntityId || c.legal_entity === legalEntityId)
+      .map((c) => ({ kind: "custody" as TreasuryKind, id: c.id, label: `${t("custody")}: ${c.name}`, currency: c.currency })),
   ];
   const sourceCurrency = treasuryOptions.find((o) => o.kind === treasuryKind && o.id === treasuryId)?.currency;
   const destCurrency = treasuryOptions.find((o) => o.kind === counterTreasuryKind && o.id === counterTreasuryId)?.currency;
@@ -186,7 +191,10 @@ export function TransferVoucherScreen() {
           )}
 
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
-            <FormField name="treasury_id" label={t("sourceAccount")} required error={fieldErr.treasury_id}>
+            <FormField
+              name="treasury_id" label={t("sourceAccount")} required error={fieldErr.treasury_id}
+              hint={legalEntityId && treasuryOptions.length === 0 ? t("noTreasuryOnThisEntity") : undefined}
+            >
               <select
                 value={treasuryValue}
                 onChange={(e) => {
@@ -195,6 +203,7 @@ export function TransferVoucherScreen() {
                   setTreasuryId(id);
                 }}
                 required
+                disabled={treasuryOptions.length === 0}
               >
                 <option value="" disabled>—</option>
                 {treasuryOptions.map((opt) => (
@@ -214,6 +223,7 @@ export function TransferVoucherScreen() {
                   setCounterTreasuryId(id);
                 }}
                 required
+                disabled={treasuryOptions.length === 0}
               >
                 <option value="" disabled>—</option>
                 {treasuryOptions.map((opt) => (

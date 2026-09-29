@@ -177,6 +177,12 @@ class Invoice(TenantScopedModel):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Sprint 6.5.15 (UAT item 1): same grandfather flag as
+    # JournalEntry.legacy_duplicate_number, added for uniformity — the
+    # constraint below already caught duplicate invoice numbers before
+    # this sprint (no live tenant has ever had one), so a migration
+    # finding any to flag is expected to be a no-op in practice.
+    legacy_duplicate_number = models.BooleanField(_("legacy duplicate number"), default=False)
 
     class Meta:
         ordering = ["-issue_date", "-created_at"]
@@ -196,7 +202,7 @@ class Invoice(TenantScopedModel):
             models.UniqueConstraint(
                 fields=["tenant", "number"],
                 name="unique_invoice_number_per_tenant",
-                condition=~models.Q(number=""),
+                condition=~models.Q(number="") & models.Q(legacy_duplicate_number=False),
             )
         ]
 

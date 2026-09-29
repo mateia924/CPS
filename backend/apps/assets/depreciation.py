@@ -20,12 +20,15 @@ from decimal import Decimal
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Sum
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from apps.accounting.models import FiscalPeriod, FiscalYear, RecurringEntry, RecurringInstallment
 from apps.accounting.periods import assert_open_period, create_next_fiscal_year_for_tenant
+from apps.accounting.recurring import DOC_TYPE as NUMBERING_DOC_TYPE
 from apps.accounting.recurring import _consecutive_periods, _split_amount
 from apps.accounting.services import CENTS, get_system_account
+from apps.numbering.services import next_document_number
 from apps.platform.models import AuditLog
 from apps.platform.services import log_action
 from apps.treasury.services import ExchangeRateNotFound, get_rate_with_warnings
@@ -34,6 +37,22 @@ from .models import Asset, AssetAddition
 
 DOC_TYPE = "asset_depreciation"
 ADDITION_DOC_TYPE = "asset_addition"
+
+
+def _assign_number_if_missing(entry):
+    """Sprint 6.5.15 (UAT item 7): a depreciation/addition RecurringEntry
+    never got a number at all — unlike apps.accounting.recurring.
+    submit_recurring_entry (the plain recurring-entry path), every
+    submit here called submit_for_approval directly and skipped this
+    step entirely, so entry.number stayed permanently blank even after
+    approval — the exact bug behind the schedule detail page always
+    showing "(مسودة)" in its title, whatever the real status. Numbered
+    under "recurring_entry" ("RE"), the same shared sequence every
+    other RecurringEntry uses — kind (depreciation vs plain) is a
+    label, not a numbering namespace (see doc_type_for_entry above)."""
+    if not entry.number:
+        entry.number = next_document_number(entry.tenant, NUMBERING_DOC_TYPE, entry.legal_entity, timezone.localdate())
+        entry.save(update_fields=["number"])
 
 # Decision 9: any of these means the asset already has a schedule that
 # hasn't been withdrawn/rejected back out of existence — a second
@@ -55,6 +74,18 @@ class DepreciationAlreadyActive(Exception):
 class NoActiveDepreciationSchedule(Exception):
     """Decision 6: an addition needs a currently-running (APPROVED)
     schedule to cancel and recompute — the view maps this to 409."""
+
+
+class ScheduleHasGeneratedInstallments(Exception):
+    """Sprint 6.5.15 (UAT item 6): cancel_recurring_entry only cancels
+    still-DUE installments, but _cancel_and_detach also nulls
+    Asset.depreciation_entry — detaching the asset from a schedule
+    that has already POSTED real depreciation entries would silently
+    orphan that history (the asset would show "no schedule" while real
+    JournalEntry rows still exist pointing at this now-cancelled
+    entry), and let a second start-depreciation call double-count. The
+    view maps this to 409; the only correct correction path once a
+    schedule has posted anything is disposal, never cancel/withdraw."""
 
 
 def current_book_value(asset):
@@ -233,6 +264,8 @@ def start_depreciation(asset, user, request=None):
     asset.depreciation_entry = entry
     asset.save(update_fields=["cost_base", "salvage_base", "in_service_date", "depreciation_entry"])
 
+    _assign_number_if_missing(entry)
+
     from apps.approvals.services import submit_for_approval
 
     auto_approved = submit_for_approval(entry, user, DOC_TYPE, entry.total_amount_base, request=request)
@@ -365,6 +398,10 @@ def _cancel_and_detach(entry, user, request=None):
     again on a fresh start-depreciation form."""
     from apps.accounting.recurring import cancel_recurring_entry
 
+    if entry.installments.filter(status=RecurringInstallment.Status.GENERATED).exists():
+        raise ScheduleHasGeneratedInstallments(
+            _("لهذا الجدول أقساط مرحَّلة فعلًا — لا يمكن إلغاؤه أو سحبه. التصحيح يكون بالاستبعاد.")
+        )
     cancel_recurring_entry(entry, user, request=request)
     Asset.objects.filter(depreciation_entry=entry).update(depreciation_entry=None)
     return entry
@@ -375,6 +412,8 @@ def submit_depreciation_schedule(entry, user, request=None):
     matches) — the "إرسال" action for a schedule a reject() sent back
     to DRAFT, so the creator can fix whatever the approver objected to
     and resubmit instead of only being able to cancel and start over."""
+    _assign_number_if_missing(entry)
+
     from apps.approvals.services import submit_for_approval
 
     auto_approved = submit_for_approval(entry, user, doc_type_for_entry(entry), entry.total_amount_base, request=request)
@@ -452,6 +491,8 @@ def add_to_asset(asset, user, date, amount_base, description="", extend_life_mon
         asset.useful_life_months += extend_life_months
     asset.depreciation_entry = new_entry
     asset.save(update_fields=["cost_base", "purchase_cost", "useful_life_months", "depreciation_entry"])
+
+    _assign_number_if_missing(new_entry)
 
     from apps.approvals.services import submit_for_approval
 

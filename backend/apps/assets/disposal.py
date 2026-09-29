@@ -23,7 +23,12 @@ from apps.numbering.services import next_document_number
 from apps.platform.models import AuditLog
 from apps.platform.services import log_action
 
-from .depreciation import _activate_schedule, _reschedule_remaining, current_book_value
+from .depreciation import (
+    _activate_schedule,
+    _assign_number_if_missing,
+    _reschedule_remaining,
+    current_book_value,
+)
 from .models import Asset, AssetDisposal
 
 DOC_TYPE = "asset_disposal"
@@ -201,6 +206,7 @@ def _finish_disposal(disposal, user, request=None):
         )
         new_entry.status = RecurringEntry.Status.APPROVED
         new_entry.save(update_fields=["description", "status"])
+        _assign_number_if_missing(new_entry)
         _activate_schedule(new_entry)
 
     log_action(

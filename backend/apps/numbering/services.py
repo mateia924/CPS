@@ -71,12 +71,6 @@ def next_document_number(tenant, doc_type, legal_entity=None, date=None):
     setting = get_or_create_numbering_setting(tenant, doc_type)
     scope_year = date.year if setting.reset_yearly else 0
 
-    sequence, _created = DocumentSequence.objects.select_for_update().get_or_create(
-        tenant=tenant, doc_type=doc_type, legal_entity=legal_entity, year=scope_year,
-    )
-    sequence.last_number += 1
-    sequence.save(update_fields=["last_number"])
-
     include_entity_code = setting.include_entity_code
     if include_entity_code is None:
         # "تلقائي حسب عدد الكيانات": counting *branches* specifically,
@@ -94,6 +88,24 @@ def next_document_number(tenant, doc_type, legal_entity=None, date=None):
                 tenant=tenant, entity_type=LegalEntity.Type.BRANCH, is_active=True
             ).count()
             include_entity_code = branch_count > 1
+
+    # Sprint 6.5.15 (UAT item 1): whenever the number about to be
+    # returned will NOT carry an entity code (include_entity_code is
+    # False, whether by the automatic count above or an explicit
+    # DocumentNumberingSetting override), every entity sharing that
+    # omission MUST also share one counter — otherwise two entities'
+    # own "00001"s collide as the exact same displayed string (the real
+    # bug: a simplified-mode tenant's company and branch each kept an
+    # independent sequence even though neither ever got a code). Kept
+    # in lockstep with include_entity_code by construction — this can
+    # never diverge into its own, possibly-inconsistent condition.
+    sequence_entity = legal_entity if include_entity_code else None
+
+    sequence, _created = DocumentSequence.objects.select_for_update().get_or_create(
+        tenant=tenant, doc_type=doc_type, legal_entity=sequence_entity, year=scope_year,
+    )
+    sequence.last_number += 1
+    sequence.save(update_fields=["last_number"])
 
     if include_entity_code and legal_entity is not None:
         return f"{setting.prefix}-{legal_entity.code}-{date.year}-{sequence.last_number:05d}"
