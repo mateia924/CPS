@@ -828,6 +828,13 @@ customers_to_parties.py`): تحققت يدويًا ضد بيانات Acme Tradin
   (لا شاشة كانت تُقيِّد بالكيان أصلًا). يحتاج توحيد المصدر (أرجحه:
   `legal_entity_ids` يُرتِّب الفرع أولًا في الوضع المبسّط، أو تُستخدم
   `default_branch_for_tenant` في كل مكان بدل `[0]`) — لم يُصلَح هنا.
+- **تدقيق نطاق الكيان — أول بند في سبرنت التصليب** (سبرنت 6.5.13):
+  كل ViewSet لنموذج له `legal_entity` يجب أن يرشّح بـ
+  `get_accessible_entity_ids` عبر Mixin واحد `EntityScopedViewSet` بدل
+  فحوص فردية متفرقة (النمط الحالي: كل ViewSet يكرِّر نفس السطرين في
+  `get_queryset()` بنفسه، أو ببساطة لا يفعل — كما اكتُشف مرتين في
+  `DepreciationScheduleViewSet`، سبرنت 6.5.12). جرد الفجوات الفعلية في
+  `docs/prompts/sprint-6.5.md` §6.5.13.
 
 ## الخطوة التالية
 

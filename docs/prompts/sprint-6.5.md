@@ -219,6 +219,33 @@ commit: `Sprint 6.5.11: verify 6.5.10's ten UAT items, extend make e2e with a ge
 
 commit: `Sprint 6.5.12: DepreciationScheduleViewSet entity scoping, contra-account README debt, literal backup log, PLAN_COMPLIANCE_2 status`
 
+### 6.5.13 — دَين: تدقيق نطاق الكيان (توثيق فقط، بلا تنفيذ)
+
+**الدَين المُسجَّل (README وSYSTEM_ANALYSIS §11، 2026-09-29):** «تدقيق نطاق الكيان — كل ViewSet لنموذج له `legal_entity` يجب أن يرشّح بـ`get_accessible_entity_ids` عبر Mixin واحد `EntityScopedViewSet` بدل فحوص فردية؛ أول بند في سبرنت التصليب».
+
+**الجرد (بلا تنفيذ) — كل نموذج يحمل حقل `legal_entity` مباشرة، وهل الـViewSet المقابل يرشّح به:**
+
+مُرشَّحة بالفعل (`get_accessible_entity_ids` مباشرة، أو عبر ابن — لمرجعية المقارنة، ليست فجوة):
+- `JournalEntryViewSet` — `apps/accounting/views.py` — إجراءات كتابة: نعم.
+- `TaxPeriodViewSet` — `apps/accounting/views.py` — إجراءات كتابة: لا (قراءة فقط + إجراءات إقرار).
+- `OpeningBalanceViewSet` — `apps/accounting/views.py` — إجراءات كتابة: نعم.
+- `RecurringEntryViewSet` — `apps/accounting/views.py` — إجراءات كتابة: نعم.
+- `InvoiceViewSet` — `apps/sales/views.py` — إجراءات كتابة: نعم.
+- `VoucherViewSet` — `apps/vouchers/views.py` — إجراءات كتابة: نعم.
+- `DepreciationScheduleViewSet` — `apps/assets/views.py` — إجراءات كتابة: نعم (أُصلحت لتوّها، سبرنت 6.5.12).
+
+**الفجوات الفعلية — لا ترشيح بالكيان إطلاقًا (تنتظر Mixin سبرنت التصليب):**
+- `AssetViewSet` — `apps/assets/views.py` — إجراءات كتابة: **نعم** (create/update/destroy/deactivate/activate + start-depreciation/additions/dispose/transfer/generate-due-now — الأخير وحده أُصلح فرديًا في 6.5.12، الباقي لا يزال مفتوحًا).
+- `BankViewSet` — `apps/treasury/views.py` — إجراءات كتابة: **نعم** (create/update/destroy/deactivate/activate + reconciliation-report).
+- `CashBoxViewSet` — `apps/treasury/views.py` — إجراءات كتابة: **نعم**.
+- `CustodyViewSet` — `apps/treasury/views.py` — إجراءات كتابة: **نعم**.
+
+**ملاحظتان من نفس الجرد، خارج المعيار الحرفي (نموذج بلا حقل `legal_entity` مباشر):**
+- `AssetDisposalViewSet` — `apps/assets/views.py` — نفس عائلة الفجوة فعليًا (لا ترشيح بالكيان) لكن `AssetDisposal` لا يحمل `legal_entity` مباشرة (فقط عبر `asset.legal_entity`) — خارج معيار "يحمل الحقل مباشرة" حرفيًا، لكن يستحق نفس المعالجة عمليًا عند بناء الـMixin.
+- `PartyRole.legal_entity` — **استُبعِد عمدًا**: حقل وصفي (فرع الموظف/الكيان المقابل للشقيقة)، لا بُعد نطاق وصول — الأطراف تبقى عابرة للكيانات بتصميم متعمَّد (قاعدة 3.14، «الأطراف الشاملة»)، ليست نفس فئة المستندات المعاملاتية أعلاه.
+
+commit: `docs: register entity-scoping audit debt (EntityScopedViewSet mixin), inventory the four real gaps (AssetViewSet, Bank/CashBox/CustodyViewSet)`
+
 ---
 
 ## معايير القبول الإجمالية
