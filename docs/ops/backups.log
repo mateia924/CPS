@@ -1,0 +1,19 @@
+# CPS backup log — sprint 6.5.12 (owner audit finding: no literal
+# record linking a backup file to the migration/decision it preceded —
+# every previous backup's connection to a data migration was inferred
+# after the fact from file timestamps, e.g. docs/reviews/
+# PLAN_COMPLIANCE_2.md's migration/backup inventory). scripts/backup.sh
+# appends one tab-separated line here on every run from now on: ISO
+# timestamp, short git hash (HEAD at backup time), backup filename
+# (under /opt/cps-backups/, not itself committed here), and an optional
+# free-text reason (its $1 argument).
+#
+# Every backup before this file existed (including the five manual
+# runs on 2026-09-24 preceding sprint 6.5 blocks 6.5.0–6.5.4's data
+# migrations — approvals/0011, 0013, 0015 among them) has NO entry here
+# and never will: they are evidenced only by /opt/cps-backups/ file
+# timestamps matching each block's own commit date, cross-referenced in
+# docs/reviews/PLAN_COMPLIANCE_2.md — timestamp correlation, not a
+# literal log. This file is authoritative only from its own creation
+# date (2026-09-29) forward.
+2026-09-29T13:59:35+03:00	33800ba	cps-db-20260929-135934.sql.gz	sprint 6.5.12 test run before committing entity-scoping migration-free changes

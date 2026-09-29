@@ -203,6 +203,22 @@ commit: `Sprint 6.5.10: asset form fields promoted to basic section, Arabic role
 
 commit: `Sprint 6.5.11: verify 6.5.10's ten UAT items, extend make e2e with a genuine non-emergency approval phase (real second user via UI), record temp-password debt`
 
+### 6.5.12 — إغلاق الملاحظات الجانبية من تحقّق 6.5.11
+
+**(1) تقييد `DepreciationScheduleViewSet` بالكيان القانوني:** `get_queryset()` يُضيف `legal_entity_id__in=get_accessible_entity_ids(self.request.user)` — نفس آلية `RecurringEntryViewSet` حرفيًا، يغطي تلقائيًا `retrieve`/`approve`/`reject`/`withdraw`/`submit`/`cancel` كلها (queryset واحد مشترك، لا list action أصلًا على هذا الـViewSet — لم يكن مفقودًا، `RetrieveModelMixin` فقط منذ البداية، الواجهة لا تستدعي إلا بمعرّف). `generate_due_now` (على `AssetViewSet` لا هذا الـViewSet — الطلب افترض أنه هنا) أُصلح بفحص صريح داخل الإجراء نفسه (لا تغيير عريض على queryset الأصول كله، تجنبًا لأثر جانبي على إجراءات أخرى لا علاقة لها بالطلب) — 404 في الحالتين، نفس قاعدة "انتهاك النطاق يبدو كعدم وجود" المتّبعة في كل الكود. اختبار جديد: مستخدم مقيَّد بكيان A يرى ويعتمد جدول A، ويحصل على 404 عند القراءة/الاعتماد/توليد المستحق لجدول/أصل الكيان B — **21/21** في `test_asset_depreciation.py`.
+
+**(2) دَين الميزانية/الحساب المقابل:** أُضيف لـREADME تحت الديون، بإشارة صريحة لقرار §11 رقم 2 (2026-09-26).
+
+**(3) سجل نسخ احتياطي حرفي:** `scripts/backup.sh` يقبل الآن وسيطًا اختياريًا (السبب) ويُلحق سطرًا بـ`docs/ops/backups.log` (تاريخ ISO، هاش git مختصر لـHEAD وقت النسخة، اسم ملف النسخة، السبب) بعد كل نجاح. الملف نفسه يوثِّق صراحة أنه سارٍ من تاريخ إنشائه (2026-09-29) فقط — نسخ 24 سبتمبر 2026 الخمس (قبل migrations 0011/0013/0015 وغيرها) **لا سطر لها هنا ولن يكون**، دليلها الوحيد تطابق الطابع الزمني لملفات `/opt/cps-backups/` مع تاريخ كل كتلة في سجل القرارات، موثَّق في `docs/reviews/PLAN_COMPLIANCE_2.md`.
+
+**(4) `docs/reviews/PLAN_COMPLIANCE_2.md`:** موجود — commit `7b6c6bc`، 2026-09-26 21:50:06 +03:00.
+
+**اكتشاف حقيقي أثناء إغلاق البوابة (لا افتراضيًا) — بند (1) كشف عطلاً كان مقنَّعًا تمامًا من قبل:** الطور الثالث من `make e2e` (اعتماد حقيقي غير اضطراري) فشل بعد هذا الإصلاح — `/auth/me/`'s `legal_entity_ids` (`apps/accounts/views.py MeView`) مُرتَّب أبجديًا بنص الـUUID، لا بنوع الكيان؛ فورم إنشاء الأصل يختار تلقائيًا `legal_entity_ids[0]` كافتراض في الوضع المبسّط، وقد يقع على صف "الشركة" بدل "الفرع"، بينما `CreateUserSerializer`'s الوضع المبسّط يمنح مستخدمًا جديدًا صلاحية **الفرع تحديدًا** (`default_branch_for_tenant`) — لا علاقة بينهما، فيقع تعارض نطاق حقيقي بلا أي خطأ برمجي واضح، كان بلا أثر ظاهر لأن `DepreciationScheduleViewSet` لم تكن تُقيِّد بالكيان أصلًا قبل هذا الإصلاح بالذات. **عطل منتج حقيقي منفصل، مُسجَّل كدَين لا مُصلَح هنا** — تحايل عليه اختبار E2E فقط باختيار الفرع صراحة عبر "متقدم" (متاح دومًا لفورم الأصل خلافًا لشاشات السندات).
+
+- **اختبارات:** `pytest` **528/528** كاملة نظيفة + `make e2e` (ثلاثة أطوار) — الطور الثالث احتاج إصلاحًا (أعلاه) بعد أن كشف بند (1) هذا العطل الحقيقي.
+
+commit: `Sprint 6.5.12: DepreciationScheduleViewSet entity scoping, contra-account README debt, literal backup log, PLAN_COMPLIANCE_2 status`
+
 ---
 
 ## معايير القبول الإجمالية

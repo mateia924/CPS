@@ -11,7 +11,7 @@ from decimal import Decimal
 import pytest
 from rest_framework.test import APIClient
 
-from apps.access.models import Role
+from apps.access.models import Role, UserEntityAccess
 from apps.access.services import seed_default_roles
 from apps.accounting.models import Account, FiscalPeriod, JournalEntry, RecurringEntry
 from apps.accounting.period_close import period_checklist
@@ -446,3 +446,50 @@ def test_tenant_isolation(tenant_a, tenant_b, owner_client, user_b):
     other_client = _client(user_b)
     response = other_client.get(f"/api/depreciation-schedules/{schedule_id}/")
     assert response.status_code == 404, response.data
+
+
+def test_entity_restricted_user_cannot_see_or_approve_other_entitys_schedule(tenant_a, user_a):
+    """Sprint 6.5.12: DepreciationScheduleViewSet.get_queryset() now
+    scopes by get_accessible_entity_ids(), same mechanism as its
+    sibling RecurringEntryViewSet — a user restricted to one legal
+    entity (in-tenant, not the cross-tenant case above) must never
+    retrieve, approve, or generate-due-now another entity's schedule."""
+    entity_a = _entity(tenant_a)
+    entity_b = _entity(tenant_a)
+    owner_client = _client(user_a)
+
+    asset_a = AssetFactory(
+        tenant=tenant_a, legal_entity=entity_a, purchase_date="2026-01-01", purchase_cost="12000.00",
+        salvage_value="0", useful_life_months=12,
+    )
+    asset_b = AssetFactory(
+        tenant=tenant_a, legal_entity=entity_b, purchase_date="2026-01-01", purchase_cost="6000.00",
+        salvage_value="0", useful_life_months=12,
+    )
+    started_a = _start(owner_client, asset_a.id)
+    started_b = _start(owner_client, asset_b.id)
+    assert started_a.status_code == 201, started_a.data
+    assert started_b.status_code == 201, started_b.data
+    schedule_b_id = started_b.data["depreciation_schedule_id"]
+
+    restricted_user = UserFactory(tenant=tenant_a, email="restricted@depreciation.test")
+    restricted_user.roles.add(_roles(tenant_a)["Accountant"])
+    UserEntityAccess.objects.create(user=restricted_user, legal_entity=entity_a)
+    restricted_client = _client(restricted_user)
+
+    # Entity A is accessible — retrieving its own schedule works.
+    schedule_a_id = started_a.data["depreciation_schedule_id"]
+    own_entity = restricted_client.get(f"/api/depreciation-schedules/{schedule_a_id}/")
+    assert own_entity.status_code == 200, own_entity.data
+
+    # Entity B is not — every action on its schedule/asset 404s, never
+    # a business-logic error (the row is filtered out before any
+    # approve()/generate_due_installments() code runs at all).
+    retrieve = restricted_client.get(f"/api/depreciation-schedules/{schedule_b_id}/")
+    assert retrieve.status_code == 404, retrieve.data
+
+    approve = restricted_client.post(f"/api/depreciation-schedules/{schedule_b_id}/approve/")
+    assert approve.status_code == 404, approve.data
+
+    generate_due = restricted_client.post(f"/api/assets/{asset_b.id}/generate-due-now/")
+    assert generate_due.status_code == 404, generate_due.data

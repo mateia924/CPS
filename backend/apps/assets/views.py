@@ -1,4 +1,5 @@
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.http import Http404
 from django.utils.translation import gettext_lazy as _
 from rest_framework import filters, mixins, viewsets
 from rest_framework.decorators import action
@@ -10,6 +11,7 @@ from apps.accounting.models import RecurringEntry
 from apps.accounting.recurring import generate_due_installments as _generate_due_installments
 from apps.accounting.serializers import OpeningBalanceReasonSerializer, RecurringEntrySerializer
 from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
+from apps.organization.services import get_accessible_entity_ids
 
 from .depreciation import DepreciationAlreadyActive, NoActiveDepreciationSchedule
 from .depreciation import add_to_asset as _add_to_asset
@@ -154,6 +156,17 @@ class AssetViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         doesn't want to wait for tonight's beat to see this month's
         installment posted."""
         asset = self.get_object()
+        # Sprint 6.5.12: AssetViewSet's own queryset (TenantScopedViewSet)
+        # is tenant-only, not entity-scoped — this one action reaches
+        # into another tenant user's entities otherwise, same gap
+        # DepreciationScheduleViewSet.get_queryset() closes below for
+        # its own actions. An explicit check here (not a queryset-wide
+        # change to AssetViewSet, which would touch every other asset
+        # action's existing, unrelated behavior) — 404, not 403, same
+        # "a scope violation looks like it doesn't exist" convention as
+        # every other cross-tenant/cross-entity check in this codebase.
+        if asset.legal_entity_id not in get_accessible_entity_ids(request.user):
+            raise Http404
         if not asset.depreciation_entry_id:
             return Response({"detail": str(_("لا جدول إهلاك نشط لهذا الأصل."))}, status=409)
         result = _generate_due_installments(tenant=request.user.tenant, recurring_entry=asset.depreciation_entry)
@@ -184,9 +197,27 @@ class DepreciationScheduleViewSet(mixins.RetrieveModelMixin, viewsets.GenericVie
     }
 
     def get_queryset(self):
-        return RecurringEntry.objects.filter(
-            tenant=self.request.user.tenant, kind=RecurringEntry.Kind.DEPRECIATION
-        ).select_related("legal_entity", "from_account", "to_account").prefetch_related("installments")
+        # Sprint 6.5.12: was tenant-only — apps.accounting.views.
+        # RecurringEntryViewSet (same underlying model, kind=OTHER) has
+        # always additionally scoped by get_accessible_entity_ids(); this
+        # sibling viewset (kind=DEPRECIATION) never did, so a user
+        # restricted to specific legal entities could retrieve/approve/
+        # withdraw/etc. another entity's depreciation schedule within
+        # their own tenant. Not a cross-tenant leak (TENANT_FILTER_
+        # EXEMPTIONS' own stated reason stays accurate), but a real
+        # RBAC gap — closed the same way, same accessor, same result
+        # (DRF's own get_object() 404s automatically for a filtered-out
+        # row, matching every other scope violation in this codebase).
+        accessible_ids = get_accessible_entity_ids(self.request.user)
+        return (
+            RecurringEntry.objects.filter(
+                tenant=self.request.user.tenant,
+                kind=RecurringEntry.Kind.DEPRECIATION,
+                legal_entity_id__in=accessible_ids,
+            )
+            .select_related("legal_entity", "from_account", "to_account")
+            .prefetch_related("installments")
+        )
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):

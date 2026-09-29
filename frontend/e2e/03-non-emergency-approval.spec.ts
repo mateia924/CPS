@@ -79,6 +79,22 @@ test("6.5.10 item 6: genuine creator != approver, a real second user made throug
     await field(page, "purchase_date").fill("2026-08-01");
     await field(page, "purchase_cost").fill("6000");
     await field(page, "useful_life_months").fill("12");
+    // Sprint 6.5.12 discovery: /auth/me/'s legal_entity_ids is sorted
+    // alphabetically by UUID (apps/accounts/views.py MeView), not by
+    // entity_type — the asset form's auto-default (legal_entity_ids[0])
+    // can land on the tenant's COMPANY row instead of its BRANCH, while
+    // a new simplified-mode user (CreateUserSerializer) always gets the
+    // BRANCH specifically (default_branch_for_tenant). A real, separate
+    // product bug (registered, not fixed here) — worked around here by
+    // picking the branch explicitly via the always-available "متقدم"
+    // section (unlike the voucher screens, this one isn't hidden in
+    // simplified mode), matching what an accountant would sensibly do
+    // by hand once they noticed the same mismatch.
+    await page.getByText("متقدم").click();
+    const branchValue = await field(page, "legal_entity")
+      .locator('option:has-text("الفرع الرئيسي")')
+      .getAttribute("value");
+    await field(page, "legal_entity").selectOption(branchValue!);
     await page.getByRole("button", { name: "إضافة", exact: true }).click();
     await expect(page.getByText("AST-E2E-2").first()).toBeVisible();
 

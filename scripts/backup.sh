@@ -9,14 +9,24 @@ set -euo pipefail
 # (always with --env-file, from infra/ — see the project's own
 # recurring gotcha about that).
 #
-# Usage:      scripts/backup.sh
+# Usage:      scripts/backup.sh ["reason for this backup"]
 # Root cron:  0 3 * * * /opt/cps/scripts/backup.sh >> /var/log/cps-backup.log 2>&1
+#
+# Sprint 6.5.12 (owner audit finding: no literal record linking a
+# backup file to the migration/decision it preceded — only inferred
+# from timestamps after the fact): every run appends one line to
+# docs/ops/backups.log (date, git hash, backup filename, and this
+# optional $1 reason) — the standing §11 rule ("scripts/backup.sh قبل
+# أي migration تلمس بيانات") now leaves a real, committed trail instead
+# of relying on backup-file timestamps + commit-message archaeology.
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKUP_DIR="/opt/cps-backups"
 RETENTION_DAYS=14
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 DUMP_FILE="$BACKUP_DIR/cps-db-$TIMESTAMP.sql.gz"
+BACKUP_REASON="${1:-}"
+OPS_LOG="$REPO_DIR/docs/ops/backups.log"
 
 # Outside every container, root-only — these are the only real copies
 # of tenant data (docs/SYSTEM_ANALYSIS.md rule 10: never delete a
@@ -40,6 +50,11 @@ if [ ! -s "$DUMP_FILE" ]; then
   exit 1
 fi
 echo "[$(date -Iseconds)] Backup OK: $(du -h "$DUMP_FILE" | cut -f1)"
+
+GIT_HASH="$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+mkdir -p "$(dirname "$OPS_LOG")"
+printf '%s\t%s\t%s\t%s\n' "$(date -Iseconds)" "$GIT_HASH" "$(basename "$DUMP_FILE")" "$BACKUP_REASON" >> "$OPS_LOG"
+echo "[$(date -Iseconds)] Logged to $OPS_LOG"
 
 # Sprint 5.1 adds the MinIO attachments bucket here (mc mirror into
 # $BACKUP_DIR/attachments/) once the Attachment model/storage exists —
