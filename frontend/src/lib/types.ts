@@ -197,6 +197,12 @@ export interface MeResponse {
   roles: string[];
   permissions: string[];
   legal_entity_ids: string[];
+  // Sprint 6.5.14: the deterministic default entity for this user
+  // (apps.organization.services.default_legal_entity_id_for_user) —
+  // use this instead of indexing legal_entity_ids directly, which is
+  // only ever sorted alphabetically by UUID string, unrelated to
+  // entity type.
+  default_legal_entity_id: string | null;
   features: MeFeatures;
   simplified_mode: boolean;
 }
@@ -881,6 +887,11 @@ export interface TenantFeaturesSettings {
   assets: boolean;
   credit_limit_mode: CreditLimitMode;
   cost_center_required: boolean;
+}
+
+// Sprint 6.5.14: الإعدادات ← الشركة ← متقدم.
+export interface TenantSettings {
+  default_legal_entity: string | null;
 }
 
 export interface AttachmentRule {

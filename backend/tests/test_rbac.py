@@ -154,16 +154,22 @@ def test_owner_bypasses_entity_access_and_sees_both_branches(tenant_with_two_bra
 
 
 @pytest.mark.django_db
-def test_new_user_in_simplified_mode_tenant_gets_the_single_branch(tenant_a, client_a):
+def test_new_user_in_simplified_mode_tenant_gets_all_of_the_single_companys_entities(tenant_a, client_a):
+    """Sprint 6.5.14: a simplified-mode tenant's own documents can
+    legitimately sit split across its company and branch entities (the
+    real-world Fatma case) — a new simplified-mode user is granted both,
+    not just the branch (default_branch_for_tenant, the pre-6.5.14
+    behavior), so they can see and approve everything from day one."""
     response = client_a.post(
         "/api/users/",
         {"email": "newstaff@tenant-a.test", "password": "NewStaffPass!2026"},
         format="json",
     )
     assert response.status_code == 201
-    branch = LegalEntity.objects.get(tenant=tenant_a, entity_type=LegalEntity.Type.BRANCH)
-    granted = [str(eid) for eid in response.data["legal_entity_ids"]]
-    assert granted == [str(branch.id)]
+    granted = set(str(eid) for eid in response.data["legal_entity_ids"])
+    all_entity_ids = set(str(e.id) for e in LegalEntity.objects.filter(tenant=tenant_a, is_active=True))
+    assert granted == all_entity_ids
+    assert len(all_entity_ids) == 2  # company + branch — proves this isn't accidentally just one
 
 
 @pytest.mark.django_db

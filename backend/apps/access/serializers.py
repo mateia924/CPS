@@ -3,7 +3,7 @@ from rest_framework import serializers
 
 from apps.accounts.models import User
 from apps.organization.models import LegalEntity
-from apps.organization.services import default_branch_for_tenant, is_simplified_mode
+from apps.organization.services import is_simplified_mode
 
 from .models import Permission, Role, UserEntityAccess
 
@@ -61,8 +61,13 @@ class CreateUserSerializer(serializers.Serializer):
     afterward — the recurring "0 accessible entities" gotcha hit during
     UAT 4 (a brand-new non-Owner user could see nothing until someone
     remembered the second call). Simplified-mode tenants (single
-    company+branch) need no input at all: the one branch is granted
-    automatically. Multi-entity tenants get an optional advanced
+    company+branch) need no input at all: ALL of the company's active
+    entities are granted automatically (sprint 6.5.14 — previously only
+    the branch was granted, but the tenant's own documents can
+    legitimately sit on either entity, e.g. Fatma's company-side
+    voucher/asset/depreciation-schedule alongside her branch-side journal
+    entries; a new simplified-mode user must be able to see and approve
+    both from day one). Multi-entity tenants get an optional advanced
     `legal_entity_ids` field; omitting it grants every entity in the
     tenant (the stated default), matching "كل الكيانات" in the spec.
     """
@@ -102,9 +107,10 @@ class CreateUserSerializer(serializers.Serializer):
         )
 
         if is_simplified_mode(tenant):
-            branch = default_branch_for_tenant(tenant)
-            if branch is not None:
-                UserEntityAccess.objects.create(user=user, legal_entity=branch)
+            entities = LegalEntity.objects.filter(tenant=tenant, is_active=True)
+            UserEntityAccess.objects.bulk_create(
+                [UserEntityAccess(user=user, legal_entity=entity) for entity in entities]
+            )
         else:
             entities = validated_data.get("legal_entity_ids") or list(
                 LegalEntity.objects.filter(tenant=tenant, is_active=True)

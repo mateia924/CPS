@@ -101,7 +101,7 @@ function OpeningBalancesContent() {
         api.get<OpeningBalanceStatusRow[]>("/opening-balances/status/"),
       ]);
       setEntities(entityData.results.filter((entity) => entity.entity_type !== "holding"));
-      if (me?.legal_entity_ids[0]) setLegalEntityId((prev) => prev || me.legal_entity_ids[0]);
+      if (me?.default_legal_entity_id) setLegalEntityId((prev) => prev || me.default_legal_entity_id!);
       setAccounts(tree);
       setParties(partyData.results);
       setStatusRows(statusData);

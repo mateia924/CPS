@@ -4,13 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "sh scripts/check-brand.sh && sh scripts/check-money.sh && sh scripts/check-forms.sh",
+    "prebuild": "sh scripts/check-brand.sh && sh scripts/check-money.sh && sh scripts/check-forms.sh && sh scripts/check-entity-default.sh",
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
     "check-brand": "sh scripts/check-brand.sh",
     "check-money": "sh scripts/check-money.sh",
-    "check-forms": "sh scripts/check-forms.sh"
+    "check-forms": "sh scripts/check-forms.sh",
+    "check-entity-default": "sh scripts/check-entity-default.sh"
   },
   "dependencies": {
     "next": "16.3.5",

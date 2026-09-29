@@ -61,7 +61,7 @@ export default function RecurringEntriesPage() {
         api.get<Paginated<FiscalPeriod>>("/fiscal-periods/?ordering=start_date"),
       ]);
       setEntities(entityData.results.filter((entity) => entity.entity_type !== "holding"));
-      if (me?.legal_entity_ids[0]) setLegalEntityId((prev) => prev || me.legal_entity_ids[0]);
+      if (me?.default_legal_entity_id) setLegalEntityId((prev) => prev || me.default_legal_entity_id!);
       setAccounts(flattenLeafAccounts(tree));
       setPeriods(periodData.results);
       if (showCostCenterUI) {

@@ -112,8 +112,8 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
       setEntities(filteredEntities);
       if (filteredEntities.length === 1) {
         setLegalEntityId((prev) => prev || filteredEntities[0].id);
-      } else if (me?.legal_entity_ids[0]) {
-        setLegalEntityId((prev) => prev || me.legal_entity_ids[0]);
+      } else if (me?.default_legal_entity_id) {
+        setLegalEntityId((prev) => prev || me.default_legal_entity_id!);
       }
       if (showCostCenterUI) {
         const ccData = await api.get<Paginated<CostCenter>>("/cost-centers/");

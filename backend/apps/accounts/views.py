@@ -8,7 +8,11 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.access.models import Role
 from apps.common.ratelimit import check_auth_ratelimit
-from apps.organization.services import get_accessible_entity_ids, is_simplified_mode
+from apps.organization.services import (
+    default_legal_entity_id_for_user,
+    get_accessible_entity_ids,
+    is_simplified_mode,
+)
 from apps.tenants.models import TenantFeatures
 
 from .serializers import RegisterSerializer, TenantLoginSerializer, TenantSerializer, UserSerializer
@@ -115,13 +119,17 @@ class MeView(APIView):
             # with the model's own defaults rather than persisting one.
             features = TenantFeatures(tenant=tenant)
 
+        accessible_ids = get_accessible_entity_ids(user)
+        default_id = default_legal_entity_id_for_user(user, accessible_ids)
+
         return Response(
             {
                 "tenant": TenantSerializer(tenant).data,
                 "user": UserSerializer(user).data,
                 "roles": list(user.roles.values_list("name", flat=True)),
                 "permissions": permission_codes,
-                "legal_entity_ids": sorted(str(eid) for eid in get_accessible_entity_ids(user)),
+                "legal_entity_ids": sorted(str(eid) for eid in accessible_ids),
+                "default_legal_entity_id": str(default_id) if default_id else None,
                 "features": {
                     "organization": features.organization,
                     "cost_centers": features.cost_centers,

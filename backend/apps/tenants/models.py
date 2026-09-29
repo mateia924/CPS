@@ -53,6 +53,16 @@ class Tenant(models.Model):
     # block (3.16.3: "لا يُعامَل أي مستأجر كعميل إنتاجي... تحمي المنصة
     # قانونيًا" is an operational policy, not a technical gate).
     opening_balances_approved_at = models.DateTimeField(null=True, blank=True)
+    # Sprint 6.5.14 (fix: legal_entity_ids[0] was sorted by UUID string,
+    # unrelated to entity_type — the same tenant's own documents could
+    # land split across its company/branch rows with nothing tying the
+    # two together). Nullable: a tenant with no sensible single default
+    # (e.g. genuinely multi-branch) simply has none — apps.accounts.
+    # views.MeView's own deterministic fallback (BRANCH first, then by
+    # name) covers that case, this field is only ever a preference.
+    default_legal_entity = models.ForeignKey(
+        "organization.LegalEntity", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

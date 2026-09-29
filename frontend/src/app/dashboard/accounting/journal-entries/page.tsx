@@ -56,7 +56,7 @@ export default function JournalEntriesPage() {
       ]);
       setEntities(entityData.results.filter((entity) => entity.entity_type !== "holding"));
       // Sprint 6.0.1-B item 6: default to the user's own primary branch.
-      if (me?.legal_entity_ids[0]) setLegalEntityId((prev) => prev || me.legal_entity_ids[0]);
+      if (me?.default_legal_entity_id) setLegalEntityId((prev) => prev || me.default_legal_entity_id!);
       setAccounts(flattenLeafAccounts(tree));
       if (showCostCenterUI) {
         const ccData = await api.get<Paginated<CostCenter>>("/cost-centers/");

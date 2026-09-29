@@ -56,7 +56,7 @@ export default function AssetsPage() {
       setEmployees(employeeData.results);
       setCostCenters(ccData.results);
       // Sprint 6.0.1-B item 6: default to the user's own primary branch.
-      if (me?.legal_entity_ids[0]) setLegalEntityId((prev) => prev || me.legal_entity_ids[0]);
+      if (me?.default_legal_entity_id) setLegalEntityId((prev) => prev || me.default_legal_entity_id!);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

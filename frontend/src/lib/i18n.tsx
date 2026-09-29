@@ -617,6 +617,12 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     inheritedFromParent: "(موروث من الكيان الأعلى)",
     ownValue: "قيمة هذا الكيان",
 
+    // --- Sprint 6.5.14: الإعدادات المتقدمة — الكيان الافتراضي للمستندات ---
+    advancedSettingsSection: "متقدم",
+    defaultLegalEntity: "الكيان الافتراضي للمستندات",
+    defaultLegalEntityHint: "الكيان الذي تُنشأ عليه المستندات الجديدة تلقائيًا حين لا يُختار كيان صراحةً — بصلاحية المالك فقط.",
+    noSelection: "بلا اختيار",
+
     // --- Sprint 6.8: سياسات المستأجر (حد الائتمان، مركز التكلفة) ---
     profileNav: "ملفي الشخصي",
     tenantPolicySettings: "سياسات النظام",
@@ -1295,6 +1301,12 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     shortAddress: "Short address",
     inheritedFromParent: "(inherited from the parent entity)",
     ownValue: "This entity's own value",
+
+    // --- Sprint 6.5.14: advanced settings — default document entity ---
+    advancedSettingsSection: "Advanced",
+    defaultLegalEntity: "Default entity for documents",
+    defaultLegalEntityHint: "The entity new documents are created on by default when none is explicitly chosen — Owner only.",
+    noSelection: "No selection",
 
     // --- Sprint 6.8: tenant policy settings (credit limit, cost center) ---
     profileNav: "My profile",

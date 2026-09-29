@@ -71,7 +71,7 @@ export default function InvoicesPage() {
       setEntities(entityData.results.filter((entity) => entity.entity_type !== "holding"));
       // Sprint 6.0.1-B item 6: default to the user's own primary branch
       // instead of forcing an explicit pick every time.
-      if (me?.legal_entity_ids[0]) setLegalEntityId((prev) => prev || me.legal_entity_ids[0]);
+      if (me?.default_legal_entity_id) setLegalEntityId((prev) => prev || me.default_legal_entity_id!);
     }
     if (showCostCenterUI) {
       const ccData = await api.get<Paginated<CostCenter>>("/cost-centers/");

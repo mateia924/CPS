@@ -108,6 +108,33 @@ def get_accessible_entity_ids(user):
     return result
 
 
+def default_legal_entity_id_for_user(user, accessible_ids):
+    """Sprint 6.5.14 (fix: legal_entity_ids[0] was sorted by UUID
+    string — arbitrary re: entity_type, unrelated to which entity a
+    tenant's documents actually live on). Deterministic and documented:
+    1. Tenant.default_legal_entity if it's one of `user`'s own
+       accessible entities (an Owner always passes this check; a
+       restricted user only if they were actually granted it).
+    2. Otherwise the first of `accessible_ids`, ordered BRANCH type
+       first, then by name — never by id/creation order.
+    None if `accessible_ids` is empty (no entity at all)."""
+    if not accessible_ids:
+        return None
+
+    tenant_default_id = user.tenant.default_legal_entity_id
+    if tenant_default_id and tenant_default_id in accessible_ids:
+        return tenant_default_id
+
+    from django.db.models import Case, When
+
+    fallback = (
+        LegalEntity.objects.filter(id__in=accessible_ids)
+        .order_by(Case(When(entity_type=LegalEntity.Type.BRANCH, then=0), default=1), "name")
+        .first()
+    )
+    return fallback.id if fallback else None
+
+
 _COMPANY_PROFILE_FIELDS = (
     "commercial_registration", "building_number", "street", "district",
     "city", "postal_code", "short_address", "phone", "email",

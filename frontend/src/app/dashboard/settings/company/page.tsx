@@ -5,8 +5,9 @@ import { api, fieldErrors, generalError } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
 import { FormField } from "@/components/FormField";
 import { WarningsBanner } from "@/components/WarningsBanner";
+import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
-import type { LegalEntity, Paginated, TenantFeaturesSettings } from "@/lib/types";
+import type { LegalEntity, Paginated, TenantFeaturesSettings, TenantSettings } from "@/lib/types";
 
 const FIELD_KEYS = [
   "commercial_registration", "building_number", "street", "district",
@@ -139,6 +140,72 @@ export default function CompanySettingsPage() {
       <AttachmentPanel targetType="legal_entity" targetId={selected.id} />
 
       <TenantPolicyCard />
+
+      <AdvancedSettingsCard entities={entities} />
+    </div>
+  );
+}
+
+// Sprint 6.5.14: الإعدادات ← الشركة ← متقدم — «الكيان الافتراضي
+// للمستندات» (Tenant.default_legal_entity). Owner-only edit, same as
+// TenantPolicyCard above but its own card/endpoint since the field
+// lives on Tenant, not TenantFeatures — visible read-only to non-
+// Owners too (GET has no permission gate server-side).
+function AdvancedSettingsCard({ entities }: { entities: LegalEntity[] }) {
+  const { t } = useLocale();
+  const { me } = useAuth();
+  const isOwner = !!me && me.roles.includes("Owner");
+  const [settings, setSettings] = useState<TenantSettings | null>(null);
+  const [defaultEntityId, setDefaultEntityId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    api.get<TenantSettings>("/tenant-settings/").then((data) => {
+      setSettings(data);
+      setDefaultEntityId(data.default_legal_entity || "");
+    });
+  }, []);
+
+  if (!settings) return null;
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSaved(false);
+    try {
+      const updated = await api.patch<TenantSettings>("/tenant-settings/", {
+        default_legal_entity: defaultEntityId || null,
+      });
+      setSettings(updated);
+      setSaved(true);
+    } catch (err) {
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
+    }
+  };
+
+  return (
+    <div className="card">
+      <h3>{t("advancedSettingsSection")}</h3>
+      <form onSubmit={onSubmit}>
+        <FormField name="default_legal_entity" label={t("defaultLegalEntity")} hint={t("defaultLegalEntityHint")} style={{ maxWidth: "320px" }}>
+          <select value={defaultEntityId} onChange={(e) => setDefaultEntityId(e.target.value)} disabled={!isOwner}>
+            <option value="">{t("noSelection")}</option>
+            {entities.map((entity) => (
+              <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>
+            ))}
+          </select>
+        </FormField>
+
+        {isOwner && (
+          <>
+            <br />
+            <WarningsBanner warnings={error ? [error] : []} variant="error" />
+            {saved && <p style={{ color: "var(--success)" }}>✓</p>}
+            <button className="primary" type="submit">{t("saveChanges")}</button>
+          </>
+        )}
+      </form>
     </div>
   );
 }

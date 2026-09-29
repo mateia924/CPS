@@ -47,6 +47,7 @@ check:
 	$(DC) $(DEV) exec frontend npm run check-brand
 	$(DC) $(DEV) exec frontend npm run check-money
 	$(DC) $(DEV) exec frontend npm run check-forms
+	$(DC) $(DEV) exec frontend npm run check-entity-default
 
 ## Live-environment smoke test (sprint 5.0, CFO_REVIEW_1 O8) — run this
 ## after every `docker compose restart backend celery_worker`, before

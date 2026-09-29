@@ -74,8 +74,8 @@ export function TransferVoucherScreen() {
       setEntities(filteredEntities);
       if (filteredEntities.length === 1) {
         setLegalEntityId((prev) => prev || filteredEntities[0].id);
-      } else if (me?.legal_entity_ids[0]) {
-        setLegalEntityId((prev) => prev || me.legal_entity_ids[0]);
+      } else if (me?.default_legal_entity_id) {
+        setLegalEntityId((prev) => prev || me.default_legal_entity_id!);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps

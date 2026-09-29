@@ -246,6 +246,29 @@ commit: `Sprint 6.5.12: DepreciationScheduleViewSet entity scoping, contra-accou
 
 commit: `docs: register entity-scoping audit debt (EntityScopedViewSet mixin), inventory the four real gaps (AssetViewSet, Bank/CashBox/CustodyViewSet)`
 
+### 6.5.14 — الكيان الافتراضي في الوضع المبسّط (حلّ دَين 6.5.12)
+
+**المرحلة الأولى (قراءة فقط، بلا تعديل):** جرد كل الـ15 مستأجر حي — 8/14 كان `legal_entity_ids[0]` يقع على كيان "الشركة"، 6/14 على "الفرع" (ترتيب أبجدي بنص الـUUID، لا علاقة بالنوع). `debug-tenant-x` بلا كيانات (شذوذ منفصل، خارج النطاق). **Fatma** (المرجع الحقيقي الأساسي للمشروع) لديها فعليًا سند قبض/صرف واحد + أصل واحد + جدول إهلاك واحد على كيانها "الشركة"، و15 قيد يومية على كيانها "الفرع" — تأكيد حي لأثر العطل. جرد `grep` أكّد عشرة مواضع بالضبط عبر ثمانية ملفات في الواجهة تستخدم `legal_entity_ids[0]`.
+
+**(1) `Tenant.default_legal_entity` (FK اختياري، `on_delete=SET_NULL`):** migration `0014_tenant_default_legal_entity` تضيف الحقل وتُشغِّل `RunPython` بلا استيراد كود حي (سطر استعلام مباشر `entity_type="branch"`، اتفاقية المشروع) تضبطه لكل مستأجر قائم = فرعه الوحيد النشط (الفرع دائمًا، لا الكيان الحامل للمستندات فعليًا) — **لا نقل أي مستند**. `scripts/backup.sh` قبلها بسطر مسجَّل في `docs/ops/backups.log` بالسبب. حقل «الكيان الافتراضي للمستندات» جديد في الإعدادات ← الشركة ← متقدم (`TenantSettingsView`/`TenantSettingsSerializer`، نفس نمط `TenantFeaturesView`، GET للجميع وPATCH بصلاحية المالك فقط — الواجهة تعطّل حقل الاختيار لغير المالك أيضًا).
+
+**(2) `/auth/me/` يعيد `default_legal_entity_id`:** `apps.organization.services.default_legal_entity_id_for_user(user, accessible_ids)` — حتمي وموثّق بتعليق في الكود: تفضيل المستأجر (`Tenant.default_legal_entity`) إن كان ضمن كيانات المستخدم المسموحة، وإلا أول كيان مسموح مرتَّب BRANCH أولًا ثم بالاسم (لا ترتيب UUID إطلاقًا). المواضع العشرة عبر ثمانية ملفات (`VoucherScreen.tsx`، `TransferVoucherScreen.tsx`، وشاشات الأصول/البنوك/الصناديق/العهد/الفواتير/القيود/الافتتاح/الدورية) حُوِّلت لاستخدام `me.default_legal_entity_id`. النمط الأعمى مُمنوع بنيويًا الآن: `frontend/scripts/check-entity-default.sh` (grep على كل `src/`، جزء من `npm run prebuild` و`make check`) يفشل البناء إن عاد `legal_entity_ids[0]` إلى الكود.
+
+**(3) `CreateUserSerializer` في الوضع المبسّط:** يمنح المستخدم الجديد الآن **كل كيانات الشركة الوحيدة** (`LegalEntity.objects.filter(tenant=tenant, is_active=True)`) بدل الفرع فقط (`default_branch_for_tenant`) — يضمن أن مستخدمًا جديدًا في تينانت بحالة Fatma يرى ويعتمد كل المستندات من اليوم الأول بصرف النظر عن أي الكيانين اختار الافتراضي/الاحتياطي. خارج الوضع المبسّط: الاختيار الصريح كما هو، بلا تغيير.
+
+**(4) اختبارات جديدة (`tests/test_default_legal_entity.py`):**
+- الافتراضي لا يعتمد على ترتيب UUID — كيانان بترتيب UUID معكوس بين مستأجرين، النتيجة BRANCH في الحالتين.
+- تفضيل المستأجر الصريح يفوز إن كان مسموحًا للمستخدم.
+- مستخدم جديد في الوضع المبسّط يرى ويعتمد قيدَي يومية على كيانَي الشركة والفرع معًا (سيناريو Fatma المصغَّر) — عبر `/api/journal-entries/` حقيقيًا (list + submit + approve)، لا استدعاء دالة مباشر فقط.
+- `tests/test_rbac.py::test_new_user_in_simplified_mode_tenant_gets_all_of_the_single_companys_entities` (إعادة تسمية/تحديث الاختبار القديم الذي كان يثبت السلوك العكسي عمدًا).
+- الطور الثالث من `make e2e` (`03-non-emergency-approval.spec.ts`) — أُزيل تحايل "متقدم" + اختيار الفرع يدويًا (سبرنت 6.5.12)، يعتمد الآن على الافتراضي الحتمي الجديد فقط.
+
+**(5) حالة Fatma الحقيقية — مسجَّلة صراحةً، لم تُغيَّر:** سند القبض/الصرف + الأصل + جدول الإهلاك يبقون على كيانها "الشركة"؛ الخمس عشرة قيد يومية تبقى على كيانها "الفرع" — لا نقل، migration `0014` ضبطت فقط تفضيلها (فرعها) دون لمس أي مستند قائم؛ مستخدم جديد لها الآن يرى ويعتمد الكيانين معًا بفضل بند (3).
+
+**(6) نطاق التقارير وقائمة الإقفال (تقرير بلا تنفيذ):** التقارير الأربعة (ميزان المراجعة/الميزانية العمومية/قائمة الدخل عبر `account_balances`، تقرير سجل الأصول الثابتة) و`register_vs_ledger` تعمل افتراضيًا على مستوى **المستأجر كاملاً** (`legal_entity=None`)، وتقبل جميعًا `?legal_entity=`/`include_children` اختياريًا لتضييقها لشجرة ذلك الكيان الفرعية (أو الكيان وحده إن `include_children=false`) — اختيار المستخدم لا سلوك ثابت. **قائمة إقفال الفترة** (`apps.accounting.period_close.period_checklist`/`close_period`) لا تحمل أي مفهوم كيان قانوني إطلاقًا — تعمل دائمًا على مستوى المستأجر كاملاً (الفترة المالية نفسها بلا FK لكيان، فقط لسنة مالية تابعة للمستأجر).
+
+commit: `Sprint 6.5.14: Tenant.default_legal_entity + deterministic /auth/me/ default, CreateUserSerializer grants all entities in simplified mode, structural guard against legal_entity_ids[0]`
+
 ---
 
 ## معايير القبول الإجمالية
