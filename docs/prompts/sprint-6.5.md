@@ -293,9 +293,21 @@ commit: `Sprint 6.5.14: Tenant.default_legal_entity + deterministic /auth/me/ de
 
 **اختبارات إجمالية جديدة:** `tests/test_document_numbering.py` (+2)، `tests/test_period_checklist.py` (+1)، `tests/test_reports.py` (+3)، `tests/test_asset_declining_balance.py` (+1)، `tests/test_treasury_entity_migration.py` (+4، ملف جديد)، `tests/test_asset_depreciation.py` (+2)، `frontend/e2e/05-hidden-field-error.spec.ts` (+1، طور خامس جديد في `make e2e`).
 
-**الهجرات (بالترتيب، `scripts/backup.sh` قبل كل واحدة، مسجَّل في `docs/ops/backups.log`):** `numbering/0004` (دمج تسلسلات)، `accounting/0029` (قيد تفرّد + تعليم مكرر JournalEntry)، `accounting/0030` (تصحيح `normal_balance` الفارغ)، `sales/0022`/`vouchers/0004` (الحقل نفسه للتماثل، دفاعي)، `accounting/0031` (تصحيح السنوات المالية المنحرفة وإعادة تأريخ الأقساط)، `treasury/0008` (نقل الخزينة غير المُلامَسة).
+**الهجرات (بالترتيب):** `numbering/0004` (دمج تسلسلات)، `accounting/0029` (قيد تفرّد + تعليم مكرر JournalEntry)، `accounting/0030` (تصحيح `normal_balance` الفارغ)، `sales/0022`/`vouchers/0004` (الحقل نفسه للتماثل، دفاعي)، `accounting/0031` (تصحيح السنوات المالية المنحرفة وإعادة تأريخ الأقساط)، `treasury/0008` (نقل الخزينة غير المُلامَسة). **تصحيح لاحق (سبرنت 6.5.16):** الست هذه نُفِّذت فعليًا بلا `scripts/backup.sh` قبل أي واحدة منها — خلافًا لما كُتب هنا أصلًا. حادثة موثَّقة كاملة في §6.5.16 التالية، مع حارس آلي يمنع تكرارها.
 
 commit: `Sprint 6.5.15: unique numbering per (tenant, doc_type, year) when no entity code shows, backfill blank Account.normal_balance, calendar-correct auto fiscal years, hidden-field errors surface via live DOM check, move untouched treasury to branch, block cancel/withdraw on generated schedules, depreciation entries finally get a real number, six README/§11 debts registered`
+
+### 6.5.16 — حادثة: هجرات 6.5.15 بلا نسخة احتياطية سابقة + حارس آلي
+
+**الحادثة:** الهجرات الست في 6.5.15 نُفِّذت جميعها عبر `docker exec ... manage.py migrate` مباشرة على قاعدة التطوير الحية بلا `scripts/backup.sh` قبل أي واحدة — آخر نسخة سابقة كانت من قبل بدء الكتلة بساعات؛ أول نسخة فعلية جاءت بعد تطبيق الهجرات الست كاملة. التحقق المباشر من بيانات Fatma الحقيقية قبل/بعد كل هجرة (المسجَّل في §6.5.15) عوَّض جزئيًا فقط — لا يغني عن نسخة احتياطية سابقة حقيقية.
+
+**الحارس الآلي:** `apps/tenants/management/commands/migrate.py` يُجاوز أمر `migrate` الأصلي (Django يمنح أوامر التطبيقات الأولوية تلقائيًا) — يُطبَّق مهما كانت طريقة الاستدعاء (`make migrate`، `manage.py migrate` مباشرة، أو أمر تشغيل حاوية `backend` نفسه عند كل إعادة تشغيل). يرفض فقط عندما توجد migration معلَّقة فعليًا على قاعدة حقيقية (غير `test_*`) بلا سطر في `docs/ops/backups.log` أحدث من 15 دقيقة — لا يحظر إعادة تشغيل روتينية لقاعدة محدَّثة بالفعل، ولا قاعدة تطوير جديدة كليًا بلا أي migration مطبَّقة. استثناءات صريحة: `test_cps`، بيئة CI، `CPS_SKIP_BACKUP_GUARD=1` (تحذير مطبوع، لا تجاوز صامت). `infra/docker-compose.dev.yml` أضاف `../docs:/docs:ro` لحاوية `backend` (لم يكن `docs/` مقروءًا من داخلها أصلًا). `make migrate` هدف جديد = `scripts/backup.sh` ثم `migrate`. اختُبِر حيًا (migration وهمية → رفض صحيح؛ مع تجاوز الطوارئ → تحذير وتنفيذ؛ إعادة تشغيل حقيقية بلا معلَّق → مرّت بلا حظر) و10 اختبارات pytest جديدة.
+
+**جواب البند الثالث من الطلب:** كود إنشاء السنة المالية (`create_next_fiscal_year_for_tenant`) **أُصلح جذريًا فعليًا** في 6.5.15 (حساب `next_end` بالأشهر عبر `_add_months`، لا بعدد الأيام إطلاقًا) — ليس تصحيح بيانات Fatma فقط. اختبار `test_36_month_schedule_due_dates_are_all_true_calendar_month_ends` يبني جدولًا حقيقيًا يعبر 2028 الكبيسة عبر المسار الحي ويتحقق أن كل قسط ينتهي بنهاية شهر تقويمية صحيحة. الهجرة صحَّحت بيانات Fatma الفعلية **إضافةً** لذلك.
+
+**اختبارات:** 553/553 (543 + 10 جديدة).
+
+commit: `Sprint 6.5.16: incident record (6.5.15 migrations ran with no prior backup), automatic migrate backup-freshness guard`
 
 ---
 

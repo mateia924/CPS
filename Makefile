@@ -1,4 +1,4 @@
-.PHONY: dev-up dev-down dev-logs dev-build prod-up prod-down prod-config dev-config test lint check smoke backup e2e
+.PHONY: dev-up dev-down dev-logs dev-build prod-up prod-down prod-config dev-config test lint check smoke backup e2e migrate
 
 COMPOSE_DIR := infra
 ENV_FILE := .env
@@ -35,6 +35,17 @@ test:
 
 lint:
 	$(DC) $(DEV) run --rm --entrypoint '' backend sh -c "pip install -q -r requirements-dev.txt && ruff check ."
+
+## Sprint 6.5.16 (incident: 6.5.15's six data migrations ran with no
+## prior backup — scripts/backup.sh only ran once, after the fact).
+## backup.sh first, then migrate — and apps.tenants's own migrate
+## command override refuses to apply any pending migration on a real
+## (non-test) database without a backups.log entry newer than 15
+## minutes anyway, so this target is the convenient path, not the only
+## enforcement; a bare `manage.py migrate` is guarded the same way.
+migrate:
+	./scripts/backup.sh "make migrate"
+	$(DC) $(DEV) exec backend python manage.py migrate
 
 ## Brand/money/forms structural checks (sprint 6.0.1, permanent rules
 ## 1-4; forms check added 6.5.6): zero literal colors outside

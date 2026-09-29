@@ -24,6 +24,12 @@ services:
              exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --reload"
     volumes:
       - ../backend:/app:Z
+      # Sprint 6.5.16: apps.tenants's migrate override (the backup-
+      # freshness guard) reads docs/ops/backups.log — not otherwise
+      # reachable from inside this container (only ../backend:/app is
+      # mounted above). Read-only: this container never writes here,
+      # scripts/backup.sh does that from the host.
+      - ../docs:/docs:ro,Z
 
   celery_worker:
     build:
