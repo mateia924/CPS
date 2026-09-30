@@ -64,7 +64,7 @@ def test_transfer_between_branches_of_same_company_keeps_generated_untouched(
     generate_due_installments(tenant=tenant_a, as_of=date(2026, 3, 31))  # months 1-3 generated on branch_a
 
     response = owner_client.post(
-        f"/api/assets/{asset.id}/transfer/", {"legal_entity": str(branch_b.id)}, format="json",
+        f"/api/assets/{asset.id}/transfer/", {"legal_entity": str(branch_b.id), "reason": "نقل تجريبي"}, format="json",
     )
     assert response.status_code == 201, response.data
 
@@ -81,12 +81,32 @@ def test_transfer_between_branches_of_same_company_keeps_generated_untouched(
     assert new_entries.count() == 1
 
 
+def test_transfer_without_a_reason_returns_400_and_stores_the_reason_when_given(
+    tenant_a, owner_client, branch_a, branch_b
+):
+    """Sprint 6.5.18 (UAT item 9): "فورم النقل ... يطلب سببًا" —
+    required, and stored on the AssetTransfer row for the log."""
+    asset = _asset_with_running_schedule(tenant_a, branch_a, owner_client)
+
+    missing_reason = owner_client.post(
+        f"/api/assets/{asset.id}/transfer/", {"legal_entity": str(branch_b.id)}, format="json",
+    )
+    assert missing_reason.status_code == 400, missing_reason.data
+
+    response = owner_client.post(
+        f"/api/assets/{asset.id}/transfer/",
+        {"legal_entity": str(branch_b.id), "reason": "افتتاح فرع جديد"}, format="json",
+    )
+    assert response.status_code == 201, response.data
+    assert response.data["reason"] == "افتتاح فرع جديد"
+
+
 def test_transfer_between_companies_returns_400(tenant_a, owner_client, branch_a):
     asset = _asset_with_running_schedule(tenant_a, branch_a, owner_client)
     other_company = LegalEntityFactory(tenant=tenant_a, entity_type=LegalEntity.Type.COMPANY)
 
     response = owner_client.post(
-        f"/api/assets/{asset.id}/transfer/", {"legal_entity": str(other_company.id)}, format="json",
+        f"/api/assets/{asset.id}/transfer/", {"legal_entity": str(other_company.id), "reason": "نقل تجريبي"}, format="json",
     )
     assert response.status_code == 400, response.data
 
@@ -98,7 +118,7 @@ def test_cost_center_transfer_affects_next_installment(tenant_a, owner_client, b
     generate_due_installments(tenant=tenant_a, as_of=date(2026, 1, 31))  # month 1 only, generated with old_cc
 
     response = owner_client.post(
-        f"/api/assets/{asset.id}/transfer/", {"cost_center": str(new_cc.id)}, format="json",
+        f"/api/assets/{asset.id}/transfer/", {"cost_center": str(new_cc.id), "reason": "نقل تجريبي"}, format="json",
     )
     assert response.status_code == 201, response.data
 
@@ -121,7 +141,7 @@ def test_transfer_of_fully_disposed_asset_returns_400(tenant_a, owner_client, br
 
     other_cc = CostCenterFactory(tenant=tenant_a)
     response = owner_client.post(
-        f"/api/assets/{asset.id}/transfer/", {"cost_center": str(other_cc.id)}, format="json",
+        f"/api/assets/{asset.id}/transfer/", {"cost_center": str(other_cc.id), "reason": "نقل تجريبي"}, format="json",
     )
     assert response.status_code == 400, response.data
 

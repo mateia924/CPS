@@ -194,6 +194,19 @@ class AssetDisposal(TenantScopedModel):
         "accounting.JournalEntry", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     status = models.CharField(_("status"), max_length=20, choices=Status.choices, default=Status.DRAFT)
+    # Sprint 6.5.18 (item 3/9): a partial disposal that finds an active
+    # schedule reschedules it, the same shape as AssetAddition.old_
+    # entry/new_entry above — recorded here (nullable: a full disposal
+    # only cancels old_entry with no replacement, and a disposal against
+    # an asset with no active schedule touches neither) so the asset's
+    # full RecurringEntry lineage stays walkable after Asset.
+    # depreciation_entry itself has moved on or gone back to null.
+    old_entry = models.ForeignKey(
+        "accounting.RecurringEntry", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    new_entry = models.ForeignKey(
+        "accounting.RecurringEntry", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
     created_by = models.ForeignKey(
         "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
@@ -226,6 +239,11 @@ class AssetTransfer(TenantScopedModel):
     to_cost_center = models.ForeignKey(
         "organization.CostCenter", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
+    # Sprint 6.5.18 (UAT item 9): "فورم النقل ... يطلب سببًا" — required
+    # at the serializer/form level, not here (a bare CharField stays
+    # blank-able at the model layer, same convention as AssetDisposal.
+    # reason above).
+    reason = models.CharField(_("reason"), max_length=255, blank=True)
     created_by = models.ForeignKey(
         "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )

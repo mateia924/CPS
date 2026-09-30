@@ -13,13 +13,20 @@ from .models import Voucher, VoucherLine
 
 
 class VoucherLineSerializer(serializers.ModelSerializer):
+    # Sprint 6.5.18 (UAT item 9): "جدول سدادات السند يعرض الحساب
+    # ومركز التكلفة" — the line's own account/cost_center were already
+    # on the wire as bare ids; these give the voucher detail screen's
+    # own lines table something readable to show for them.
+    account_name = serializers.CharField(source="account.name", read_only=True, default=None)
+    cost_center_name = serializers.CharField(source="cost_center.name", read_only=True, default=None)
+
     class Meta:
         model = VoucherLine
         fields = (
             "id", "line_no", "line_type", "invoice", "allocated_invoice_fc",
-            "account", "tax_code", "amount_includes_tax", "tax_amount_fc",
+            "account", "account_name", "tax_code", "amount_includes_tax", "tax_amount_fc",
             "ext_supplier_name", "ext_supplier_tax_number", "ext_invoice_ref",
-            "cost_center", "description", "amount_fc", "amount_base", "tax_amount_base",
+            "cost_center", "cost_center_name", "description", "amount_fc", "amount_base", "tax_amount_base",
         )
         read_only_fields = fields
 

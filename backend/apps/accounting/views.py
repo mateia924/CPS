@@ -268,12 +268,16 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
 
     def get_queryset(self):
         accessible_ids = get_accessible_entity_ids(self.request.user)
-        return (
-            JournalEntry.objects.filter(
-                tenant=self.request.user.tenant, legal_entity_id__in=accessible_ids
-            )
-            .prefetch_related("lines", "lines__account")
-        )
+        queryset = JournalEntry.objects.filter(
+            tenant=self.request.user.tenant, legal_entity_id__in=accessible_ids
+        ).prefetch_related("lines", "lines__account")
+        # Sprint 6.5.18 (UAT item 5): an explicit, OPTIONAL further
+        # narrowing on top of accessible_ids above — never a silent
+        # default. No `legal_entity` param means every accessible entity.
+        legal_entity_id = self.request.query_params.get("legal_entity")
+        if legal_entity_id:
+            queryset = queryset.filter(legal_entity_id=legal_entity_id)
+        return queryset
 
     def _resolve_currency_and_rate(self, tenant, legal_entity, currency, exchange_rate, date):
         # Sprint 6 (block 6.0, item 6): the third element is a

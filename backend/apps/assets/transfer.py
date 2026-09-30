@@ -28,7 +28,7 @@ def _company_root(entity):
 
 
 @transaction.atomic
-def transfer_asset(asset, user, legal_entity=None, cost_center=None, request=None):
+def transfer_asset(asset, user, legal_entity=None, cost_center=None, reason="", request=None):
     if asset.status == Asset.Status.DISPOSED or asset.disposed_fraction >= 1:
         raise ValidationError(str(_("لا يمكن نقل أصل مُستبعَد بالكامل.")))
 
@@ -75,7 +75,7 @@ def transfer_asset(asset, user, legal_entity=None, cost_center=None, request=Non
         tenant=asset.tenant, asset=asset,
         from_legal_entity=from_legal_entity, to_legal_entity=asset.legal_entity,
         from_cost_center=from_cost_center, to_cost_center=asset.cost_center,
-        created_by=user,
+        reason=reason, created_by=user,
     )
     log_action(
         actor_type=AuditLog.ActorType.TENANT_USER, actor_id=user.id, action="asset_transfer.created",

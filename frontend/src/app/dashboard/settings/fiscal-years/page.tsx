@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { api, fieldErrors, generalError } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { FormField } from "@/components/FormField";
+import { Money } from "@/components/Money";
 import { WarningsBanner } from "@/components/WarningsBanner";
 import type { FiscalPeriod, FiscalPeriodicStatus, FiscalYear, Paginated, PeriodChecklistItem } from "@/lib/types";
 
@@ -14,10 +16,49 @@ const STATUS_LABEL_KEY: Record<FiscalPeriodicStatus, string> = {
 };
 
 const LEVEL_COLOR: Record<PeriodChecklistItem["level"], string> = {
-  block: "var(--status-void)",
-  warn: "var(--status-pending)",
-  info: "var(--muted)",
+  block: "var(--danger)",
+  warn: "var(--warning)",
+  info: "var(--info)",
 };
+
+// Sprint 6.5.18 (UAT item 8): same pill shape/tokens as StatusBadge,
+// for a checklist item's own block/warn/info level.
+const LEVEL_BG: Record<PeriodChecklistItem["level"], string> = {
+  block: "var(--danger-bg)",
+  warn: "var(--warning-bg)",
+  info: "var(--info-bg)",
+};
+
+const LEVEL_LABEL_KEY: Record<PeriodChecklistItem["level"], string> = {
+  block: "checklistLevelBlock",
+  warn: "checklistLevelWarn",
+  info: "checklistLevelInfo",
+};
+
+// Sprint 6.5.18 (UAT item 8): "المراجع روابط لمستنداتها" — every
+// reference `type` apps.accounting.period_close.period_checklist ever
+// emits, mapped to that document's own detail route.
+const REFERENCE_ROUTE: Record<string, string> = {
+  invoice: "/dashboard/invoices",
+  voucher: "/dashboard/treasury/vouchers",
+  journal_entry: "/dashboard/accounting/journal-entries",
+  opening_balance: "/dashboard/accounting/opening-balances",
+  asset: "/dashboard/assets",
+  recurring_entry: "/dashboard/accounting/recurring-entries",
+};
+
+// Sprint 6.5.18 (UAT item 8): splits a checklist message on its own
+// "{{key}}" placeholders (see `amounts`) and substitutes a real
+// <Money> for each — the one place any of these amounts ever renders.
+function renderChecklistMessage(item: PeriodChecklistItem): React.ReactNode {
+  if (!item.amounts) return item.message;
+  const parts = item.message.split(/(\{\{\w+\}\})/g);
+  return parts.map((part, i) => {
+    const match = /^\{\{(\w+)\}\}$/.exec(part);
+    if (!match) return part;
+    return <Money key={i} amount={item.amounts![match[1]]} />;
+  });
+}
 
 // Sprint 6.1 (3.9): الإعدادات ← "السنوات والفترات المالية" — جدول
 // السنوات، فترات كل سنة بحالتها، أزرار حسب الحالة، إنشاء سنة بمعالج
@@ -83,6 +124,8 @@ export default function FiscalYearsPage() {
     }
   };
 
+  const checklistPanelRef = useRef<HTMLDivElement | null>(null);
+
   const openChecklist = async (period: FiscalPeriod) => {
     setChecklistFor(period);
     setAcknowledgeWarnings(false);
@@ -90,6 +133,19 @@ export default function FiscalYearsPage() {
     const data = await api.get<{ items: PeriodChecklistItem[] }>(`/fiscal-periods/${period.id}/checklist/`);
     setChecklistItems(data.items);
   };
+
+  // Sprint 6.5.18 (UAT item 8): "بعد الضغط تمرير/تركيز إلى اللوحة" —
+  // the panel renders at the bottom of a long years/periods table;
+  // without this the accountant has no idea it opened at all. Runs
+  // after the panel has actually committed to the DOM (the ref is
+  // still null synchronously inside openChecklist itself, before
+  // React's next render).
+  useEffect(() => {
+    if (checklistFor && checklistItems) {
+      checklistPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      checklistPanelRef.current?.focus();
+    }
+  }, [checklistFor, checklistItems]);
 
   const closePeriod = async () => {
     if (!checklistFor) return;
@@ -217,7 +273,7 @@ export default function FiscalYearsPage() {
       ))}
 
       {checklistFor && (
-        <div className="card">
+        <div className="card" ref={checklistPanelRef} tabIndex={-1}>
           <h3>
             {t("closeChecklist")} — #{checklistFor.seq} ({checklistFor.start_date} — {checklistFor.end_date})
           </h3>
@@ -227,13 +283,27 @@ export default function FiscalYearsPage() {
             <>
               <ul>
                 {checklistItems.map((item, i) => (
-                  <li key={i} style={{ color: LEVEL_COLOR[item.level] }}>
-                    [{item.level.toUpperCase()}] {item.message}
+                  <li key={i}>
+                    <span
+                      style={{
+                        display: "inline-block", padding: "0.1rem 0.5rem", borderRadius: "var(--radius-pill)",
+                        fontSize: "0.8rem", fontWeight: 600,
+                        color: LEVEL_COLOR[item.level], background: LEVEL_BG[item.level],
+                      }}
+                    >
+                      {t(LEVEL_LABEL_KEY[item.level])}
+                    </span>{" "}
+                    {renderChecklistMessage(item)}
                     {item.references && item.references.length > 0 && (
                       <ul>
-                        {item.references.map((ref) => (
-                          <li key={ref.id}>{ref.reference}</li>
-                        ))}
+                        {item.references.map((ref) => {
+                          const route = ref.type ? REFERENCE_ROUTE[ref.type] : undefined;
+                          return (
+                            <li key={ref.id}>
+                              {route ? <Link href={`${route}/${ref.id}`}>{ref.reference}</Link> : ref.reference}
+                            </li>
+                          );
+                        })}
                       </ul>
                     )}
                   </li>

@@ -110,6 +110,15 @@ class BankViewSet(_TreasuryMovementsMixin, SoftDeleteViewSetMixin, TenantScopedV
     ordering_fields = ["name", "created_at"]
     permission_map = _PERMISSION_MAP
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        # Sprint 6.5.18 (UAT item 5): an explicit, OPTIONAL filter the
+        # list screen's own dropdown sets — never a silent default.
+        legal_entity_id = self.request.query_params.get("legal_entity")
+        if legal_entity_id:
+            queryset = queryset.filter(legal_entity_id=legal_entity_id)
+        return queryset
+
     def perform_create(self, serializer):
         super().perform_create(serializer)
         get_or_create_treasury_account(serializer.instance, "BANKS")
@@ -153,6 +162,15 @@ class CashBoxViewSet(_TreasuryMovementsMixin, SoftDeleteViewSetMixin, TenantScop
     ordering_fields = ["name", "created_at"]
     permission_map = _PERMISSION_MAP
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        # Sprint 6.5.18 (UAT item 5): an explicit, OPTIONAL filter the
+        # list screen's own dropdown sets — never a silent default.
+        legal_entity_id = self.request.query_params.get("legal_entity")
+        if legal_entity_id:
+            queryset = queryset.filter(legal_entity_id=legal_entity_id)
+        return queryset
+
     def perform_create(self, serializer):
         super().perform_create(serializer)
         get_or_create_treasury_account(serializer.instance, "CASH")
@@ -177,6 +195,11 @@ class CustodyViewSet(_TreasuryMovementsMixin, SoftDeleteViewSetMixin, TenantScop
         employee_id = self.request.query_params.get("employee")
         if employee_id:
             queryset = queryset.filter(employee_id=employee_id)
+        # Sprint 6.5.18 (UAT item 5): an explicit, OPTIONAL filter the
+        # list screen's own dropdown sets — never a silent default.
+        legal_entity_id = self.request.query_params.get("legal_entity")
+        if legal_entity_id:
+            queryset = queryset.filter(legal_entity_id=legal_entity_id)
         return queryset
 
 

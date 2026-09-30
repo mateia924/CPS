@@ -79,6 +79,12 @@ class AssetViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         custodian_id = self.request.query_params.get("custodian")
         if custodian_id:
             queryset = queryset.filter(custodian_id=custodian_id)
+        # Sprint 6.5.18 (UAT item 5): an explicit, OPTIONAL filter the
+        # list screen's own dropdown sets — never a silent default. No
+        # `legal_entity` param means every entity the user can access.
+        legal_entity_id = self.request.query_params.get("legal_entity")
+        if legal_entity_id:
+            queryset = queryset.filter(legal_entity_id=legal_entity_id)
         return queryset
 
     @action(detail=True, methods=["post"], url_path="start-depreciation")
@@ -146,7 +152,7 @@ class AssetViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         try:
             transferred = _transfer_asset(
                 asset, request.user, legal_entity=data["legal_entity"], cost_center=data["cost_center"],
-                request=request,
+                reason=data["reason"], request=request,
             )
         except (ValidationError, ValueError) as exc:
             return Response({"detail": str(exc)}, status=400)

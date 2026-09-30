@@ -95,16 +95,65 @@ def current_book_value(asset):
     entry's own start − salvage_base" by construction (true whether
     the entry came from start_depreciation or from an earlier
     addition), so this needs no separate accumulated-to-date tracking
-    back to the asset's original opening_accumulated_depreciation."""
+    back to the asset's original opening_accumulated_depreciation.
+
+    Sprint 6.5.18: the no-schedule branch below must scale cost_base by
+    the *remaining* (not yet disposed) fraction the same way an active
+    schedule's own entry.total_amount_base already does at every
+    reschedule — cost_base itself is never reduced by a disposal (it
+    stays the ORIGINAL asset's cost throughout, by design), so without
+    this an asset that was ever partially disposed while it had no
+    running schedule would report the FULL original asset's book value
+    here instead of just what's left, throwing off a further disposal's
+    own accum-share math (apps.assets.disposal.dispose_asset)."""
     if asset.cost_base is None:
         return asset.purchase_cost
     entry = asset.depreciation_entry
     if entry is None:
-        return asset.cost_base - asset.opening_accumulated_depreciation
+        remaining_fraction = Decimal("1") - asset.disposed_fraction
+        return asset.cost_base * remaining_fraction - asset.opening_accumulated_depreciation
     generated = entry.installments.filter(
         status=RecurringInstallment.Status.GENERATED
     ).aggregate(total=Sum("amount_base"))["total"] or Decimal("0")
     return entry.total_amount_base + asset.salvage_base - generated
+
+
+def historical_installments(asset):
+    """Sprint 6.5.18 (items 3, 9): every GENERATED installment ever
+    posted for this asset under a schedule version that is no longer
+    the current one — "الأقساط المولَّدة من جدول سابق تبقى ظاهرة
+    كسطور تاريخية فوق الجدول الجديد" (item 9), and, for a fully
+    disposed asset whose depreciation_entry has gone back to null
+    (item 3's "الجدول التاريخي"), this is the *entire* generated
+    history, since every version is by definition "no longer current".
+
+    Every RecurringEntry version the asset ever had is reachable by
+    unioning: the current depreciation_entry (if any) with every
+    AssetAddition.old_entry/new_entry and AssetDisposal.old_entry/
+    new_entry row for it — each reschedule replaces exactly one entry
+    with the next, so this transitively covers the original schedule
+    start_depreciation itself created, however many additions or
+    partial disposals have rescheduled it since."""
+    entry_ids = set()
+    if asset.depreciation_entry_id:
+        entry_ids.add(asset.depreciation_entry_id)
+    for old_id, new_id in asset.additions.values_list("old_entry_id", "new_entry_id"):
+        entry_ids.add(old_id)
+        entry_ids.add(new_id)
+    for old_id, new_id in asset.disposals.values_list("old_entry_id", "new_entry_id"):
+        if old_id:
+            entry_ids.add(old_id)
+        if new_id:
+            entry_ids.add(new_id)
+    entry_ids.discard(asset.depreciation_entry_id)
+
+    return (
+        RecurringInstallment.objects.filter(
+            entry_id__in=entry_ids, status=RecurringInstallment.Status.GENERATED
+        )
+        .select_related("entry")
+        .order_by("due_date", "seq")
+    )
 
 
 def _reschedule_remaining(asset, old_entry, new_total, new_count, date, user, request=None):
@@ -174,7 +223,16 @@ def _first_schedule_period(tenant, in_service_date):
     9: "الأشهر المنقضية ... تُخصم من الأقساط المتبقية") rather than
     ever trying to post into a period that can no longer accept a
     journal entry. Grows the fiscal calendar forward exactly like
-    apps.accounting.recurring._consecutive_periods does, if needed."""
+    apps.accounting.recurring._consecutive_periods does, if needed.
+
+    Sprint 6.5.18: an old asset's own in-service date can predate every
+    fiscal year the tenant has ever set up at all (not merely land in a
+    CLOSED one) — no FiscalPeriod row covers it, calendar or otherwise.
+    That's not a reason to refuse starting the schedule (the old refusal
+    here, "لا توجد سنة مالية تغطي..."), since those months are just as
+    genuinely elapsed as a closed period's; count them as whole calendar
+    months up to the earliest fiscal period actually on file, then let
+    the ordinary closed-period loop below carry on elapsing from there."""
     period = (
         FiscalPeriod.objects.filter(
             fiscal_year__tenant=tenant, start_date__lte=in_service_date, end_date__gte=in_service_date
@@ -182,11 +240,23 @@ def _first_schedule_period(tenant, in_service_date):
         .select_related("fiscal_year")
         .first()
     )
-    if period is None:
-        raise ValidationError(
-            str(_("لا توجد سنة مالية تغطي تاريخ بدء الاستخدام %(date)s.") % {"date": in_service_date})
-        )
     elapsed = 0
+    if period is None:
+        earliest = (
+            FiscalPeriod.objects.filter(fiscal_year__tenant=tenant)
+            .select_related("fiscal_year")
+            .order_by("start_date")
+            .first()
+        )
+        if earliest is None or earliest.start_date <= in_service_date:
+            raise ValidationError(
+                str(_("لا توجد سنة مالية تغطي تاريخ بدء الاستخدام %(date)s.") % {"date": in_service_date})
+            )
+        elapsed = (
+            (earliest.start_date.year - in_service_date.year) * 12
+            + (earliest.start_date.month - in_service_date.month)
+        )
+        period = earliest
     cursor = period
     while cursor.status != FiscalPeriod.Status.OPEN:
         elapsed += 1

@@ -238,8 +238,20 @@ const FIELD_LABELS: Record<string, Record<string, string>> = {
 };
 
 /** A single message to show when there's no better field to attach the
- * error to (network failure, {detail: "..."}, or an unrecognized shape). */
-export function generalError(body: unknown, fallback: string): string {
+ * error to (network failure, {detail: "..."}, or an unrecognized shape).
+ *
+ * Sprint 6.5.18 (UAT item 6): a 6.5.10-era regression left this
+ * function only ever returning `obj.detail` when it was a plain
+ * string — DRF wraps a raised `ValidationError({"detail": [...]})`
+ * (the shape apps.vouchers.services._balance_warnings_and_checks uses
+ * for "رصيد حساب الخزينة لا يكفي...") in a *list*, so that message was
+ * silently swallowed down to `fallback` on every screen, for every
+ * status code. Fixed to read `detail` as either shape — except on a
+ * 401/403, where `detail` is DRF's/SimpleJWT's own generic, English,
+ * not-written-for-end-users text ("Token is invalid...", "You do not
+ * have permission..."), which should keep falling back to this
+ * screen's own contextual message instead. */
+export function generalError(body: unknown, fallback: string, status?: number): string {
   if (!body || typeof body !== "object") return fallback;
   const obj = body as Record<string, unknown>;
   if (obj.detail === "network_error") return fallback;
@@ -253,7 +265,10 @@ export function generalError(body: unknown, fallback: string): string {
   }
   if (unmatched.length > 0) return unmatched.join(" — ");
 
-  if (typeof obj.detail === "string") return obj.detail;
+  if (status !== 401 && status !== 403) {
+    if (typeof obj.detail === "string") return obj.detail;
+    if (Array.isArray(obj.detail)) return obj.detail.map(String).join(" ");
+  }
   if (Array.isArray(obj.non_field_errors)) return obj.non_field_errors.map(String).join(" ");
   return fallback;
 }

@@ -20,3 +20,6 @@
 2026-09-29T15:39:18+03:00	e95dbce	cps-db-20260929-153917.sql.gz	sprint 6.5.14: before tenants/0014 backfilling Tenant.default_legal_entity from each tenant's own single branch (no documents moved)
 2026-09-29T20:28:15+03:00	b167b2c	cps-db-20260929-202814.sql.gz	sprint 6.5.15 post-hoc backup — six data migrations (numbering merge, JournalEntry dedup, normal_balance backfill, drifted fiscal-year fix, treasury entity move) already applied to dev DB before this backup was taken; see final report for why scripts/backup.sh wasn't run before each one as instructed
 2026-09-30T00:03:18+03:00	b4e83bb	cps-db-20260930-000318.sql.gz	make migrate
+2026-09-30T03:00:02+03:00	dc1bb3e	cps-db-20260930-030001.sql.gz	
+2026-09-30T13:18:26+03:00	dc1bb3e	cps-db-20260930-131825.sql.gz	
+2026-09-30T14:01:18+03:00	dc1bb3e	cps-db-20260930-140117.sql.gz	

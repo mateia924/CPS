@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api, fieldErrors, generalError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
@@ -29,6 +30,9 @@ export default function JournalEntriesPage() {
   const [accounts, setAccounts] = useState<FlatAccountOption[]>([]);
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [legalEntityId, setLegalEntityId] = useState("");
+  // Sprint 6.5.18 (UAT item 5): the LIST's own optional entity filter,
+  // separate from `legalEntityId` above (the new-entry form's field).
+  const [listEntityId, setListEntityId] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [currency, setCurrency] = useState("");
   const [exchangeRate, setExchangeRate] = useState("");
@@ -287,12 +291,27 @@ export default function JournalEntriesPage() {
         </div>
       )}
 
+      <FormField name="list_entity_filter" label={t("entityFilter")}>
+        <select value={listEntityId} onChange={(e) => setListEntityId(e.target.value)}>
+          <option value="">{t("allEntities")}</option>
+          {entities.map((entity) => (
+            <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>
+          ))}
+        </select>
+      </FormField>
+
       <DataTable<JournalEntry>
         endpoint="/journal-entries/"
+        extraParams={{ legal_entity: listEntityId }}
         refreshToken={refreshToken}
         hasActiveToggle={false}
         columns={[
-          { key: "number", label: t("number"), sortable: true },
+          {
+            key: "number", label: t("number"), sortable: true,
+            // Sprint 6.5.18 (UAT item 9): the entry's own number is
+            // now a direct link to its details page, not plain text.
+            render: (row) => <Link href={`/dashboard/accounting/journal-entries/${row.id}`}>{row.number}</Link>,
+          },
           { key: "legal_entity_name", label: t("legalEntity") },
           { key: "date", label: t("date"), sortable: true },
           { key: "memo", label: t("memo") },

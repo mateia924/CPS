@@ -63,6 +63,9 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
   const [partyInvoices, setPartyInvoices] = useState<Invoice[]>([]);
 
   const [legalEntityId, setLegalEntityId] = useState("");
+  // Sprint 6.5.18 (UAT item 5): the LIST's own optional entity filter,
+  // separate from `legalEntityId` above (the new-voucher form's field).
+  const [listEntityId, setListEntityId] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [treasuryKind, setTreasuryKind] = useState<TreasuryKind>("bank");
   const [treasuryId, setTreasuryId] = useState("");
@@ -236,7 +239,7 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
       setRefreshToken((n) => n + 1);
     } catch (err) {
       setFieldErr(fieldErrors((err as { body?: unknown }).body));
-      setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
+      setError(generalError((err as { body?: unknown }).body, t("couldNotSave"), (err as { status?: number }).status));
     }
   };
 
@@ -245,7 +248,7 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
       const result = await api.post<Voucher>(`/vouchers/${voucher.id}/${action}/`);
       setWarnings(result.warnings || []);
     } catch (err) {
-      window.alert(generalError((err as { body?: unknown }).body, t("couldNotSave")));
+      window.alert(generalError((err as { body?: unknown }).body, t("couldNotSave"), (err as { status?: number }).status));
     }
     reload();
   };
@@ -361,7 +364,7 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
                 <select value={line.lineType} onChange={(e) => updateLine(i, "lineType", e.target.value)}>
                   <option value="invoice">{t("invoiceLineType")}</option>
                   <option value="on_account">{t("onAccountLineType")}</option>
-                  <option value="account">{t("accountLineType")}</option>
+                  <option value="account">{t(isReceipt ? "accountLineTypeReceipt" : "accountLineType")}</option>
                 </select>
               </FormField>
               {line.lineType === "invoice" && (
@@ -450,9 +453,18 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
         </div>
       )}
 
+      <FormField name="list_entity_filter" label={t("entityFilter")}>
+        <select value={listEntityId} onChange={(e) => setListEntityId(e.target.value)}>
+          <option value="">{t("allEntities")}</option>
+          {entities.map((entity) => (
+            <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>
+          ))}
+        </select>
+      </FormField>
+
       <DataTable<Voucher>
         endpoint="/vouchers/"
-        extraParams={{ voucher_type: voucherType }}
+        extraParams={{ voucher_type: voucherType, legal_entity: listEntityId }}
         refreshToken={refreshToken}
         hasActiveToggle={false}
         columns={[

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { api, fieldErrors, generalError } from "@/lib/api";
-import { flattenLeafAccounts, type FlatAccountOption } from "@/lib/accounts";
+import { flattenProceedsAccounts, type FlatAccountOption } from "@/lib/accounts";
 import { promptDialog } from "@/components/Dialog";
 import { FormField } from "@/components/FormField";
 import { Money } from "@/components/Money";
@@ -37,6 +37,18 @@ const INSTALLMENT_STATUS_LABEL: Record<RecurringInstallmentStatus, string> = {
 function installmentStatusLabelKey(status: RecurringInstallmentStatus, dueDate: string): string {
   if (status === "due" && dueDate > new Date().toISOString().slice(0, 10)) return "scheduledStatus";
   return INSTALLMENT_STATUS_LABEL[status];
+}
+
+// Sprint 6.5.18 (UAT item 9): a disposal fraction as a plain
+// percentage string — a bare `.toFixed()`/Decimal `.normalize()` can
+// land on scientific notation for an exact power of ten (the live
+// "3E+1%" bug on Fatma's own memo), and string-concatenating "%" onto
+// an already-formatted value can double the mark for 100%. This is
+// the one, single place a "%" character ever gets appended.
+function formatPercent(fraction: number): string {
+  const value = fraction * 100;
+  const rounded = Math.round(value * 100) / 100;
+  return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded}%`;
 }
 
 export default function AssetDetailPage() {
@@ -74,10 +86,11 @@ export default function AssetDetailPage() {
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [transferEntityId, setTransferEntityId] = useState("");
   const [transferCostCenterId, setTransferCostCenterId] = useState("");
+  const [transferReason, setTransferReason] = useState("");
   const [showTransfer, setShowTransfer] = useState(false);
 
   useEffect(() => {
-    api.get<AccountTreeNode[]>("/accounts/tree/").then((tree) => setAccounts(flattenLeafAccounts(tree)));
+    api.get<AccountTreeNode[]>("/accounts/tree/").then((tree) => setAccounts(flattenProceedsAccounts(tree)));
     api.get<Paginated<LegalEntity>>("/legal-entities/").then((data) => setLegalEntities(data.results));
     api.get<Paginated<CostCenter>>("/cost-centers/").then((data) => setCostCenters(data.results));
   }, []);
@@ -246,10 +259,12 @@ export default function AssetDetailPage() {
       await api.post(`/assets/${id}/transfer/`, {
         legal_entity: transferEntityId || null,
         cost_center: transferCostCenterId || null,
+        reason: transferReason,
       });
       setShowTransfer(false);
       setTransferEntityId("");
       setTransferCostCenterId("");
+      setTransferReason("");
       load();
     } catch (err) {
       setFieldErr(fieldErrors((err as { body?: unknown }).body));
@@ -258,6 +273,23 @@ export default function AssetDetailPage() {
   };
 
   const disposedFraction = Number(asset.disposed_fraction);
+  // Sprint 6.5.18 (UAT item 9): "سجل النقل يعرض اسم المركز والكيان لا
+  // UUID" — legalEntities/costCenters are already fetched for the
+  // transfer form's own pickers above; reused here for the log.
+  const entityName = (entityId: string) => {
+    const entity = legalEntities.find((e) => e.id === entityId);
+    return entity ? `${entity.code} — ${entity.name}` : "—";
+  };
+  const costCenterName = (costCenterId: string | null) => {
+    if (!costCenterId) return "—";
+    const cc = costCenters.find((c) => c.id === costCenterId);
+    return cc ? `${cc.code} — ${cc.name}` : "—";
+  };
+  // Sprint 6.5.18 (UAT item 3): a fully disposed asset's whole page
+  // turns read-only — no start-depreciation/addition/disposal/transfer
+  // form ever renders again, only history.
+  const isDisposed = asset.status === "disposed";
+  const hasProceeds = asset.disposals.some((d) => Number(d.proceeds_base) > 0);
 
   return (
     <div>
@@ -305,6 +337,38 @@ export default function AssetDetailPage() {
 
       <div className="card">
         <h3>{t("depreciationTab")}</h3>
+
+        {asset.historical_installments.length > 0 && (
+          <>
+            <h4>{t("historicalInstallmentsHeading")}</h4>
+            <table>
+              <thead>
+                <tr>
+                  <th>{t("seq")}</th>
+                  <th>{t("dueDate")}</th>
+                  <th>{t("amount")}</th>
+                  <th>{t("post")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {asset.historical_installments.map((installment) => (
+                  <tr key={installment.id}>
+                    <td>{installment.seq}</td>
+                    <td>{installment.due_date}</td>
+                    <td><Money amount={installment.amount_base} /></td>
+                    <td>
+                      {installment.journal_entry && (
+                        <a href={`/dashboard/accounting/journal-entries/${installment.journal_entry}`}>
+                          {t("viewDetails")}
+                        </a>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
 
         {schedule ? (
           <>
@@ -466,6 +530,13 @@ export default function AssetDetailPage() {
               </table>
             )}
           </>
+        ) : isDisposed ? (
+          // Sprint 6.5.18 (UAT item 3, item 9's own "فورم بدء الإهلاك
+          // لا يظهر لأصل مستبعَد"): a fully disposed asset never shows
+          // the start-depreciation form again — its own history above
+          // (or lack of one, if it was disposed before ever starting)
+          // is the whole story now.
+          <p>{t("noDepreciationSchedule")}</p>
         ) : (
           <>
             <p>{t("noDepreciationSchedule")}</p>
@@ -526,137 +597,174 @@ export default function AssetDetailPage() {
         )}
       </div>
 
-      {asset.status !== "disposed" && disposedFraction < 1 && (
-        <div className="card">
-          <h3>{t("disposalsTab")}</h3>
-          <button className="secondary" onClick={() => setShowDispose((v) => !v)}>
-            {t("disposeAsset")}
-          </button>
-          {showDispose && (
-            <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
-              <FormField name="date" label={t("disposalDate")} error={fieldErr.date}>
-                <input type="date" value={disposalDate} onChange={(e) => setDisposalDate(e.target.value)} />
-              </FormField>
-              <FormField name="fraction" label={t("disposalFraction")} error={fieldErr.fraction}>
-                <input
-                  type="number" step="0.0001" min="0" max="1" value={disposalFraction}
-                  onChange={(e) => setDisposalFraction(e.target.value)}
-                />
-              </FormField>
-              <FormField name="proceeds_base" label={t("disposalProceeds")} error={fieldErr.proceeds_base}>
-                <input
-                  type="number" step="0.01" value={disposalProceeds}
-                  onChange={(e) => setDisposalProceeds(e.target.value)}
-                />
-              </FormField>
-              {Number(disposalProceeds) > 0 && (
-                <FormField name="proceeds_account" label={t("disposalProceedsAccount")} error={fieldErr.proceeds_account}>
-                  <select value={disposalAccountId} onChange={(e) => setDisposalAccountId(e.target.value)}>
+      <div className="card">
+        <h3>{t("disposalsTab")}</h3>
+
+        {isDisposed && hasProceeds && (
+          <WarningsBanner warnings={[t("saleRequiresInvoiceBanner")]} variant="warning" />
+        )}
+
+        {!isDisposed && disposedFraction < 1 && (
+          <>
+            <p>{t("disposalRemainingAvailable").replace("{percent}", formatPercent(1 - disposedFraction))}</p>
+            <button className="secondary" onClick={() => setShowDispose((v) => !v)}>
+              {t("disposeAsset")}
+            </button>
+            {showDispose && (
+              <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+                <FormField name="date" label={t("disposalDate")} error={fieldErr.date}>
+                  <input type="date" value={disposalDate} onChange={(e) => setDisposalDate(e.target.value)} />
+                </FormField>
+                <FormField name="fraction" label={t("disposalFraction")} error={fieldErr.fraction}>
+                  <input
+                    type="number" step="0.0001" min="0" max="1" value={disposalFraction}
+                    onChange={(e) => setDisposalFraction(e.target.value)}
+                  />
+                </FormField>
+                <FormField name="proceeds_base" label={t("disposalProceeds")} error={fieldErr.proceeds_base}>
+                  <input
+                    type="number" step="0.01" value={disposalProceeds}
+                    onChange={(e) => setDisposalProceeds(e.target.value)}
+                  />
+                </FormField>
+                {Number(disposalProceeds) > 0 && (
+                  <FormField name="proceeds_account" label={t("disposalProceedsAccount")} error={fieldErr.proceeds_account}>
+                    <select value={disposalAccountId} onChange={(e) => setDisposalAccountId(e.target.value)}>
+                      <option value="">—</option>
+                      {accounts.map((account) => (
+                        <option key={account.id} value={account.id}>{account.label}</option>
+                      ))}
+                    </select>
+                  </FormField>
+                )}
+                <FormField name="reason" label={t("disposalReason")} error={fieldErr.reason}>
+                  <input value={disposalReason} onChange={(e) => setDisposalReason(e.target.value)} />
+                </FormField>
+                <button className="primary" onClick={disposeAsset}>{t("save")}</button>
+              </div>
+            )}
+          </>
+        )}
+
+        <h4 style={{ marginTop: "0.75rem" }}>{t("disposalsHistory")}</h4>
+        {asset.disposals.length === 0 ? (
+          <p>{t("noDisposalsYet")}</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>{t("disposalDate")}</th>
+                <th>{t("disposalFraction")}</th>
+                <th>{t("disposalProceeds")}</th>
+                <th>{t("gainLoss")}</th>
+                <th>{t("status")}</th>
+                <th>{t("post")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {asset.disposals.map((disposal) => (
+                <tr key={disposal.id}>
+                  <td>{disposal.date}</td>
+                  <td>{formatPercent(Number(disposal.fraction))}</td>
+                  <td><Money amount={disposal.proceeds_base} /></td>
+                  <td><Money amount={disposal.gain_loss} /></td>
+                  <td>{disposal.status === "approved" ? t("disposalApprovedStatus") : t(disposal.status)}</td>
+                  <td>
+                    {disposal.journal_entry && (
+                      <a href={`/dashboard/accounting/journal-entries/${disposal.journal_entry}`}>
+                        {t("viewDetails")}
+                      </a>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="card">
+        <h3>{t("transfersTab")}</h3>
+        {!isDisposed && (
+          <>
+            <button
+              className="secondary"
+              onClick={() => {
+                // Sprint 6.5.18 (UAT item 9): "فورم النقل يملأ الكيان
+                // والمركز الحاليين للأصل" — pre-fill with the asset's
+                // OWN current values every time the form opens, not
+                // whatever was left over from a previous open/cancel.
+                if (!showTransfer) {
+                  setTransferEntityId(asset.legal_entity);
+                  setTransferCostCenterId(asset.cost_center || "");
+                  setTransferReason("");
+                }
+                setShowTransfer((v) => !v);
+              }}
+            >
+              {t("transferAsset")}
+            </button>
+            {showTransfer && (
+              <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
+                <FormField name="legal_entity" label={t("transferLegalEntity")} error={fieldErr.legal_entity}>
+                  <select value={transferEntityId} onChange={(e) => setTransferEntityId(e.target.value)}>
                     <option value="">—</option>
-                    {accounts.map((account) => (
-                      <option key={account.id} value={account.id}>{account.label}</option>
+                    {legalEntities.map((entity) => (
+                      <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>
                     ))}
                   </select>
                 </FormField>
-              )}
-              <FormField name="reason" label={t("disposalReason")} error={fieldErr.reason}>
-                <input value={disposalReason} onChange={(e) => setDisposalReason(e.target.value)} />
-              </FormField>
-              <button className="primary" onClick={disposeAsset}>{t("save")}</button>
-            </div>
-          )}
+                <FormField name="cost_center" label={t("transferCostCenter")} error={fieldErr.cost_center}>
+                  <select value={transferCostCenterId} onChange={(e) => setTransferCostCenterId(e.target.value)}>
+                    <option value="">—</option>
+                    {costCenters.map((cc) => (
+                      <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
+                    ))}
+                  </select>
+                </FormField>
+                <FormField name="reason" label={t("disposalReason")} required error={fieldErr.reason}>
+                  <input value={transferReason} onChange={(e) => setTransferReason(e.target.value)} required />
+                </FormField>
+                <button className="primary" onClick={transferAsset}>{t("save")}</button>
+              </div>
+            )}
+          </>
+        )}
 
-          <h4 style={{ marginTop: "0.75rem" }}>{t("disposalsHistory")}</h4>
-          {asset.disposals.length === 0 ? (
-            <p>{t("noDisposalsYet")}</p>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>{t("disposalDate")}</th>
-                  <th>{t("disposalFraction")}</th>
-                  <th>{t("disposalProceeds")}</th>
-                  <th>{t("gainLoss")}</th>
-                  <th>{t("status")}</th>
+        <h4 style={{ marginTop: "0.75rem" }}>{t("transfersHistory")}</h4>
+        {asset.transfers.length === 0 ? (
+          <p>{t("noTransfersYet")}</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>{t("transferLegalEntity")}</th>
+                <th>{t("transferCostCenter")}</th>
+                <th>{t("disposalReason")}</th>
+                <th>{t("date")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {asset.transfers.map((transfer) => (
+                <tr key={transfer.id}>
+                  <td>
+                    {transfer.from_legal_entity !== transfer.to_legal_entity
+                      ? `${entityName(transfer.from_legal_entity)} → ${entityName(transfer.to_legal_entity)}`
+                      : "—"}
+                  </td>
+                  <td>
+                    {transfer.from_cost_center !== transfer.to_cost_center
+                      ? `${costCenterName(transfer.from_cost_center)} → ${costCenterName(transfer.to_cost_center)}`
+                      : "—"}
+                  </td>
+                  <td>{transfer.reason}</td>
+                  <td>{new Date(transfer.created_at).toLocaleDateString()}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {asset.disposals.map((disposal) => (
-                  <tr key={disposal.id}>
-                    <td>{disposal.date}</td>
-                    <td>{disposal.fraction}</td>
-                    <td><Money amount={disposal.proceeds_base} /></td>
-                    <td><Money amount={disposal.gain_loss} /></td>
-                    <td>{disposal.status}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      {asset.status !== "disposed" && (
-        <div className="card">
-          <h3>{t("transfersTab")}</h3>
-          <button className="secondary" onClick={() => setShowTransfer((v) => !v)}>
-            {t("transferAsset")}
-          </button>
-          {showTransfer && (
-            <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
-              <FormField name="legal_entity" label={t("transferLegalEntity")} error={fieldErr.legal_entity}>
-                <select value={transferEntityId} onChange={(e) => setTransferEntityId(e.target.value)}>
-                  <option value="">—</option>
-                  {legalEntities.map((entity) => (
-                    <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>
-                  ))}
-                </select>
-              </FormField>
-              <FormField name="cost_center" label={t("transferCostCenter")} error={fieldErr.cost_center}>
-                <select value={transferCostCenterId} onChange={(e) => setTransferCostCenterId(e.target.value)}>
-                  <option value="">—</option>
-                  {costCenters.map((cc) => (
-                    <option key={cc.id} value={cc.id}>{cc.code} — {cc.name}</option>
-                  ))}
-                </select>
-              </FormField>
-              <button className="primary" onClick={transferAsset}>{t("save")}</button>
-            </div>
-          )}
-
-          <h4 style={{ marginTop: "0.75rem" }}>{t("transfersHistory")}</h4>
-          {asset.transfers.length === 0 ? (
-            <p>{t("noTransfersYet")}</p>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>{t("transferLegalEntity")}</th>
-                  <th>{t("transferCostCenter")}</th>
-                  <th>{t("date")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {asset.transfers.map((transfer) => (
-                  <tr key={transfer.id}>
-                    <td>
-                      {transfer.from_legal_entity !== transfer.to_legal_entity
-                        ? `${transfer.from_legal_entity} → ${transfer.to_legal_entity}`
-                        : "—"}
-                    </td>
-                    <td>
-                      {transfer.from_cost_center !== transfer.to_cost_center
-                        ? `${transfer.from_cost_center || "—"} → ${transfer.to_cost_center || "—"}`
-                        : "—"}
-                    </td>
-                    <td>{new Date(transfer.created_at).toLocaleDateString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }

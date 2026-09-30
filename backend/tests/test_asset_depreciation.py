@@ -119,6 +119,47 @@ def test_elapsed_months_reduce_remaining_installments(tenant_a, owner_client, us
     assert entry.first_period == _period(tenant_a, 5)
 
 
+def test_old_asset_predating_every_fiscal_year_elapses_calendar_months(tenant_a, owner_client):
+    """Sprint 6.5.18 (UAT item 2): tenant_a only has fiscal year 2026 —
+    no FiscalPeriod at all covers an in-service date of 2025-09-01, so
+    starting depreciation must not refuse with "لا توجد سنة مالية
+    تغطي..." (the old behaviour); it must count Sep/Oct/Nov/Dec 2025 as
+    4 whole elapsed calendar months (no fiscal year needed for them),
+    leaving 8 remaining installments starting from the first OPEN
+    period on file (Jan 2026, ending 2026-01-31)."""
+    entity = _entity(tenant_a)
+    asset = AssetFactory(
+        tenant=tenant_a, legal_entity=entity, purchase_date="2025-09-01", purchase_cost="10000.00",
+        salvage_value="1000.00", useful_life_months=12, opening_accumulated_depreciation="3000.00",
+    )
+    response = _start(owner_client, asset.id)
+    assert response.status_code == 201, response.data
+
+    entry = RecurringEntry.objects.get(id=response.data["depreciation_schedule_id"])
+    assert entry.installments_count == 8
+    amounts = list(entry.installments.order_by("seq").values_list("amount_base", flat=True))
+    assert amounts == [Decimal("750.00")] * 8
+    assert entry.first_period == _period(tenant_a, 1)
+    first_installment = entry.installments.order_by("seq").first()
+    assert str(first_installment.due_date) == "2026-01-31"
+
+
+def test_old_asset_with_fully_elapsed_life_still_rejected_as_fully_depreciated(tenant_a, owner_client):
+    """Sprint 6.5.18 (UAT item 2): an asset old enough that its own
+    useful life has fully elapsed by calendar count alone (no fiscal
+    year ever covered any of it) must still get the ordinary "الأصل
+    مُهلَك بالكامل" rejection — the new no-fiscal-year branch must not
+    accidentally bypass this check."""
+    entity = _entity(tenant_a)
+    asset = AssetFactory(
+        tenant=tenant_a, legal_entity=entity, purchase_date="2024-01-01", purchase_cost="10000.00",
+        salvage_value="1000.00", useful_life_months=12, opening_accumulated_depreciation="9000.00",
+    )
+    response = _start(owner_client, asset.id)
+    assert response.status_code == 400, response.data
+    assert "مُهلَك بالكامل" in str(response.data.get("detail", response.data))
+
+
 def test_fully_depreciated_asset_returns_400(tenant_a, owner_client):
     entity = _entity(tenant_a)
     asset = AssetFactory(

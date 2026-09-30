@@ -18,6 +18,9 @@ export default function CashBoxesPage() {
   const [employees, setEmployees] = useState<Party[]>([]);
   const [editing, setEditing] = useState<CashBox | null>(null);
   const [legalEntityId, setLegalEntityId] = useState("");
+  // Sprint 6.5.18 (UAT item 5): the LIST's own optional entity filter,
+  // separate from `legalEntityId` above (the add/edit form's field).
+  const [listEntityId, setListEntityId] = useState("");
   const [name, setName] = useState("");
   const [currency, setCurrency] = useState("SAR");
   const [custodianId, setCustodianId] = useState("");
@@ -157,8 +160,18 @@ export default function CashBoxesPage() {
 
       {editing && <AttachmentPanel targetType="cash_box" targetId={editing.id} />}
 
+      <FormField name="list_entity_filter" label={t("entityFilter")}>
+        <select value={listEntityId} onChange={(e) => setListEntityId(e.target.value)}>
+          <option value="">{t("allEntities")}</option>
+          {entities.map((entity) => (
+            <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>
+          ))}
+        </select>
+      </FormField>
+
       <DataTable<CashBox>
         endpoint="/cash-boxes/"
+        extraParams={{ legal_entity: listEntityId }}
         refreshToken={refreshToken}
         onEdit={startEdit}
         columns={[

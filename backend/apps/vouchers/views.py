@@ -63,6 +63,12 @@ class VoucherViewSet(
         party_id = self.request.query_params.get("party")
         if party_id:
             queryset = queryset.filter(party_id=party_id)
+        # Sprint 6.5.18 (UAT item 5): an explicit, OPTIONAL further
+        # narrowing on top of accessible_ids above — never a silent
+        # default. No `legal_entity` param means every accessible entity.
+        legal_entity_id = self.request.query_params.get("legal_entity")
+        if legal_entity_id:
+            queryset = queryset.filter(legal_entity_id=legal_entity_id)
         return queryset
 
     def create(self, request, *args, **kwargs):

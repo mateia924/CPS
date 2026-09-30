@@ -153,7 +153,7 @@ export default function CompanySettingsPage() {
 // Owners too (GET has no permission gate server-side).
 function AdvancedSettingsCard({ entities }: { entities: LegalEntity[] }) {
   const { t } = useLocale();
-  const { me } = useAuth();
+  const { me, refreshMe } = useAuth();
   const isOwner = !!me && me.roles.includes("Owner");
   const [settings, setSettings] = useState<TenantSettings | null>(null);
   const [defaultEntityId, setDefaultEntityId] = useState("");
@@ -179,6 +179,11 @@ function AdvancedSettingsCard({ entities }: { entities: LegalEntity[] }) {
       });
       setSettings(updated);
       setSaved(true);
+      // Sprint 6.5.18 (UAT item 9): "تغيير الكيان الافتراضي يحدّث me
+      // فورًا" — every screen reading me.default_legal_entity_id
+      // (assets/banks/cash-boxes/... own create-form defaults) must
+      // see the new value right away, not after the next full reload.
+      await refreshMe();
     } catch (err) {
       setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
     }

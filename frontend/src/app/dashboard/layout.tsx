@@ -51,6 +51,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // advanced "الأطراف (عرض شامل)" screen — neither makes sense for a
   // single-branch tenant either.
   const showOrganization = !!me && !me.simplified_mode && me.features.organization;
+  // Sprint 6.5.18 (UAT item 7): the Owner's own escape hatch out of
+  // simplified mode — without this, a single-branch tenant's Owner has
+  // no way to ever add a second branch/company, since showOrganization
+  // itself is exactly what simplified mode hides. Same route/page as
+  // showOrganization above; only the label changes (see the render
+  // below) while simplified_mode is still on.
+  const isOwner = !!me && me.roles.includes("Owner");
   const showCostCenters = !!me && me.features.cost_centers && me.permissions.includes("costcenters.view");
   const showAffiliates = !!me && !me.simplified_mode;
   const showRoles = !!me && me.permissions.includes("roles.manage");
@@ -215,6 +222,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <SidebarLink href="/dashboard/employees">{t("employeesNav")}</SidebarLink>
 
         {(showOrganization ||
+          isOwner ||
           showCostCenters ||
           showAffiliates ||
           showRoles ||
@@ -225,7 +233,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           showFiscalYears ||
           showCompanySettings) && <div className="sidebar-section-label">{t("settingsSection")}</div>}
         {showCompanySettings && <SidebarLink href="/dashboard/settings/company">{t("companySettingsNav")}</SidebarLink>}
-        {showOrganization && <SidebarLink href="/dashboard/organization">{t("organization")}</SidebarLink>}
+        {(showOrganization || isOwner) && (
+          <SidebarLink href="/dashboard/organization">
+            {t(me?.simplified_mode ? "legalStructureNav" : "organization")}
+          </SidebarLink>
+        )}
         {showCostCenters && <SidebarLink href="/dashboard/cost-centers">{t("costCenters")}</SidebarLink>}
         {showAffiliates && <SidebarLink href="/dashboard/affiliates">{t("affiliatesNav")}</SidebarLink>}
         {showRoles && <SidebarLink href="/dashboard/roles">{t("rolesAndUsers")}</SidebarLink>}

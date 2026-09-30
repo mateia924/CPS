@@ -30,6 +30,11 @@ export default function AssetsPage() {
   const [editing, setEditing] = useState<Asset | null>(null);
 
   const [legalEntityId, setLegalEntityId] = useState("");
+  // Sprint 6.5.18 (UAT item 5): the LIST's own optional entity filter —
+  // separate from `legalEntityId` above (the add/edit form's own field,
+  // seeded from the user's default entity) — defaults to "الكل" so the
+  // list itself never silently narrows to just one entity.
+  const [listEntityId, setListEntityId] = useState("");
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [category, setCategory] = useState<AssetCategory>("equipment");
@@ -281,8 +286,18 @@ export default function AssetsPage() {
 
       {editing && <AttachmentPanel targetType="asset" targetId={editing.id} />}
 
+      <FormField name="list_entity_filter" label={t("entityFilter")}>
+        <select value={listEntityId} onChange={(e) => setListEntityId(e.target.value)}>
+          <option value="">{t("allEntities")}</option>
+          {entities.map((entity) => (
+            <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>
+          ))}
+        </select>
+      </FormField>
+
       <DataTable<Asset>
         endpoint="/assets/"
+        extraParams={{ legal_entity: listEntityId }}
         refreshToken={refreshToken}
         onEdit={startEdit}
         columns={[

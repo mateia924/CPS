@@ -57,15 +57,19 @@ def _depreciable_assets_without_schedule(tenant_id):
         tenant_id=tenant_id, is_active=True, is_depreciable=True,
         status=Asset.Status.ACTIVE, depreciation_entry__isnull=True,
     )
-    return [{"id": str(a.id), "reference": f"{a.code} {a.name}"} for a in assets]
+    return [{"type": "asset", "id": str(a.id), "reference": f"{a.code} {a.name}"} for a in assets]
 
 
 def _due_installments_not_generated(tenant_id, period):
     from .models import RecurringInstallment
 
     installments = RecurringInstallment.objects.filter(entry__tenant_id=tenant_id, period=period, status=RecurringInstallment.Status.DUE)
+    # Sprint 6.5.18 (UAT item 8): a single installment has no detail
+    # page of its own — its parent RecurringEntry does (the same
+    # "recurring_entry" type/route the frontend already resolves for
+    # every DEPRECIATION/OTHER schedule).
     return [
-        {"id": str(i.id), "reference": f"{i.entry.number or i.entry.description} #{i.seq}"}
+        {"type": "recurring_entry", "id": str(i.entry_id), "reference": f"{i.entry.number or i.entry.description} #{i.seq}"}
         for i in installments.select_related("entry")
     ]
 
@@ -81,10 +85,14 @@ def _bank_reconciliation_warnings(tenant, period):
             warnings.append(
                 {
                     "level": "warn", "code": "bank_not_reconciled", "bank_id": str(bank.id), "bank_name": bank.name,
+                    # Sprint 6.5.18 (UAT item 8): "{{diff}}" is a
+                    # placeholder the frontend substitutes with a real
+                    # <Money> element (see `amounts` below) — never a
+                    # pre-formatted number baked into the message text.
                     "message": str(
-                        _("البنك «%(name)s» بفرق تسوية %(diff)s حتى نهاية الفترة.")
-                        % {"name": bank.name, "diff": report["difference"]}
+                        _("البنك «%(name)s» بفرق تسوية {{diff}} حتى نهاية الفترة.") % {"name": bank.name}
                     ),
+                    "amounts": {"diff": str(report["difference"])},
                 }
             )
     return warnings
@@ -234,10 +242,8 @@ def period_checklist(period):
     items.append(
         {
             "level": "info", "code": "trial_balance_balanced",
-            "message": str(
-                _("ميزان المراجعة متوازن: مدين %(debit)s = دائن %(credit)s.")
-                % {"debit": trial_balance["total_debit"], "credit": trial_balance["total_credit"]}
-            ),
+            "message": str(_("ميزان المراجعة متوازن: مدين {{debit}} = دائن {{credit}}.")),
+            "amounts": {"debit": str(trial_balance["total_debit"]), "credit": str(trial_balance["total_credit"])},
         }
     )
     depreciable_without_schedule = _depreciable_assets_without_schedule(tenant.id)
@@ -260,10 +266,10 @@ def period_checklist(period):
         items.append(
             {
                 "level": "warn", "code": "asset_register_ledger_mismatch",
-                "message": str(
-                    _("سجل الأصول لا يطابق الدليل: فرق التكلفة %(cost_diff)s، فرق المجمّع %(accum_diff)s.")
-                    % {"cost_diff": reconciliation["cost_diff"], "accum_diff": reconciliation["accum_diff"]}
-                ),
+                "message": str(_("سجل الأصول لا يطابق الدليل: فرق التكلفة {{cost_diff}}، فرق المجمّع {{accum_diff}}.")),
+                "amounts": {
+                    "cost_diff": str(reconciliation["cost_diff"]), "accum_diff": str(reconciliation["accum_diff"]),
+                },
             }
         )
 

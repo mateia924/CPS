@@ -490,18 +490,36 @@ def _transfer_balance_warnings_and_checks(tenant, voucher):
     limit_amount)."""
     warnings = []
     source_instance = getattr(voucher, voucher.treasury_kind)
-    source_current = treasury_balance(tenant, voucher.treasury_kind, source_instance.id)["fc"]
+    # Sprint 6.5.18 (UAT item 6): the sufficiency check must read the
+    # treasury account's own running balance AS OF the voucher's own
+    # date, not "today" — an antedated voucher (e.g. dated the 26th)
+    # must be judged against the balance that actually existed on the
+    # 26th, even if a later transaction (funding on the 30th) has since
+    # made "today"'s balance look fine.
+    source_current = treasury_balance(tenant, voucher.treasury_kind, source_instance.id, as_of=voucher.date)["fc"]
     projected_source = source_current - voucher.total_fc
     if voucher.treasury_kind in ("cash_box", "custody") and projected_source < 0:
         raise VoucherValidationError(
-            {"detail": [_("Insufficient balance in the source treasury account for this transfer.")]}
+            {
+                "detail": [
+                    str(
+                        _(
+                            "Insufficient balance in the source treasury account for this transfer: "
+                            "balance %(balance)s, shortfall %(shortfall)s."
+                        )
+                        % {"balance": source_current, "shortfall": -projected_source}
+                    )
+                ]
+            }
         )
     if voucher.treasury_kind == "bank" and projected_source < 0:
         warnings.append(str(_("This will make the source bank account balance negative.")))
 
     dest_instance = getattr(voucher, f"counter_{voucher.counter_treasury_kind}")
     counter_amount = voucher.counter_amount_fc if voucher.counter_amount_fc is not None else voucher.total_fc
-    dest_current = treasury_balance(tenant, voucher.counter_treasury_kind, dest_instance.id)["fc"]
+    dest_current = treasury_balance(
+        tenant, voucher.counter_treasury_kind, dest_instance.id, as_of=voucher.date
+    )["fc"]
     projected_dest = dest_current + counter_amount
     if voucher.counter_treasury_kind == "cash_box" and dest_instance.max_balance is not None:
         if projected_dest > dest_instance.max_balance:
@@ -523,13 +541,26 @@ def _balance_warnings_and_checks(tenant, voucher):
     warnings = []
     is_payment_out = voucher.voucher_type == Voucher.VoucherType.PAYMENT
     treasury_instance = getattr(voucher, voucher.treasury_kind)
-    current = treasury_balance(tenant, voucher.treasury_kind, treasury_instance.id)["fc"]
+    # Sprint 6.5.18 (UAT item 6): as of the voucher's OWN date, not
+    # "today" — see the identical comment in
+    # _transfer_balance_warnings_and_checks above for why.
+    current = treasury_balance(tenant, voucher.treasury_kind, treasury_instance.id, as_of=voucher.date)["fc"]
 
     if is_payment_out:
         projected = current - voucher.total_fc
         if voucher.treasury_kind in ("cash_box", "custody") and projected < 0:
             raise VoucherValidationError(
-                {"detail": [_("Insufficient balance in this treasury account for this voucher.")]}
+                {
+                    "detail": [
+                        str(
+                            _(
+                                "Insufficient balance in this treasury account for this voucher: "
+                                "balance %(balance)s, shortfall %(shortfall)s."
+                            )
+                            % {"balance": current, "shortfall": -projected}
+                        )
+                    ]
+                }
             )
         if voucher.treasury_kind == "bank" and projected < 0:
             warnings.append(str(_("This will make the bank account balance negative.")))

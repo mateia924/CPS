@@ -14,8 +14,9 @@ const TYPES: LegalEntityType[] = ["holding", "company", "branch"];
 
 export default function OrganizationPage() {
   const { t } = useLocale();
-  const { refreshMe } = useAuth();
+  const { me, refreshMe } = useAuth();
   const [tree, setTree] = useState<LegalEntityTreeNode[]>([]);
+  const [simplifiedModeEndedWarning, setSimplifiedModeEndedWarning] = useState(false);
   const [flat, setFlat] = useState<LegalEntity[]>([]);
   const [editing, setEditing] = useState<LegalEntity | null>(null);
   const [code, setCode] = useState("");
@@ -79,6 +80,7 @@ export default function OrganizationPage() {
       base_currency: baseCurrency,
       tax_number: taxNumber,
     };
+    const wasSimplified = !!me?.simplified_mode;
     try {
       if (editing) {
         await api.patch(`/legal-entities/${editing.id}/`, payload);
@@ -87,7 +89,15 @@ export default function OrganizationPage() {
       }
       cancelEdit();
       setRefreshToken((n) => n + 1);
-      await refreshMe(); // adding/editing an entity may flip simplified_mode
+      const updatedMe = await refreshMe(); // adding/editing an entity may flip simplified_mode
+      // Sprint 6.5.18 (UAT item 7): adding the tenant's second branch
+      // ends simplified mode — from here on, entity pickers and entity
+      // codes-in-numbering start appearing everywhere; a one-time
+      // warning at the exact moment this flips is the only place an
+      // owner would otherwise learn this.
+      if (wasSimplified && updatedMe && !updatedMe.simplified_mode) {
+        setSimplifiedModeEndedWarning(true);
+      }
     } catch (err) {
       setFieldErr(fieldErrors((err as { body?: unknown }).body));
       setError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
@@ -97,6 +107,8 @@ export default function OrganizationPage() {
   return (
     <div>
       <h1>{t("organization")}</h1>
+
+      <WarningsBanner warnings={simplifiedModeEndedWarning ? [t("simplifiedModeEndedWarning")] : []} />
 
       <div className="card">
         <LegalEntityTree roots={tree} />

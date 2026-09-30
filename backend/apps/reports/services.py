@@ -270,8 +270,9 @@ def fixed_assets_register(tenant, as_of=None, legal_entity=None, include_childre
     DISPOSED asset is no longer a live line item, same exclusion
     register_vs_ledger's own totals already apply.
     """
-    from django.db.models import Sum
+    from django.db.models import Max, Sum
 
+    from apps.accounting.models import FiscalYear
     from apps.assets.depreciation import current_book_value
     from apps.assets.models import Asset
     from apps.assets.reconciliation import register_vs_ledger
@@ -318,6 +319,50 @@ def fixed_assets_register(tenant, as_of=None, legal_entity=None, include_childre
         total_disposals += disposals_total
         total_accumulated += accumulated
         total_book_value += book_value
+
+    # Sprint 6.5.18 (UAT item 4): a DISPOSED asset contributes nothing
+    # to the totals above (same exclusion apps.assets.reconciliation.
+    # register_totals already applies — its cost/accumulated were fully
+    # removed from FIXED_ASSETS/ACCUM_DEPRECIATION at disposal, so
+    # folding it back in here would desync this report's own totals
+    # from the ledger, breaking the reconciliation footer below). But a
+    # disposal that happened *during the fiscal year covering `as_of`*
+    # still belongs on the printed register as its own informational
+    # row — book value 0, cost/additions/disposals/accumulated as of
+    # the disposal — same convention any real fixed-asset register
+    # uses for the year's own disposals.
+    fiscal_year = FiscalYear.objects.filter(
+        tenant=tenant, start_date__lte=as_of, end_date__gte=as_of
+    ).first()
+    if fiscal_year is not None:
+        disposed_assets = Asset.objects.filter(
+            tenant=tenant, is_active=True, status=Asset.Status.DISPOSED, purchase_date__lte=as_of,
+        )
+        if legal_entity is not None:
+            disposed_assets = disposed_assets.filter(
+                legal_entity__in=_entities_in_scope(legal_entity, include_children)
+            )
+        disposed_assets = disposed_assets.annotate(last_disposal_date=Max("disposals__date")).filter(
+            last_disposal_date__gte=fiscal_year.start_date,
+            last_disposal_date__lte=min(fiscal_year.end_date, as_of),
+        )
+        for asset in disposed_assets.order_by("code"):
+            additions_total = asset.additions.aggregate(total=Sum("amount_base"))["total"] or Decimal("0")
+            disposal_totals = asset.disposals.aggregate(
+                cost=Sum("cost_share"), accum=Sum("accum_share")
+            )
+            disposals_total = disposal_totals["cost"] or Decimal("0")
+            accumulated = disposal_totals["accum"] or Decimal("0")
+            rows.append(
+                {
+                    "asset_id": str(asset.id), "code": asset.code, "name": asset.name, "category": asset.category,
+                    "in_service_date": asset.in_service_date or asset.purchase_date,
+                    "depreciation_method": asset.depreciation_method,
+                    "cost": asset.purchase_cost, "additions": additions_total, "disposals": disposals_total,
+                    "accumulated_depreciation": accumulated, "book_value": Decimal("0.00"),
+                    "remaining_months": 0, "status": asset.status,
+                }
+            )
 
     reconciliation = register_vs_ledger(tenant, as_of=as_of, legal_entity=legal_entity, include_children=include_children)
     return {

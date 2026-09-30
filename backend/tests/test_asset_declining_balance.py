@@ -73,6 +73,34 @@ def test_declining_balance_recomputed_per_fiscal_year(tenant_a, owner_client):
     assert total_charged == Decimal("1000.00")  # ends exactly at salvage_value
 
 
+def test_old_asset_predating_every_fiscal_year_elapses_one_full_calendar_year(tenant_a, owner_client):
+    """Sprint 6.5.18 (UAT item 2): tenant_a only has fiscal year 2026 —
+    an in-service date of 2025-01-01 has no fiscal year at all covering
+    it. The one full prior calendar year (2025) must elapse without
+    needing a real FiscalYear/FiscalPeriod row for it — the schedule
+    starts fresh in 2026 with book value already reduced by that year's
+    own calendar-annual charge (40% x 10,000 = 4,000, matching this
+    asset's own opening_accumulated_depreciation)."""
+    entity = _entity(tenant_a)
+    asset = AssetFactory(
+        tenant=tenant_a, legal_entity=entity, purchase_date="2025-01-01", purchase_cost="10000.00",
+        salvage_value="1000.00", useful_life_months=24, depreciation_method=Asset.DepreciationMethod.DECLINING_BALANCE,
+        declining_balance_rate="40", opening_accumulated_depreciation="4000.00",
+    )
+    response = _start(owner_client, asset.id)
+    assert response.status_code == 201, response.data
+    amounts, entry = _amounts(response.data["depreciation_schedule_id"])
+
+    assert entry.installments_count == 12
+    assert entry.first_period.start_date.year == 2026 and entry.first_period.seq == 1
+    # Book value entering 2026: 10,000 - 4,000 = 6,000 -> 40% x 6,000 =
+    # 2,400 / 12 = 200.00, except the schedule's own final installment,
+    # overridden to the true-up ending exactly at salvage_value.
+    assert amounts[0:11] == [Decimal("200.00")] * 11
+    assert amounts[11] == Decimal("2800.00")
+    assert sum(amounts, Decimal("0")) == Decimal("5000.00")
+
+
 def test_36_month_schedule_due_dates_are_all_true_calendar_month_ends(tenant_a, owner_client):
     """Sprint 6.5.15 (UAT item 3): the exact live "fatma" bug — a 36-
     month schedule starting 2026-08-01 needs fiscal years 2027/2028/

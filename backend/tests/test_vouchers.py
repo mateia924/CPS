@@ -398,6 +398,52 @@ def test_payment_voucher_reverse_charge_posts_two_equal_lines(tenant_a, client_a
 
 
 @pytest.mark.django_db
+def test_payment_sufficiency_checked_as_of_the_vouchers_own_date_not_today(tenant_a, client_a):
+    """Sprint 6.5.18 (UAT item 6): a payment dated 2026-09-26 against a
+    cash box that only received its funding on 2026-09-30 must be
+    rejected — the box's own running balance on the 26th was still 0,
+    even though "today" (after the later funding) it looks sufficient.
+    The rejection message must name the balance and the shortfall."""
+    from apps.accounting.models import Account, TaxCode
+
+    cash_box = _make_cash_box(client_a, tenant_a)
+    revenue = Account.objects.filter(tenant=tenant_a, code="4100").first()
+    expense = Account.objects.filter(tenant=tenant_a, code="5100").first()
+    tax_code = TaxCode.objects.get(tenant=tenant_a, code="Z")
+
+    funding = _create_voucher(
+        client_a,
+        voucher_type="receipt",
+        legal_entity=str(_branch(tenant_a).id),
+        date="2026-09-30",
+        treasury_kind="cash_box",
+        treasury_id=cash_box["id"],
+        payee_name="Funding",
+        lines=[{"line_type": "account", "account": str(revenue.id), "tax_code": str(tax_code.id), "amount_fc": "12000.00"}],
+    )
+    assert funding.status_code == 201, funding.data
+    posted_funding = _post(client_a, funding.data["id"])
+    assert posted_funding.status_code == 200, posted_funding.data
+
+    response = _create_voucher(
+        client_a,
+        voucher_type="payment",
+        legal_entity=str(_branch(tenant_a).id),
+        date="2026-09-26",
+        treasury_kind="cash_box",
+        treasury_id=cash_box["id"],
+        payee_name="Vendor",
+        lines=[{"line_type": "account", "account": str(expense.id), "tax_code": str(tax_code.id), "amount_fc": "500.00"}],
+    )
+    assert response.status_code == 201, response.data
+    voucher = _post(client_a, response.data["id"])
+    assert voucher.status_code == 400, voucher.data
+    detail = voucher.data["detail"]
+    message = " ".join(detail) if isinstance(detail, list) else detail
+    assert "0.00" in message  # the box's own balance on the 26th
+    assert "500.00" in message  # the shortfall
+
+
 def test_payment_exceeding_cash_box_balance_is_rejected(tenant_a, client_a):
     cash_box = _make_cash_box(client_a, tenant_a)
     expense = Account.objects.filter(tenant=tenant_a, code="5100").first()

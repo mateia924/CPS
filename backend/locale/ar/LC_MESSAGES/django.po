@@ -2099,8 +2099,10 @@ msgid "Could not resolve the party's sub-ledger account."
 msgstr "تعذَّر تحديد الحساب الفرعي للطرف."
 
 #: apps/vouchers/services.py:486
-msgid "Insufficient balance in the source treasury account for this transfer."
-msgstr "رصيد حساب الخزينة المصدر لا يكفي لهذا التحويل."
+msgid ""
+"Insufficient balance in the source treasury account for this transfer: "
+"balance %(balance)s, shortfall %(shortfall)s."
+msgstr "رصيد حساب الخزينة المصدر لا يكفي لهذا التحويل: الرصيد %(balance)s، والعجز %(shortfall)s."
 
 #: apps/vouchers/services.py:489
 msgid "This will make the source bank account balance negative."
@@ -2115,8 +2117,10 @@ msgid "This would exceed the destination custody's configured limit."
 msgstr "هذا سيتجاوز حد عهدة الوجهة المضبوط."
 
 #: apps/vouchers/services.py:521
-msgid "Insufficient balance in this treasury account for this voucher."
-msgstr "رصيد حساب الخزينة هذا لا يكفي لهذا السند."
+msgid ""
+"Insufficient balance in this treasury account for this voucher: balance "
+"%(balance)s, shortfall %(shortfall)s."
+msgstr "رصيد حساب الخزينة هذا لا يكفي لهذا السند: الرصيد %(balance)s، والعجز %(shortfall)s."
 
 #: apps/vouchers/services.py:524
 msgid "This will make the bank account balance negative."

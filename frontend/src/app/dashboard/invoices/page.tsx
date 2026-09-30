@@ -34,6 +34,9 @@ export default function InvoicesPage() {
   const [editing, setEditing] = useState<Invoice | null>(null);
   const [customerId, setCustomerId] = useState("");
   const [legalEntityId, setLegalEntityId] = useState("");
+  // Sprint 6.5.18 (UAT item 5): the LIST's own optional entity filter,
+  // separate from `legalEntityId` above (the new-invoice form's field).
+  const [listEntityId, setListEntityId] = useState("");
   const [showCostCenters, setShowCostCenters] = useState(false);
   const [showFx, setShowFx] = useState(false);
   const [currency, setCurrency] = useState("");
@@ -348,8 +351,18 @@ export default function InvoicesPage() {
 
       {editing && <AttachmentPanel targetType="invoice" targetId={editing.id} />}
 
+      <FormField name="list_entity_filter" label={t("entityFilter")}>
+        <select value={listEntityId} onChange={(e) => setListEntityId(e.target.value)}>
+          <option value="">{t("allEntities")}</option>
+          {entities.map((entity) => (
+            <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>
+          ))}
+        </select>
+      </FormField>
+
       <DataTable<Invoice>
         endpoint="/invoices/"
+        extraParams={{ legal_entity: listEntityId }}
         refreshToken={refreshToken}
         hasActiveToggle={false}
         onEdit={startEdit}

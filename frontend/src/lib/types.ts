@@ -531,6 +531,19 @@ export interface Asset {
   book_value: string | null;
   disposals: AssetDisposal[];
   transfers: AssetTransfer[];
+  historical_installments: HistoricalInstallment[];
+}
+
+// Sprint 6.5.18 (items 3, 9): a generated installment from a schedule
+// version the asset no longer uses (a superseded addition/disposal
+// reschedule, or the entire history once the asset is fully disposed).
+export interface HistoricalInstallment {
+  id: string;
+  seq: number;
+  due_date: string;
+  amount_base: string;
+  journal_entry: string | null;
+  entry_description: string;
 }
 
 // Sprint 6.5.5 (decision 8): a legal-entity or cost-center move.
@@ -540,6 +553,7 @@ export interface AssetTransfer {
   to_legal_entity: string;
   from_cost_center: string | null;
   to_cost_center: string | null;
+  reason: string;
   created_by: string | null;
   created_at: string;
 }
@@ -873,6 +887,9 @@ export interface ReadinessItem {
 // list for items that name specific documents/installments.
 export interface PeriodChecklistItem extends ReadinessItem {
   references?: { id: string; type?: string; reference: string }[];
+  // Sprint 6.5.18 (UAT item 8): "{{key}}" placeholders inside
+  // `message` — the frontend substitutes each with a real <Money>.
+  amounts?: Record<string, string>;
 }
 
 // Sprint 6.7 (3.17 rule 4, decision 15).
@@ -1197,6 +1214,7 @@ export interface VoucherLine {
   invoice: string | null;
   allocated_invoice_fc: string | null;
   account: string | null;
+  account_name: string | null;
   tax_code: string | null;
   amount_includes_tax: boolean;
   tax_amount_fc: string;
@@ -1204,6 +1222,7 @@ export interface VoucherLine {
   ext_supplier_tax_number: string;
   ext_invoice_ref: string;
   cost_center: string | null;
+  cost_center_name: string | null;
   description: string;
   amount_fc: string;
   amount_base: string;

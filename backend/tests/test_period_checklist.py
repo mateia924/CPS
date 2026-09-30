@@ -102,6 +102,14 @@ def test_due_installment_blocks_then_generating_clears_it(tenant_a, client_a, us
     codes = [item["code"] for item in checklist.data["items"]]
     assert "recurring_installments_due" in codes
 
+    # Sprint 6.5.18 (UAT item 8): "المراجع روابط لمستنداتها" — each
+    # reference now carries a `type` the frontend resolves into a real
+    # link (here, the installment's own parent RecurringEntry, which
+    # has no detail page of its own).
+    due_item = next(item for item in checklist.data["items"] if item["code"] == "recurring_installments_due")
+    assert due_item["references"][0]["type"] == "recurring_entry"
+    assert due_item["references"][0]["id"] == created.data["id"]
+
     generate_due_installments(tenant=tenant_a, as_of=period.end_date)
 
     checklist_after = client_a.get(f"/api/fiscal-periods/{period.id}/checklist/")
@@ -121,6 +129,13 @@ def test_bank_out_of_balance_warns_and_requires_acknowledgment(tenant_a, client_
     checklist = client_a.get(f"/api/fiscal-periods/{period.id}/checklist/")
     codes = [item["code"] for item in checklist.data["items"]]
     assert "bank_not_reconciled" in codes
+
+    # Sprint 6.5.18 (UAT item 8): "المبالغ بـ<Money>" — the difference
+    # is a structured amount the frontend substitutes into the message
+    # itself, never a number pre-baked into the translated string.
+    bank_item = next(item for item in checklist.data["items"] if item["code"] == "bank_not_reconciled")
+    assert "{{diff}}" in bank_item["message"]
+    assert Decimal(bank_item["amounts"]["diff"]) != Decimal("0")
 
     rejected = client_a.post(f"/api/fiscal-periods/{period.id}/close/", {}, format="json")
     assert rejected.status_code == 400, rejected.data

@@ -112,14 +112,18 @@ export default function VoucherDetailPage() {
               <tr>
                 <th>{t("lineType")}</th>
                 <th>{t("description")}</th>
+                <th>{t("account")}</th>
+                <th>{t("costCenter")}</th>
                 <th>{t("amount")}</th>
               </tr>
             </thead>
             <tbody>
               {voucher.lines.map((line) => (
                 <tr key={line.id}>
-                  <td>{t(`${line.line_type === "invoice" ? "invoiceLineType" : line.line_type === "on_account" ? "onAccountLineType" : "accountLineType"}`)}</td>
+                  <td>{t(`${line.line_type === "invoice" ? "invoiceLineType" : line.line_type === "on_account" ? "onAccountLineType" : voucher.voucher_type === "receipt" ? "accountLineTypeReceipt" : "accountLineType"}`)}</td>
                   <td>{line.description || "—"}</td>
+                  <td>{line.account_name || "—"}</td>
+                  <td>{line.cost_center_name || "—"}</td>
                   <td><Money amount={line.amount_fc} /></td>
                 </tr>
               ))}

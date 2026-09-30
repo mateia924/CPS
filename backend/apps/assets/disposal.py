@@ -51,9 +51,32 @@ def dispose_asset(
 
     cost_total = asset.cost_base if asset.cost_base is not None else asset.purchase_cost
     book_value = current_book_value(asset)
-    accum_total = cost_total - book_value
     cost_share = (cost_total * fraction).quantize(CENTS)
-    accum_share = (accum_total * fraction).quantize(CENTS)
+
+    # Sprint 6.5.18 (UAT diagnosis on tenant "fatma": a second,
+    # cumulative disposal left 1750 at 2,814 credit instead of 0).
+    # `fraction` and `cost_share` are always relative to the ORIGINAL
+    # asset (cost_base is never reduced by a disposal), but
+    # current_book_value() — and hence `book_value` here — is scoped
+    # to whatever fraction of the asset is *still* on the books after
+    # any EARLIER disposal (asset.disposed_fraction). The old formula
+    # (`accum_total = cost_total - book_value`) mixed those two scales
+    # — subtracting a remaining-slice book value from the FULL
+    # original cost — so a cumulative disposal's accum_share (and thus
+    # its gain/loss) came out wrong the moment disposed_fraction > 0.
+    # Correct: gross the remaining slice's own accumulated depreciation
+    # back up to "what the full original asset's accumulated
+    # depreciation would be right now" before applying the new,
+    # original-relative fraction to it — "لا أي أثر للنسبة السابقة على
+    # القيد الجديد".
+    remaining_fraction_before = Decimal("1") - asset.disposed_fraction
+    if remaining_fraction_before > 0:
+        cost_remaining = cost_total * remaining_fraction_before
+        accum_remaining = cost_remaining - book_value
+        accum_total_original_basis = accum_remaining / remaining_fraction_before
+    else:
+        accum_total_original_basis = Decimal("0")
+    accum_share = (accum_total_original_basis * fraction).quantize(CENTS)
     gain_loss = proceeds_base - (cost_share - accum_share)
 
     resolved_account, resolved_party, resolved_role = None, None, ""
@@ -95,11 +118,20 @@ def _post_disposal_entry(disposal, user):
     accum_account = get_system_account(tenant, "ACCUM_DEPRECIATION")
     gain_loss_account = get_system_account(tenant, "DISPOSAL_GAIN_LOSS")
 
+    # Sprint 6.5.18 (UAT item 9): Decimal.normalize() switches to
+    # scientific notation for an exact power of ten (confirmed live:
+    # 30 -> "3E+1", 70 -> "7E+1", on Fatma's own JV-2026-00019/00020
+    # memos) — to_integral_value() renders the same whole-percent value
+    # in plain notation instead; normalize() stays safe for the
+    # genuinely fractional case (it only goes exponential for a
+    # trailing-zero integer).
+    percent = disposal.fraction * 100
+    percent_display = percent.to_integral_value() if percent == percent.to_integral_value() else percent.normalize()
     journal_entry = JournalEntry.objects.create(
         tenant=tenant, legal_entity=asset.legal_entity, date=disposal.date,
         memo=str(
             _("استبعاد %(percent)s%% من الأصل %(code)s — %(name)s")
-            % {"percent": (disposal.fraction * 100).normalize(), "code": asset.code, "name": asset.name}
+            % {"percent": percent_display, "code": asset.code, "name": asset.name}
         ),
         number=next_document_number(tenant, "journal_entry", asset.legal_entity, disposal.date),
         status=JournalEntry.Status.POSTED, created_by=user,
@@ -153,6 +185,19 @@ def _finish_disposal(disposal, user, request=None):
     asset.disposed_fraction = new_total_fraction
     old_entry = asset.depreciation_entry
 
+    # Sprint 6.5.18: this disposal's own accum_share has already been
+    # debited out of ACCUM_DEPRECIATION in the ledger (_post_disposal_
+    # entry above) — asset.opening_accumulated_depreciation must track
+    # that removal unconditionally, the same way for every disposal,
+    # not just a partial one with an active APPROVED schedule. Without
+    # this, a later disposal's own current_book_value() (used by
+    # dispose_asset()'s accum-share formula for a further cumulative
+    # disposal) would read a stale, un-reduced figure — previously
+    # only the partial-with-a-running-schedule branch below did this
+    # at all, leaving a full disposal, or any asset with no schedule
+    # ever started, permanently out of sync.
+    asset.opening_accumulated_depreciation -= disposal.accum_share
+
     if new_total_fraction >= 1:
         # Decision 7: full disposal — nothing left to depreciate.
         # cancel_recurring_entry also cancels the disposal month's own
@@ -167,6 +212,8 @@ def _finish_disposal(disposal, user, request=None):
             from apps.accounting.recurring import cancel_recurring_entry
 
             cancel_recurring_entry(old_entry, user, request=request)
+            disposal.old_entry = old_entry
+            disposal.save(update_fields=["old_entry"])
         asset.depreciation_entry = None
     elif old_entry is not None and old_entry.status == RecurringEntry.Status.APPROVED:
         # Decision 7 + block text "جدول جديد لـ70% صحيح": the remaining
@@ -182,15 +229,16 @@ def _finish_disposal(disposal, user, request=None):
         new_count = old_entry.installments.filter(status="due").count()
 
         new_entry = _reschedule_remaining(asset, old_entry, new_total, new_count, disposal.date, user, request=request)
-        # _reschedule_remaining just locked old_entry's full generated
-        # total into opening_accumulated_depreciation (correct for an
+        # _reschedule_remaining locks old_entry's full generated total
+        # into opening_accumulated_depreciation (correct for an
         # addition's own call into it, which never removes a share) —
-        # a disposal's own share of that must now come back out, since
-        # this disposal's own JournalLine already debited exactly that
-        # much out of ACCUM_DEPRECIATION (apps.assets.reconciliation.
-        # register_totals's docstring has the full accounting for why).
-        asset.opening_accumulated_depreciation -= disposal.accum_share
+        # this disposal's own share was already subtracted back out,
+        # unconditionally, above (see the comment there for why it
+        # moved out of this branch specifically).
         asset.depreciation_entry = new_entry
+        disposal.old_entry = old_entry
+        disposal.new_entry = new_entry
+        disposal.save(update_fields=["old_entry", "new_entry"])
 
     asset.save(update_fields=["disposed_fraction", "status", "depreciation_entry", "opening_accumulated_depreciation"])
 
