@@ -58,15 +58,25 @@ def log_action(
     before=None,
     after=None,
     request=None,
+    using=None,
 ):
     """The only way any code in this project writes to AuditLog —
-    always an INSERT, never touched again afterwards."""
+    always an INSERT, never touched again afterwards.
+
+    `using`: Sprint 6.6.3 (item 1) — every ordinary authenticated
+    tenant request already has `cps.tenant_id` set to match `tenant_id`
+    here (apps.tenants.middleware.RLSTenantMiddleware), so the default
+    (unset — the "default" alias) is correct almost everywhere.
+    Explicit `using="platform"` is only for the rare pre-auth/signed-
+    link caller (apps.attachments.views.AttachmentDownloadView) that
+    has no tenant session context to have set it from at all."""
     ip_address = None
     user_agent = ""
     if request is not None:
         ip_address = request.META.get("REMOTE_ADDR")
         user_agent = request.META.get("HTTP_USER_AGENT", "")[:255]
-    AuditLog.objects.create(
+    manager = AuditLog.objects.using(using) if using else AuditLog.objects
+    manager.create(
         actor_type=actor_type,
         actor_id=actor_id,
         action=action,

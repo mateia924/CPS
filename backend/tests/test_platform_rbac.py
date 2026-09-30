@@ -26,7 +26,7 @@ def _login(platform_user, password="TestPass!2026"):
     return client
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
 def test_support_can_read_but_not_change_plan_or_extend_trial():
     support = PlatformUserFactory(role=PlatformUser.Role.SUPPORT)
     tenant = TenantFactory(plan=PlanFactory(code="free-rbac-test"))
@@ -45,7 +45,7 @@ def test_support_can_read_but_not_change_plan_or_extend_trial():
     assert extend.status_code == 403, extend.data
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
 def test_support_can_suspend_a_tenant_with_a_reason():
     support = PlatformUserFactory(role=PlatformUser.Role.SUPPORT)
     tenant = TenantFactory(plan=PlanFactory(code="free-rbac-test-2"), status=Tenant.Status.ACTIVE)
@@ -57,7 +57,7 @@ def test_support_can_suspend_a_tenant_with_a_reason():
     assert tenant.status == Tenant.Status.SUSPENDED
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
 def test_billing_can_change_plan_but_not_suspend():
     billing = PlatformUserFactory(role=PlatformUser.Role.BILLING)
     tenant = TenantFactory(plan=PlanFactory(code="free-rbac-test-3"), status=Tenant.Status.ACTIVE)
@@ -71,7 +71,7 @@ def test_billing_can_change_plan_but_not_suspend():
     assert suspend.status_code == 403, suspend.data
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
 def test_super_admin_can_do_everything():
     admin = PlatformUserFactory(role=PlatformUser.Role.SUPER_ADMIN)
     tenant = TenantFactory(plan=PlanFactory(code="free-rbac-test-4"), status=Tenant.Status.ACTIVE)

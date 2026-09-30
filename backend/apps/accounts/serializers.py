@@ -3,7 +3,7 @@ from datetime import timedelta
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
@@ -16,6 +16,7 @@ from apps.accounting.services import (
     seed_tax_codes_for_country,
 )
 from apps.approvals.models import ApprovalRule
+from apps.common.rls import set_local_tenant_id
 from apps.common.validators import validate_tenant_subdomain
 from apps.organization.services import create_default_legal_entities
 from apps.platform.models import AuditLog, Plan
@@ -87,6 +88,21 @@ class RegisterSerializer(serializers.Serializer):
                 trial_ends_at=timezone.now() + timedelta(days=TRIAL_LENGTH_DAYS),
                 business_type=validated_data["business_type"],
             )
+            # Sprint 6.6.3 (item 1): registration is the one write path
+            # with no authenticated tenant request yet to have set this
+            # already (apps.tenants.middleware.RLSTenantMiddleware) —
+            # under the restricted `cps_app` role, every INSERT below
+            # this line (User/TenantFeatures/LegalEntity/Role/
+            # ApprovalRule, all RLS-protected) would otherwise violate
+            # the tenant_isolation policy's WITH CHECK the moment it ran
+            # (no session tenant_id at all is not "any tenant", it's
+            # "none"). `tenant.id` is already known — generated client-
+            # side (default=uuid.uuid4) before the INSERT even ran —
+            # so this transaction can simply adopt it for its own
+            # remainder, the same way an ordinary authenticated
+            # request's own transaction already would have.
+            with connection.cursor() as cursor:
+                set_local_tenant_id(cursor, tenant.id)
             user = User.objects.create_user(
                 tenant=tenant,
                 email=validated_data["email"],
@@ -157,6 +173,18 @@ class TenantLoginSerializer(serializers.Serializer):
             # resolved to a real tenant; a typo'd subdomain leaves it
             # None rather than guessing.
             tenant = Tenant.objects.filter(subdomain=attrs["subdomain"].lower()).first()
+            # Sprint 6.6.3 (item 1): login (success below, or failure
+            # here) is the other write path with no pre-existing JWT
+            # for apps.tenants.middleware.RLSTenantMiddleware to have
+            # set `cps.tenant_id` from — it's only resolved here, inside
+            # the view, from the subdomain/credentials themselves. This
+            # AuditLog row (tenant_id=tenant.id below) would otherwise
+            # violate the tenant_isolation policy's WITH CHECK under
+            # the restricted role, the same way an unadjusted
+            # registration would have (see RegisterSerializer.create).
+            if tenant is not None:
+                with connection.cursor() as cursor:
+                    set_local_tenant_id(cursor, tenant.id)
             log_action(
                 actor_type=AuditLog.ActorType.TENANT_USER,
                 actor_id=None,
@@ -172,6 +200,8 @@ class TenantLoginSerializer(serializers.Serializer):
             raise serializers.ValidationError(_("This account is inactive."), code="authorization")
 
         attrs["user"] = user
+        with connection.cursor() as cursor:
+            set_local_tenant_id(cursor, user.tenant_id)
         log_action(
             actor_type=AuditLog.ActorType.TENANT_USER,
             actor_id=user.id,

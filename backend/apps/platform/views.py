@@ -53,6 +53,7 @@ class PlatformLoginView(APIView):
         if user is None or not user.check_password(data["password"]) or not user.is_active:
             log_action(
                 actor_type=AuditLog.ActorType.PLATFORM,
+                using="platform",
                 actor_id=getattr(user, "id", None),
                 action="platform_user.login_failed",
                 request=request,
@@ -67,6 +68,7 @@ class PlatformLoginView(APIView):
         if not valid:
             log_action(
                 actor_type=AuditLog.ActorType.PLATFORM,
+                using="platform",
                 actor_id=user.id,
                 action="platform_user.login_failed",
                 request=request,
@@ -78,6 +80,7 @@ class PlatformLoginView(APIView):
         access, refresh = issue_platform_tokens(user)
         log_action(
             actor_type=AuditLog.ActorType.PLATFORM,
+            using="platform",
             actor_id=user.id,
             action="platform_user.login",
             request=request,
@@ -104,7 +107,12 @@ class PlanViewSet(PlatformViewSet):
     permission_classes = [IsAuthenticated, HasPlatformRole]
     permission_map = {"list": _ALL_PLATFORM_ROLES, "retrieve": _ALL_PLATFORM_ROLES}
     serializer_class = PlanSerializer
-    queryset = Plan.objects.filter(is_active=True)
+    # Sprint 6.6.3 (item 1): every apps.platform ViewSet's own base
+    # queryset uses the "platform" DB alias (config.settings.DATABASES)
+    # — the unrestricted role, no RLS — never "default", regardless of
+    # whether the specific model is even tenant-scoped, so nothing
+    # here depends on a per-model judgment call.
+    queryset = Plan.objects.using("platform").filter(is_active=True)
 
 
 class TenantAdminViewSet(PlatformViewSet):
@@ -140,7 +148,8 @@ class TenantAdminViewSet(PlatformViewSet):
     # each count by the other relation's row multiplicity (a well-known
     # Django ORM join-fanout gotcha, not optional here).
     queryset = (
-        Tenant.objects.select_related("plan")
+        Tenant.objects.using("platform")
+        .select_related("plan")
         .annotate(
             user_count=Count("users", filter=Q(users__is_active=True), distinct=True),
             invoice_count=Count("invoices", distinct=True),
@@ -173,6 +182,7 @@ class TenantAdminViewSet(PlatformViewSet):
         apply_plan_to_tenant(tenant, serializer.validated_data["plan"])
         log_action(
             actor_type=AuditLog.ActorType.PLATFORM,
+            using="platform",
             actor_id=request.user.id,
             action="tenant.change_plan",
             target_type="tenant",
@@ -194,6 +204,7 @@ class TenantAdminViewSet(PlatformViewSet):
         tenant.save(update_fields=["trial_ends_at"])
         log_action(
             actor_type=AuditLog.ActorType.PLATFORM,
+            using="platform",
             actor_id=request.user.id,
             action="tenant.extend_trial",
             target_type="tenant",
@@ -221,6 +232,7 @@ class TenantAdminViewSet(PlatformViewSet):
         tenant.save(update_fields=["status", "past_due_since"])
         log_action(
             actor_type=AuditLog.ActorType.PLATFORM,
+            using="platform",
             actor_id=request.user.id,
             action="tenant.mark_past_due",
             target_type="tenant",
@@ -242,6 +254,7 @@ class TenantAdminViewSet(PlatformViewSet):
         tenant.save(update_fields=["status"])
         log_action(
             actor_type=AuditLog.ActorType.PLATFORM,
+            using="platform",
             actor_id=request.user.id,
             action="tenant.suspend",
             target_type="tenant",
@@ -264,6 +277,7 @@ class TenantAdminViewSet(PlatformViewSet):
         tenant.save(update_fields=["status", "past_due_since"])
         log_action(
             actor_type=AuditLog.ActorType.PLATFORM,
+            using="platform",
             actor_id=request.user.id,
             action="tenant.activate",
             target_type="tenant",
@@ -285,7 +299,7 @@ class AuditLogViewSet(PlatformViewSet):
     permission_classes = [IsAuthenticated, HasPlatformRole]
     permission_map = {"list": _ALL_PLATFORM_ROLES, "retrieve": _ALL_PLATFORM_ROLES}
     serializer_class = AuditLogSerializer
-    queryset = AuditLog.objects.all()
+    queryset = AuditLog.objects.using("platform").all()
 
     def get_queryset(self):
         queryset = super().get_queryset()

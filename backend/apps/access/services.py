@@ -175,7 +175,15 @@ def seed_permissions():
 def seed_default_roles(tenant):
     """Create the four system roles for a tenant with their default
     permission sets. Returns {name: Role}. Used at registration and by
-    the Sprint 1 data migration for pre-existing tenants."""
+    the Sprint 1 data migration for pre-existing tenants.
+
+    Sprint 6.6.3: calls seed_permissions() itself first rather than
+    assuming some earlier migration already populated the catalog —
+    cheap and idempotent either way, and self-contained against a
+    `transaction=True` test elsewhere in the same run having flushed
+    it (Django's TransactionTestCase does not replay data migrations
+    on teardown)."""
+    seed_permissions()
     all_codes = [code for code, _description in DEFAULT_PERMISSIONS]
     roles = {}
     for name, codes in SYSTEM_ROLES.items():

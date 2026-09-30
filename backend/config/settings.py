@@ -99,6 +99,10 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Sprint 6.6.3 (item 1): must run before any view, same reasoning
+    # as MustChangePasswordMiddleware right below it — see apps/
+    # tenants/middleware.py's own docstring.
+    "apps.tenants.middleware.RLSTenantMiddleware",
     # Sprint 6.6.2 (item 2): a global gate no per-view permission_classes
     # override can bypass — see apps/accounts/middleware.py's own
     # docstring for why this has to be middleware, not a permission
@@ -134,7 +138,31 @@ ASGI_APPLICATION = "config.asgi.application"
 # ---------------------------------------------------------------------------
 
 DATABASES = {
+    # Sprint 6.6.3 (item 1): the request-serving connection — RLS-bound
+    # in every environment that overrides DATABASE_URL to the
+    # restricted `cps_app` role (docker-compose.local.yml/staging.yml's
+    # APP_DATABASE_URL; docker-compose.dev.yml never does, see
+    # apps/tenants/migrations/0016_row_level_security.py). Not
+    # ATOMIC_REQUESTS — see apps/tenants/middleware.py's own docstring
+    # for why that alone would be too late for `SET LOCAL`; the
+    # middleware opens its own transaction.atomic() instead, around
+    # the entire rest of the chain.
     "default": env.db("DATABASE_URL"),
+    # apps.platform's own cross-tenant queries (the whole point of a
+    # platform admin) always use this alias explicitly (`.using(
+    # "platform")`) regardless of what "default" is bound to — always
+    # the un-restricted role that can already see everything (the
+    # project's original superuser `cps`), so migrations/admin
+    # commands/Celery need no separate config of their own: they only
+    # ever touch "default", which for THEM is that same role too (only
+    # the live gunicorn process's own DATABASE_URL differs).
+    "platform": {
+        **env.db("PLATFORM_DATABASE_URL", default=env("DATABASE_URL")),
+        # Mirrors "default"'s own test database instead of creating a
+        # second physical one — same server, same DB, just connecting
+        # as a different (unrestricted) role for tests too.
+        "TEST": {"MIRROR": "default"},
+    },
 }
 
 # ---------------------------------------------------------------------------

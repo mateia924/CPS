@@ -142,7 +142,7 @@ def test_register_is_rate_limited_after_5_attempts(settings):
     assert responses[5].status_code == 429
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"])
 def test_platform_login_is_rate_limited_after_5_attempts(settings):
     settings.RATELIMIT_ENABLE = True
     platform_user = PlatformUserFactory(email=f"{_unique('platform')}@example.test", password="PlatformPass!2026")

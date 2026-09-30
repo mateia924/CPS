@@ -158,7 +158,7 @@ def test_list_filters_by_target_and_hides_other_tenants(tenant_a, tenant_b, clie
     assert all_response.data["count"] == 1  # tenant B's row never visible to tenant A
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
 def test_eicar_file_is_flagged_infected_and_download_is_blocked(tenant_a, client_a):
     # The pure, unmodified 68-byte EICAR test string — ClamAV's built-in
     # rule matches it exactly; any extra bytes around it (even a
@@ -178,7 +178,7 @@ def test_eicar_file_is_flagged_infected_and_download_is_blocked(tenant_a, client
     assert download.status_code == 409
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
 def test_signed_link_download_round_trip_and_expired_token(tenant_a, client_a, settings):
     party = PartyFactory(tenant=tenant_a)
     attachment_id = _upload(client_a, party).data["id"]
@@ -206,7 +206,7 @@ def test_signed_link_download_round_trip_and_expired_token(tenant_a, client_a, s
     assert expired.status_code == 403
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
 def test_pending_scan_status_blocks_download_with_409(tenant_a, client_a):
     party = PartyFactory(tenant=tenant_a)
     attachment_id = _upload(client_a, party).data["id"]

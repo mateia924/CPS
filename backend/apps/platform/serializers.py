@@ -57,7 +57,11 @@ class TenantAdminSerializer(serializers.ModelSerializer):
 
 
 class ChangePlanSerializer(serializers.Serializer):
-    plan = serializers.PrimaryKeyRelatedField(queryset=Plan.objects.filter(is_active=True))
+    # Sprint 6.6.3 (item 1): must resolve via the same "platform" alias
+    # TenantAdminViewSet.change_plan's own `tenant` was loaded from —
+    # assigning a "default"-loaded Plan to a "platform"-loaded Tenant's
+    # FK trips Django's cross-database relation guard.
+    plan = serializers.PrimaryKeyRelatedField(queryset=Plan.objects.using("platform").filter(is_active=True))
 
 
 class ExtendTrialSerializer(serializers.Serializer):

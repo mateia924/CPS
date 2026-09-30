@@ -177,6 +177,12 @@ class Voucher(TenantScopedModel, DocumentStateMixin):
                 ),
             ),
         ]
+        # Sprint 6.6.3 (item 2): vouchers list/reconciliation-dashboard/
+        # approval-queue filters.
+        indexes = [
+            models.Index(fields=["tenant", "legal_entity", "date"], name="vouchers_entity_date_idx"),
+            models.Index(fields=["tenant", "status"], name="vouchers_status_idx"),
+        ]
 
     def __str__(self):
         return self.number or f"({self.voucher_type} draft)"

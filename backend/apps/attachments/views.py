@@ -166,8 +166,16 @@ class AttachmentDownloadView(APIView):
         except LinkInvalid:
             return Response({"detail": "الرابط منتهي الصلاحية أو غير صالح."}, status=403)
 
+        # Sprint 6.6.3 (item 1): AllowAny by design (docstring above) —
+        # no tenant session for apps.tenants.middleware.
+        # RLSTenantMiddleware to have set `cps.tenant_id` from at all,
+        # so both this lookup and the audit log write below use the
+        # "platform" alias (config.settings.DATABASES), same as every
+        # other pre-auth/cross-tenant caller — isolation here is
+        # already enforced by the signature itself (verify_link above),
+        # not by RLS.
         try:
-            attachment = Attachment.objects.select_related("tenant").get(id=pk)
+            attachment = Attachment.objects.using("platform").select_related("tenant").get(id=pk)
         except Attachment.DoesNotExist:
             return Response({"detail": "غير موجود."}, status=404)
 
@@ -184,6 +192,7 @@ class AttachmentDownloadView(APIView):
             target_id=attachment.id,
             tenant_id=attachment.tenant_id,
             request=request,
+            using="platform",
         )
 
         disposition = (

@@ -75,7 +75,7 @@ def test_valid_subdomain_succeeds():
     assert response.data["tenant"]["subdomain"] == "valid-company-99"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"])
 def test_subdomain_cannot_be_changed_after_creation():
     tenant = TenantFactory(subdomain="immutable-co")
     platform_user = PlatformUserFactory(password="PlatformPass!2026")

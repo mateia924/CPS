@@ -22,7 +22,7 @@ from apps.accounting.models import TaxCode
 from apps.accounting.periods import seed_fiscal_year_for_tenant
 from apps.accounting.services import seed_chart_of_accounts, seed_tax_codes_for_country
 from apps.organization.services import create_default_legal_entities
-from apps.platform.models import AuditLog, Plan, PlatformBackupCode
+from apps.platform.models import AuditLog, PlatformBackupCode
 from apps.platform.services import generate_backup_codes
 from apps.tenants.models import Tenant
 from apps.tenants.services import apply_plan_to_tenant
@@ -102,7 +102,7 @@ def test_platform_login_without_code_is_rejected(platform_user):
     assert response.status_code == 400
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"])
 def test_platform_login_with_correct_code_succeeds(platform_user):
     client = APIClient()
     response = _platform_login(client, platform_user)
@@ -111,14 +111,14 @@ def test_platform_login_with_correct_code_succeeds(platform_user):
     assert response.data["user"]["email"] == platform_user.email
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"])
 def test_platform_login_with_wrong_code_is_rejected(platform_user):
     client = APIClient()
     response = _platform_login(client, platform_user, code="000000")
     assert response.status_code == 401
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"])
 def test_backup_code_can_be_used_exactly_once(platform_user):
     codes = generate_backup_codes(platform_user)
     client = APIClient()
@@ -141,7 +141,7 @@ def test_backup_code_can_be_used_exactly_once(platform_user):
 # ---------------------------------------------------------------------
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"])
 def test_platform_token_rejected_on_customer_path(platform_client):
     response = platform_client.get("/api/customers/")
     assert response.status_code == 401
@@ -170,15 +170,24 @@ def test_unauthenticated_request_to_platform_path_returns_404(db):
 # ---------------------------------------------------------------------
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
 def test_change_plan_updates_tenant_features_immediately(tenant_with_owner, platform_client):
     tenant, _owner = tenant_with_owner
-    free_plan = Plan.objects.get(code="free")
+    # Sprint 6.6.3 (item 1): PlanFactory (django_get_or_create=("code",))
+    # rather than Plan.objects.get(code=...) on the migration-seeded row
+    # — a `transaction=True` test (needed here for cross-alias
+    # visibility into platform_client's own "platform"-alias read of
+    # `tenant`) truncates every table on teardown with no guaranteed
+    # reseed order across the rest of the suite, so a LATER-running
+    # plain `.get()` on a migration-seeded row is not reliable; get_or_
+    # create recreates it if some earlier transaction=True test already
+    # wiped it.
+    free_plan = PlanFactory(code="free", feature_inventory=False, feature_cost_centers=False)
     apply_plan_to_tenant(tenant, free_plan)
     tenant.features.refresh_from_db()
     assert tenant.features.inventory is False
 
-    business = Plan.objects.get(code="business")
+    business = PlanFactory(code="business", feature_inventory=True, feature_cost_centers=True)
     response = platform_client.post(f"/api/platform/tenants/{tenant.id}/change_plan/", {"plan": business.id})
     assert response.status_code == 200
 
@@ -263,7 +272,7 @@ def test_archived_tenant_blocks_all_access(tenant_with_owner):
     assert response.status_code == 401
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
 def test_suspend_and_activate_require_a_reason(tenant_with_owner, platform_client):
     tenant, _owner = tenant_with_owner
 
@@ -291,7 +300,7 @@ def test_suspend_and_activate_require_a_reason(tenant_with_owner, platform_clien
 # ---------------------------------------------------------------------
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
 def test_admin_action_creates_audit_log_entry(tenant_with_owner, platform_client, platform_user):
     tenant, _owner = tenant_with_owner
     platform_client.post(
@@ -321,7 +330,7 @@ def test_login_creates_audit_log_entries_for_success_and_failure(tenant_with_own
     assert AuditLog.objects.filter(tenant_id=tenant.id, action="tenant_user.login").exists()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
 def test_audit_log_rejects_update_and_delete_via_api(platform_client):
     entry = AuditLog.objects.create(
         actor_type=AuditLog.ActorType.PLATFORM, actor_id=None, action="seed.entry"
@@ -358,7 +367,7 @@ def test_audit_log_is_immutable_at_the_database_level(db):
 # ---------------------------------------------------------------------
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
 def test_support_role_sees_all_tenants(db):
     from apps.platform.models import PlatformUser
 
@@ -517,7 +526,7 @@ def test_below_max_invoices_per_month_succeeds(db):
 # ---------------------------------------------------------------------
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
 def test_tenant_list_is_not_n_plus_1(db, django_assert_max_num_queries):
     for i in range(5):
         t = TenantFactory(subdomain=f"nplus1-{i}")

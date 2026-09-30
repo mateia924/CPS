@@ -224,6 +224,13 @@ class JournalEntry(TenantScopedModel, DocumentStateMixin):
                 condition=~models.Q(number="") & models.Q(legacy_duplicate_number=False),
             )
         ]
+        # Sprint 6.6.3 (item 2): trial balance/ledger/close-checklist
+        # hot paths filter by tenant+entity+date or tenant+status —
+        # CREATE INDEX CONCURRENTLY (see the migration).
+        indexes = [
+            models.Index(fields=["tenant", "legal_entity", "date"], name="accounting_je_entity_date_idx"),
+            models.Index(fields=["tenant", "status"], name="accounting_je_status_idx"),
+        ]
 
     def __str__(self):
         return f"{self.date} {self.memo}"
@@ -287,6 +294,19 @@ class JournalLine(models.Model):
     credit_fc = models.DecimalField(
         max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0
     )
+
+    class Meta:
+        # Sprint 6.6.3 (item 2): JournalLine carries no tenant_id/date
+        # of its own (see test_structural_isolation.py's own exemption
+        # note) — the spec's "(tenant_id, account_id, entry__date)" is
+        # read here as the real query shape (apps.accounting.services.
+        # ledger_lines: `account.journal_lines.filter(entry__tenant=...,
+        # entry__date=...)`, starting from account then joining to
+        # entry) rather than a literal single-table column list Postgres
+        # can't express — this index serves the account-first half,
+        # JournalEntry's own (tenant, legal_entity, date) index above
+        # serves the rest of the join.
+        indexes = [models.Index(fields=["account", "entry"], name="jrnl_line_acct_entry_idx")]
 
     def __str__(self):
         return f"{self.account.code} D{self.debit} C{self.credit}"
@@ -514,6 +534,8 @@ class OpeningBalanceEntry(TenantScopedModel):
     class Meta:
         ordering = ["-created_at"]
         verbose_name_plural = "opening balance entries"
+        # Sprint 6.6.3 (item 2): status_by_entity/approval-queue filters.
+        indexes = [models.Index(fields=["tenant", "status"], name="accounting_obe_status_idx")]
 
     def __str__(self):
         return f"{self.get_kind_display()} — {self.legal_entity} ({self.opening_date})"
@@ -626,6 +648,8 @@ class RecurringEntry(TenantScopedModel):
 
     class Meta:
         ordering = ["-created_at"]
+        # Sprint 6.6.3 (item 2): generate_due/approval-queue filters.
+        indexes = [models.Index(fields=["tenant", "status"], name="accounting_re_status_idx")]
 
     def __str__(self):
         return f"{self.number or '(draft)'} {self.description}"

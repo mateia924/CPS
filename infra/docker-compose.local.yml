@@ -24,6 +24,13 @@
 
 services:
   backend:
+    environment:
+      # Sprint 6.6.3 (item 1): the ONLY stack where this is actually
+      # set — activates the restricted `cps_app` role for the live,
+      # request-serving gunicorn process (docker-compose.yml's own
+      # command chain falls back to $DATABASE_URL, the unrestricted
+      # role, everywhere else this is unset).
+      APP_DATABASE_URL: postgres://${POSTGRES_APP_USER}:${POSTGRES_APP_PASSWORD}@postgres:5432/${POSTGRES_DB}
     volumes:
       - ../docs:/docs:ro,Z
 

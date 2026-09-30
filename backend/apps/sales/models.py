@@ -205,6 +205,15 @@ class Invoice(TenantScopedModel):
                 condition=~models.Q(number="") & models.Q(legacy_duplicate_number=False),
             )
         ]
+        # Sprint 6.6.3 (item 2): the invoice list/report hot paths
+        # filter by tenant+entity+date (invoices list, aging/fixed-
+        # assets-style reports) or by tenant+status (approval queues,
+        # dashboard summary) — CREATE INDEX CONCURRENTLY (see the
+        # migration) so applying these never locks the table.
+        indexes = [
+            models.Index(fields=["tenant", "legal_entity", "issue_date"], name="sales_invoice_entity_date_idx"),
+            models.Index(fields=["tenant", "status"], name="sales_invoice_status_idx"),
+        ]
 
     def __str__(self):
         return self.number

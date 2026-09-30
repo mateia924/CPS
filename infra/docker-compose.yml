@@ -85,15 +85,40 @@ services:
     # only one service should ever run it, to avoid concurrent migration
     # races on container (re)start. ensure_attachments_bucket (5.1) is
     # idempotent — safe to run on every start, creates the bucket only
-    # the first time.
+    # the first time. Sprint 6.6.3 (item 1): migrate/collectstatic/
+    # ensure_attachments_bucket all need DDL-level privileges (CREATE
+    # POLICY, ALTER TABLE, CREATE INDEX CONCURRENTLY, GRANT) that the
+    # restricted `cps_app` role deliberately doesn't have — they keep
+    # running as $DATABASE_URL (the unrestricted role); migrate's own
+    # 0016_row_level_security already (re-)configures cps_app's
+    # grants/policies every time it applies (same underlying function
+    # `manage.py setup_rls` exists to let scripts/staging_refresh.sh
+    # re-run after a restore, since migrations don't replay against a
+    # restored database). Only the final, request-serving gunicorn
+    # process switches to $APP_DATABASE_URL, and only where that's
+    # actually set (docker-compose.local.yml/staging.yml) — it's unset
+    # in the base/dev.yml case, so this falls back to $DATABASE_URL
+    # there and nothing changes for those stacks. `$$` (not `$`) on
+    # that line, deliberately: it must stay a literal shell variable
+    # reference for the CONTAINER's own sh to expand at runtime from
+    # its actual environment (below) — a single `$` would instead be
+    # swallowed by docker compose's own interpolation at `docker
+    # compose up` time, against the *host* shell's env, which has no
+    # APP_DATABASE_URL of its own to resolve.
     command: >
       sh -c "python manage.py migrate --noinput &&
              python manage.py collectstatic --noinput &&
              python manage.py ensure_attachments_bucket &&
-             exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3"
+             DATABASE_URL=$${APP_DATABASE_URL:-$$DATABASE_URL} exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3"
     env_file: ../.env
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # Sprint 6.6.3 (item 1): apps.platform's own DB alias — always
+      # the unrestricted role, in every environment, since it needs
+      # genuine cross-tenant reads (the whole point of a platform
+      # admin) regardless of what "default" is bound to for this
+      # process. See config.settings.DATABASES's own comment.
+      PLATFORM_DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
     volumes:
       - static_data:/app/staticfiles:Z
@@ -114,10 +139,18 @@ services:
     # --beat (sprint 5.1): runs the scheduler in this same process for
     # CELERY_BEAT_SCHEDULE (weekly attachment integrity check) — fine at
     # this project's current scale.
+    # Sprint 6.6.3 (item 1): stays on the unrestricted role, unlike
+    # backend's own gunicorn step above — Celery tasks are trusted
+    # internal background code, often genuinely cross-tenant (the
+    # daily approvals digest, weekly attachment integrity check), with
+    # no HTTP request/middleware to ever set `cps.tenant_id` in the
+    # first place. RLS here would silently return zero rows for every
+    # task, not protect anything.
     command: celery -A config worker --beat --loglevel=info
     env_file: ../.env
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PLATFORM_DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:

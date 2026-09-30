@@ -40,6 +40,9 @@ services:
       - ../.env.staging
     environment:
       CPS_ENVIRONMENT: staging
+      # Sprint 6.6.3 (item 1): same restricted-role activation as
+      # docker-compose.local.yml, staging's own credentials.
+      APP_DATABASE_URL: postgres://${POSTGRES_APP_USER}:${POSTGRES_APP_PASSWORD}@postgres:5432/${POSTGRES_DB}
     # apps.tenants's migrate-backup guard reads docs/ops/backups.log
     # from inside the container — same reasoning as docker-compose.
     # local.yml's identical mount.
