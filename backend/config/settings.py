@@ -99,6 +99,15 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Sprint 6.6.3 (item 1): sets a thread-local flag AdminBypassRouter
+    # reads (apps/tenants/routers.py) — AuthenticationMiddleware's own
+    # request.user is a lazily-evaluated SimpleLazyObject, so the
+    # actual DB lookup only happens once something later accesses it,
+    # well after this flag is set regardless of the exact ordering
+    # between the two; placed here so it reads together with
+    # RLSTenantMiddleware right below it as "both halves of the same
+    # concern" (that one only ever handles /api/*, this one /admin/*).
+    "apps.tenants.middleware.AdminDatabaseRoutingMiddleware",
     # Sprint 6.6.3 (item 1): must run before any view, same reasoning
     # as MustChangePasswordMiddleware right below it — see apps/
     # tenants/middleware.py's own docstring.
@@ -164,6 +173,13 @@ DATABASES = {
         "TEST": {"MIRROR": "default"},
     },
 }
+
+# Sprint 6.6.3 (item 1): apps.tenants.routers.AdminBypassRouter — routes
+# every query to "platform" while apps.tenants.middleware.
+# AdminDatabaseRoutingMiddleware's own thread-local flag is set
+# (/admin/* requests only). A no-op (returns None, Django's own
+# default routing) for every other request.
+DATABASE_ROUTERS = ["apps.tenants.routers.AdminBypassRouter"]
 
 # ---------------------------------------------------------------------------
 # Password validation

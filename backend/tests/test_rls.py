@@ -16,7 +16,7 @@ from django.db import connection
 
 from apps.common.rls import set_local_tenant_id
 
-from .factories import LegalEntityFactory, PlanFactory, TenantFactory
+from .factories import LegalEntityFactory, PlanFactory, TenantFactory, UserFactory
 
 _INSERT_LEGAL_ENTITY_SQL = (
     "INSERT INTO organization_legalentity "
@@ -154,3 +154,41 @@ def test_registration_under_the_restricted_role_creates_a_fully_usable_tenant(se
             cur.execute("SELECT count(*) FROM access_role WHERE tenant_id = %s", [tenant_id])
             assert cur.fetchone()[0] >= 1
         conn.rollback()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_login_under_the_restricted_role_for_a_pre_existing_user(settings):
+    """Sprint 6.6.3 (item 1): found live, the hard way — the FIRST fix
+    to TenantLoginSerializer.validate() only set `cps.tenant_id` AFTER
+    authenticate() returned, for the AuditLog write alone. But apps.
+    accounts.backends.TenantEmailBackend's own credential check is
+    itself `User.objects.get(tenant=tenant, email__iexact=email)` — a
+    SELECT on accounts_user, RLS-protected — called *during*
+    authenticate(), before that fix ever ran. Under the restricted
+    role, that SELECT silently matched zero rows regardless of the
+    password, so EVERY login failed with "wrong credentials" — this
+    reproduces exactly that (a user created independently of any
+    registration flow, logging in for real over HTTP) so the fix
+    (`cps.tenant_id` set from the subdomain alone, before authenticate()
+    is ever called) can never silently regress."""
+    tenant = TenantFactory(subdomain="rls-login-test")
+    UserFactory(tenant=tenant, email="owner@rls-login-test.test", password="RlsLoginTest!2026")
+
+    from django.test import Client as DjangoTestClient
+
+    original = settings.DATABASES["default"].copy()
+    settings.DATABASES["default"]["USER"] = os.environ["POSTGRES_APP_USER"]
+    settings.DATABASES["default"]["PASSWORD"] = os.environ["POSTGRES_APP_PASSWORD"]
+    connection.close()
+    connection.settings_dict.update(settings.DATABASES["default"])
+    try:
+        client = DjangoTestClient()
+        response = client.post(
+            "/api/auth/login/",
+            {"subdomain": "rls-login-test", "email": "owner@rls-login-test.test", "password": "RlsLoginTest!2026"},
+            content_type="application/json",
+        )
+        assert response.status_code == 200, response.json()
+    finally:
+        connection.close()
+        connection.settings_dict.update(original)

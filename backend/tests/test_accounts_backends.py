@@ -14,7 +14,7 @@ from .factories import TenantFactory, UserFactory
 PASSWORD = "TestPass!2026"
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
 def test_subdomainless_login_succeeds_for_superuser():
     tenant = TenantFactory(subdomain="backend-t1")
     superuser = UserFactory(
@@ -26,7 +26,7 @@ def test_subdomainless_login_succeeds_for_superuser():
     assert user == superuser
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
 def test_subdomainless_login_rejects_non_superuser_regardless_of_tenant():
     tenant = TenantFactory(subdomain="backend-t2")
     UserFactory(tenant=tenant, email="regular@backend-t2.test", password=PASSWORD, is_superuser=False)
@@ -36,7 +36,7 @@ def test_subdomainless_login_rejects_non_superuser_regardless_of_tenant():
     assert user is None
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
 def test_subdomainless_login_rejects_disabled_superuser():
     tenant = TenantFactory(subdomain="backend-t3")
     UserFactory(
@@ -52,7 +52,7 @@ def test_subdomainless_login_rejects_disabled_superuser():
     assert user is None
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
 def test_subdomainless_login_rejects_wrong_password_for_superuser():
     tenant = TenantFactory(subdomain="backend-t4")
     UserFactory(tenant=tenant, email="root2@backend-t4.test", password=PASSWORD, is_superuser=True)
@@ -62,7 +62,7 @@ def test_subdomainless_login_rejects_wrong_password_for_superuser():
     assert user is None
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
 def test_subdomainless_login_rejects_email_shared_by_two_superusers():
     # authenticate() must not guess which account was meant when the
     # (intentionally unenforced-at-DB-level) "globally unique by

@@ -30,8 +30,28 @@ from rest_framework_simplejwt.exceptions import TokenError
 
 from apps.common.rls import clear_local_tenant_id, set_local_tenant_id
 from apps.tenants.authentication import TenantAwareJWTAuthentication
+from apps.tenants.routers import clear_admin_request, mark_admin_request
 
 EXEMPT_PATHS = ("/api/health/",)
+
+
+class AdminDatabaseRoutingMiddleware:
+    """Sprint 6.6.3 (item 1): see apps.tenants.routers.AdminBypassRouter's
+    own docstring — /admin/ has no JWT/tenant-request concept at all
+    for RLSTenantMiddleware below to have set `cps.tenant_id` from, and
+    is inherently cross-tenant by nature anyway."""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        if not request.path.startswith("/admin/"):
+            return self.get_response(request)
+        mark_admin_request()
+        try:
+            return self.get_response(request)
+        finally:
+            clear_admin_request()
 
 
 class RLSTenantMiddleware:

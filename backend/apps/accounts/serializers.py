@@ -161,6 +161,24 @@ class TenantLoginSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         request = self.context.get("request")
+        # Sprint 6.6.3 (item 1): resolved and set BEFORE authenticate()
+        # itself, not just before the AuditLog write below — found
+        # live, the hard way, after an earlier version of this fix only
+        # set it after authenticate() returned. apps.accounts.backends'
+        # own credential check is itself a SELECT on accounts_user
+        # (tenant-scoped, RLS-protected); with no pre-existing JWT (
+        # there is none at login) for apps.tenants.middleware.
+        # RLSTenantMiddleware to have set `cps.tenant_id` from, that
+        # SELECT would silently match zero rows under the restricted
+        # role regardless of whether the password is correct. Safe to
+        # set from the subdomain alone, before any credential is even
+        # checked: a login for tenant X can only ever legitimately
+        # match a user inside tenant X in the first place.
+        tenant = Tenant.objects.filter(subdomain=attrs["subdomain"].lower()).first()
+        if tenant is not None:
+            with connection.cursor() as cursor:
+                set_local_tenant_id(cursor, tenant.id)
+
         user = authenticate(
             request=request,
             subdomain=attrs["subdomain"].lower(),
@@ -171,20 +189,8 @@ class TenantLoginSerializer(serializers.Serializer):
             # Sprint 2 (3.14): "يُسجَّل تلقائيًا ... تسجيل الدخول/الفشل" —
             # tenant_id is only known here if the subdomain itself
             # resolved to a real tenant; a typo'd subdomain leaves it
-            # None rather than guessing.
-            tenant = Tenant.objects.filter(subdomain=attrs["subdomain"].lower()).first()
-            # Sprint 6.6.3 (item 1): login (success below, or failure
-            # here) is the other write path with no pre-existing JWT
-            # for apps.tenants.middleware.RLSTenantMiddleware to have
-            # set `cps.tenant_id` from — it's only resolved here, inside
-            # the view, from the subdomain/credentials themselves. This
-            # AuditLog row (tenant_id=tenant.id below) would otherwise
-            # violate the tenant_isolation policy's WITH CHECK under
-            # the restricted role, the same way an unadjusted
-            # registration would have (see RegisterSerializer.create).
-            if tenant is not None:
-                with connection.cursor() as cursor:
-                    set_local_tenant_id(cursor, tenant.id)
+            # None rather than guessing (tenant is already resolved
+            # above either way).
             log_action(
                 actor_type=AuditLog.ActorType.TENANT_USER,
                 actor_id=None,
@@ -200,8 +206,8 @@ class TenantLoginSerializer(serializers.Serializer):
             raise serializers.ValidationError(_("This account is inactive."), code="authorization")
 
         attrs["user"] = user
-        with connection.cursor() as cursor:
-            set_local_tenant_id(cursor, user.tenant_id)
+        # Already set above (from the subdomain, before authenticate())
+        # to this exact same tenant — no need to set it again.
         log_action(
             actor_type=AuditLog.ActorType.TENANT_USER,
             actor_id=user.id,

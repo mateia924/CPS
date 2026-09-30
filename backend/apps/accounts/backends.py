@@ -32,7 +32,13 @@ class TenantEmailBackend(BaseBackend):
             except User.DoesNotExist:
                 return None
         else:
-            candidates = list(User.objects.filter(email__iexact=email, is_superuser=True))
+            # Sprint 6.6.3 (item 1): deliberately cross-tenant (Django
+            # /admin/ superuser access, no subdomain) — no tenant
+            # session exists at all for this lookup, so it uses the
+            # "platform" DB alias (config.settings.DATABASES, the
+            # original unrestricted role) rather than "default", same
+            # as every other pre-auth/cross-tenant caller.
+            candidates = list(User.objects.using("platform").filter(email__iexact=email, is_superuser=True))
             if len(candidates) != 1:
                 return None
             user = candidates[0]
@@ -45,8 +51,15 @@ class TenantEmailBackend(BaseBackend):
         return user.is_active
 
     def get_user(self, user_id):
+        # Sprint 6.6.3 (item 1): only ever reached via Django's own
+        # session-based auth (/admin/) — apps.tenants.middleware.
+        # RLSTenantMiddleware only runs for /api/* paths at all, so
+        # there is no `cps.tenant_id` set on this connection for /admin/
+        # requests regardless. "platform" alias, same as the
+        # subdomain-less superuser lookup above this reloads a session
+        # for.
         User = get_user_model()
         try:
-            return User.objects.get(pk=user_id)
+            return User.objects.using("platform").get(pk=user_id)
         except User.DoesNotExist:
             return None
