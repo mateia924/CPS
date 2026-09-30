@@ -26,6 +26,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { user, tenant, me, meError, isReady, logout, refreshMe } = useAuth();
   const { t } = useLocale();
   const router = useRouter();
+  const pathname = usePathname();
   const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
@@ -33,6 +34,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       router.replace("/login");
     }
   }, [isReady, user, router]);
+
+  // Sprint 6.6.2 (items 1/2): the backend's own middleware already
+  // rejects every other request while must_change_password is set —
+  // this is purely the UX half, so the user lands on the one screen
+  // that works instead of a page full of failed requests.
+  useEffect(() => {
+    if (!me) return;
+    const forced = me.user.must_change_password || me.requires_2fa_setup;
+    if (forced && pathname !== "/dashboard/profile") {
+      router.replace("/dashboard/profile");
+    }
+  }, [me, pathname, router]);
 
   useEffect(() => {
     if (!user) return;
@@ -97,6 +110,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       me.permissions.includes("vouchers.approve") ||
       me.permissions.includes("accounting.manage") ||
       me.permissions.includes("treasury.request_iban_change"));
+  // Sprint 6.6.2 (items 1/2): mirrors the backend middleware's own
+  // gate — every link below would just 403, so don't show them at all.
+  const forced = !!me && (me.user.must_change_password || me.requires_2fa_setup);
 
   return (
     <div className="app-shell">
@@ -131,6 +147,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </button>
           </div>
         )}
+        {forced && (
+          <div className="card" style={{ padding: "0.6rem 0.75rem", marginBottom: "0.75rem" }}>
+            <p style={{ margin: 0, fontSize: "0.85rem" }}>
+              {me?.user.must_change_password ? t("forcedPasswordChangeNotice") : t("forced2faSetupNotice")}
+            </p>
+          </div>
+        )}
+        {!forced && (
+        <>
         {showApprovalInbox && (
         <div className="topbar" style={{ marginBottom: "0.5rem" }}>
           <Link href="/dashboard/approvals" style={{ color: "var(--sidebar-text)" }}>
@@ -255,6 +280,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         )}
         {showFiscalYears && (
           <SidebarLink href="/dashboard/settings/fiscal-years">{t("fiscalYearsNav")}</SidebarLink>
+        )}
+        </>
         )}
 
         <div style={{ marginTop: "auto", paddingTop: "1rem" }}>

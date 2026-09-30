@@ -7,7 +7,7 @@ import { FormField } from "@/components/FormField";
 import { WarningsBanner } from "@/components/WarningsBanner";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
-import type { LegalEntity, Paginated, TenantFeaturesSettings, TenantSettings } from "@/lib/types";
+import type { LegalEntity, Paginated, Role, TenantFeaturesSettings, TenantSettings } from "@/lib/types";
 
 const FIELD_KEYS = [
   "commercial_registration", "building_number", "street", "district",
@@ -157,6 +157,8 @@ function AdvancedSettingsCard({ entities }: { entities: LegalEntity[] }) {
   const isOwner = !!me && me.roles.includes("Owner");
   const [settings, setSettings] = useState<TenantSettings | null>(null);
   const [defaultEntityId, setDefaultEntityId] = useState("");
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [require2faRoles, setRequire2faRoles] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -164,10 +166,18 @@ function AdvancedSettingsCard({ entities }: { entities: LegalEntity[] }) {
     api.get<TenantSettings>("/tenant-settings/").then((data) => {
       setSettings(data);
       setDefaultEntityId(data.default_legal_entity || "");
+      setRequire2faRoles(data.require_2fa_for_roles);
     });
+    api.get<Paginated<Role>>("/roles/").then((data) => setRoles(data.results));
   }, []);
 
   if (!settings) return null;
+
+  const toggleRequire2fa = (roleName: string) => {
+    setRequire2faRoles((prev) =>
+      prev.includes(roleName) ? prev.filter((name) => name !== roleName) : [...prev, roleName]
+    );
+  };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -176,6 +186,7 @@ function AdvancedSettingsCard({ entities }: { entities: LegalEntity[] }) {
     try {
       const updated = await api.patch<TenantSettings>("/tenant-settings/", {
         default_legal_entity: defaultEntityId || null,
+        require_2fa_for_roles: require2faRoles,
       });
       setSettings(updated);
       setSaved(true);
@@ -201,6 +212,23 @@ function AdvancedSettingsCard({ entities }: { entities: LegalEntity[] }) {
             ))}
           </select>
         </FormField>
+
+        <div className="form-field" style={{ marginTop: "0.5rem" }}>
+          <label>{t("require2faForRoles")}</label>
+          {roles.map((role) => (
+            <div key={role.id}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={require2faRoles.includes(role.name)}
+                  onChange={() => toggleRequire2fa(role.name)}
+                  disabled={!isOwner}
+                />{/* form-ok: قائمة اختيار أدوار متعددة، لا حقل فردي من الـAPI */}{" "}
+                {role.name}
+              </label>
+            </div>
+          ))}
+        </div>
 
         {isOwner && (
           <>

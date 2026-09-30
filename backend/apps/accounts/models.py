@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
@@ -30,6 +31,23 @@ class User(AbstractBaseUser, PermissionsMixin):
     # every user in; this is the per-user off switch.
     notify_approvals_email = models.BooleanField(_("notify approvals by email"), default=True)
 
+    # Sprint 6.6.2 (item 2): forced on creation via "مستخدم جديد" or
+    # reset via "تعديل" — apps.accounts.middleware.MustChangePassword
+    # Middleware blocks every API call except the change-password
+    # screen itself while this is True.
+    must_change_password = models.BooleanField(_("must change password"), default=False)
+
+    # Sprint 6.6.2 (item 1): 2FA (TOTP) — same mechanism as
+    # apps.platform.models.PlatformUser (apps.platform.services'
+    # generate_totp_secret/verify_totp are reused as-is, not copied),
+    # but opt-in per tenant user rather than mandatory. A tenant's
+    # `require_2fa_for_roles` only forces *enrollment* on next login
+    # (apps.accounts.services.user_requires_2fa) — the actual
+    # code-at-login gate is `totp_confirmed`, so a user who opted in
+    # voluntarily is gated the same way as one whose role required it.
+    totp_secret = models.CharField(max_length=64, blank=True)
+    totp_confirmed = models.BooleanField(default=False)
+
     # RBAC (sprint 1, docs/SYSTEM_ANALYSIS.md 3.14). Independent of the
     # legacy `role` field above (kept as-is from Sprint 0 for is_staff/
     # admin-site bypass purposes) — "owner" in the RBAC sense means
@@ -59,3 +77,54 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def get_short_name(self):
         return self.first_name or self.email
+
+
+class BackupCode(models.Model):
+    """Sprint 6.6.2 (item 1): tenant-user equivalent of
+    apps.platform.models.PlatformBackupCode — same shape (hashed,
+    one-time), separate table since a tenant User and a PlatformUser
+    are unrelated models."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="backup_codes")
+    code_hash = models.CharField(max_length=64)
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "code_hash"], name="unique_tenant_backup_code_per_user")
+        ]
+
+    @staticmethod
+    def hash_code(raw_code):
+        return hashlib.sha256(raw_code.encode()).hexdigest()
+
+    def __str__(self):
+        return f"backup code for {self.user_id} ({'used' if self.used_at else 'unused'})"
+
+
+class UserSession(models.Model):
+    """Sprint 6.6.2 (item 4): display-only record of a login's refresh
+    token — simplejwt's own OutstandingToken/BlacklistedToken (already
+    installed, token_blacklist app) carry no device/IP metadata and stay
+    the actual ENFORCEMENT mechanism (apps.accounts.services.
+    invalidate_all_sessions blacklists them); this table only backs the
+    "الجلسات النشطة" list in the profile screen. `jti` links the two —
+    the refresh token's own JWT ID claim, same value OutstandingToken
+    rows are keyed by."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sessions")
+    jti = models.CharField(max_length=255, unique=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"session {self.jti} for {self.user_id}"

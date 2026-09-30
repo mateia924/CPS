@@ -13,6 +13,7 @@ from apps.tenants.services import apply_plan_to_tenant
 
 from .auth import PlatformJWTAuthentication, PlatformViewSet, issue_platform_tokens
 from .models import AuditLog, Plan, PlatformUser
+from .permissions import HasPlatformRole
 from .serializers import (
     AuditLogSerializer,
     ChangePlanSerializer,
@@ -24,6 +25,13 @@ from .serializers import (
     TenantAdminSerializer,
 )
 from .services import consume_backup_code, log_action, verify_totp
+
+# Sprint 6.6.2 (item 3): every platform role may READ — "at least"
+# platform_admin(=SUPER_ADMIN)/platform_support(=SUPPORT) from the
+# spec, with BILLING kept as a third, pre-existing read-only role (see
+# docs/sprints/6.6-summary.md's §6.6.2 for the reasoning) — the write
+# actions below are each granted individually, never through this.
+_ALL_PLATFORM_ROLES = [PlatformUser.Role.SUPER_ADMIN, PlatformUser.Role.SUPPORT, PlatformUser.Role.BILLING]
 
 
 class PlatformLoginView(APIView):
@@ -93,14 +101,34 @@ class PlanViewSet(PlatformViewSet):
     a tenant is)."""
 
     http_method_names = ["get", "head", "options"]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasPlatformRole]
+    permission_map = {"list": _ALL_PLATFORM_ROLES, "retrieve": _ALL_PLATFORM_ROLES}
     serializer_class = PlanSerializer
     queryset = Plan.objects.filter(is_active=True)
 
 
 class TenantAdminViewSet(PlatformViewSet):
     http_method_names = ["get", "post", "head", "options"]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasPlatformRole]
+    # Sprint 6.6.2 (item 3): support's one write ability is suspend/
+    # activate WITH a reason (both already require SuspendTenantSerial
+    # izer's `reason` field); billing's is the two plan-related actions
+    # matching its name. mark_past_due and create (this ViewSet's
+    # http_method_names technically allow POST /platform/tenants/ too,
+    # reachable via ModelViewSet's default create()) are deliberately
+    # left to super_admin only — neither is named in the spec for
+    # support/billing, and HasPlatformRole default-denies anything not
+    # explicitly listed here (unlike apps.access's HasModulePermission).
+    permission_map = {
+        "list": _ALL_PLATFORM_ROLES,
+        "retrieve": _ALL_PLATFORM_ROLES,
+        "create": [PlatformUser.Role.SUPER_ADMIN],
+        "change_plan": [PlatformUser.Role.SUPER_ADMIN, PlatformUser.Role.BILLING],
+        "extend_trial": [PlatformUser.Role.SUPER_ADMIN, PlatformUser.Role.BILLING],
+        "mark_past_due": [PlatformUser.Role.SUPER_ADMIN],
+        "suspend": [PlatformUser.Role.SUPER_ADMIN, PlatformUser.Role.SUPPORT],
+        "activate": [PlatformUser.Role.SUPER_ADMIN, PlatformUser.Role.SUPPORT],
+    }
     serializer_class = TenantAdminSerializer
     # Arch review #1 §5.1 finding #1 (the worst N+1 in the project): the
     # 3 SerializerMethodFields this queryset used to back (user_count/
@@ -254,7 +282,8 @@ class AuditLogViewSet(PlatformViewSet):
     application-level half of it)."""
 
     http_method_names = ["get", "head", "options"]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasPlatformRole]
+    permission_map = {"list": _ALL_PLATFORM_ROLES, "retrieve": _ALL_PLATFORM_ROLES}
     serializer_class = AuditLogSerializer
     queryset = AuditLog.objects.all()
 

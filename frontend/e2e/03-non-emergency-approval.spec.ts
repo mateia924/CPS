@@ -108,7 +108,25 @@ test("6.5.10 item 6: genuine creator != approver, a real second user made throug
     await field(accountantPage, "email").fill(accountantEmail);
     await field(accountantPage, "password").fill(accountantPassword);
     await accountantPage.getByRole("button", { name: "تسجيل الدخول" }).click();
+    // Sprint 6.6.2 (item 2): "مستخدم جديد" always issues a temporary
+    // password now — this first login lands on /dashboard/profile (not
+    // /dashboard), forced to change it before anything else (backend
+    // middleware enforces the same gate on every other request). The
+    // glob "**/dashboard**" only matches from the start of the URL in
+    // Playwright, so it must include the /profile suffix explicitly.
+    await accountantPage.waitForURL("**/dashboard/profile**");
+
+    const newAccountantPassword = "Sprint662Rotate!X9";
+    await field(accountantPage, "current_password").fill(accountantPassword);
+    await field(accountantPage, "new_password").fill(newAccountantPassword);
+    await accountantPage.getByRole("button", { name: "تغيير كلمة السر", exact: true }).click();
+    await accountantPage.waitForURL("**/login**");
+    await field(accountantPage, "subdomain").fill(SUBDOMAIN);
+    await field(accountantPage, "email").fill(accountantEmail);
+    await field(accountantPage, "password").fill(newAccountantPassword);
+    await accountantPage.getByRole("button", { name: "تسجيل الدخول" }).click();
     await accountantPage.waitForURL("**/dashboard**");
+    await expect(accountantPage).not.toHaveURL(/\/dashboard\/profile$/);
 
     await accountantPage.goto(`/dashboard/assets/${newAssetId}`);
     await accountantPage.getByRole("button", { name: "اعتماد", exact: true }).click();

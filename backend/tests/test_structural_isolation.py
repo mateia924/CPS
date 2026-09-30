@@ -18,6 +18,7 @@ from django.urls import get_resolver
 
 from apps.access.permissions import HasModulePermission
 from apps.common.viewsets import TenantScopedViewSet
+from apps.platform.permissions import HasPlatformRole
 
 # ViewSets that correctly do NOT inherit TenantScopedViewSet but still
 # scope every queryset to request.user.tenant by hand — verified by
@@ -65,6 +66,15 @@ NOT_TENANT_DATA = {
     "apps.accounts.views.LoginView",
     "apps.accounts.views.LogoutView",
     "apps.accounts.views.MeView",
+    # Sprint 6.6.2 (items 1/2/4): every one of these acts only on
+    # request.user's own row (password, TOTP secret, sessions) — never
+    # a tenant-wide queryset, so TenantScopedViewSet doesn't apply.
+    "apps.accounts.views.ChangePasswordView",
+    "apps.accounts.views.TwoFactorSetupView",
+    "apps.accounts.views.TwoFactorConfirmView",
+    "apps.accounts.views.TwoFactorDisableView",
+    "apps.accounts.views.SessionListView",
+    "apps.accounts.views.LogoutAllView",
     "rest_framework_simplejwt.views.TokenRefreshView",
     "apps.platform.views.PlatformLoginView",
     "apps.platform.views.PlatformMeView",
@@ -126,10 +136,16 @@ def test_every_registered_view_is_classified():
 
 def test_every_tenant_scoped_view_enables_has_module_permission_when_mapped():
     """The exact PartyViewSet bug: a view that declares `permission_map`
-    (meaning RBAC enforcement was clearly intended) but omits
-    HasModulePermission from permission_classes, so the map is dead code
-    and HasModulePermission.has_permission() is never even called for
-    that view — any authenticated user passes, regardless of role."""
+    (meaning RBAC enforcement was clearly intended) but omits the
+    permission class that actually reads it, so the map is dead code
+    and that class's has_permission() is never even called for that
+    view — any authenticated user passes, regardless of role.
+
+    Two distinct permission classes consume `permission_map` in this
+    project: HasModulePermission (tenant-side RBAC, apps.access) and
+    HasPlatformRole (platform-staff RBAC, apps.platform, sprint 6.6.2
+    item 3) — either satisfies this check, whichever the view's own app
+    actually uses."""
     classes = _registered_view_classes()
     broken = []
     for name, cls in classes.items():
@@ -137,11 +153,11 @@ def test_every_tenant_scoped_view_enables_has_module_permission_when_mapped():
         if not permission_map:
             continue
         permission_classes = getattr(cls, "permission_classes", None) or []
-        if HasModulePermission not in permission_classes:
+        if HasModulePermission not in permission_classes and HasPlatformRole not in permission_classes:
             broken.append(name)
     assert not broken, (
-        "View(s) declare permission_map but never put HasModulePermission "
-        f"in permission_classes, so the map is never enforced: {broken}"
+        "View(s) declare permission_map but never put HasModulePermission/"
+        f"HasPlatformRole in permission_classes, so the map is never enforced: {broken}"
     )
 
 

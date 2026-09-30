@@ -99,6 +99,12 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Sprint 6.6.2 (item 2): a global gate no per-view permission_classes
+    # override can bypass — see apps/accounts/middleware.py's own
+    # docstring for why this has to be middleware, not a permission
+    # class, given most ViewSets in this project set their own
+    # permission_classes list rather than relying on DRF's defaults.
+    "apps.accounts.middleware.MustChangePasswordMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -137,7 +143,11 @@ DATABASES = {
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 8}},
+    # Sprint 6.6.2 (item 2): bumped 8 -> 12 per the sprint's own policy
+    # ("12 حرفًا، لا تساوي البريد، ليست من القائمة الشائعة" — the other
+    # two clauses are UserAttributeSimilarityValidator and
+    # CommonPasswordValidator below, both already in place).
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 12}},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]

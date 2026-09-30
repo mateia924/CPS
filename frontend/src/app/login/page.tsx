@@ -28,6 +28,12 @@ export default function LoginPage() {
   const [editingSubdomain, setEditingSubdomain] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  // Sprint 6.6.2 (item 1): the login endpoint only asks for a TOTP/
+  // backup code once it already knows the account has 2FA confirmed —
+  // this field only appears after that first 403, never guessed at up
+  // front (most users never see it at all).
+  const [totpCode, setTotpCode] = useState("");
+  const [needsTotpCode, setNeedsTotpCode] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [generalErrorText, setGeneralErrorText] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -64,11 +70,29 @@ export default function LoginPage() {
     setGeneralErrorText(null);
     setLoading(true);
     try {
-      await login(subdomain, email, password);
+      const result = await login(subdomain, email, password, totpCode || undefined);
       rememberSubdomain(subdomain);
-      router.replace("/dashboard");
+      // Sprint 6.6.2 (items 1/2): both gates route to the same one
+      // screen (ملفي الشخصي) — the backend's own middleware enforces
+      // must_change_password on every other request regardless, this
+      // just avoids a bounce through the normal dashboard first.
+      if (result.must_change_password || result.requires_2fa_setup) {
+        router.replace("/dashboard/profile");
+      } else {
+        router.replace("/dashboard");
+      }
     } catch (err) {
       if (err instanceof ApiError) {
+        // Sprint 6.6.2 (item 1): a 403 with no field errors at all
+        // (login's own 2FA gate never returns fieldErrors, only a
+        // plain `detail`) means "this account needs a code" — show
+        // the field and let the user submit again instead of treating
+        // it as an ordinary login failure.
+        if (err.status === 403) {
+          setNeedsTotpCode(true);
+          setGeneralErrorText(generalError(err.body, t("totpCodeRequired")));
+          return;
+        }
         const fields = fieldErrors(err.body);
         setErrors(fields);
         if (Object.keys(fields).length === 0 || fields.non_field_errors) {
@@ -118,6 +142,17 @@ export default function LoginPage() {
         <FormField name="password" label={t("password")} required error={errors.password}>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
         </FormField>
+        {needsTotpCode && (
+          <FormField name="totp_code" label={t("totpCodeLabel")} required>
+            <input
+              value={totpCode}
+              onChange={(e) => setTotpCode(e.target.value)}
+              autoFocus
+              required
+              placeholder={t("totpCodePlaceholder")}
+            />
+          </FormField>
+        )}
         <WarningsBanner warnings={generalErrorText ? [generalErrorText] : []} variant="error" />
         <button className="primary" type="submit" disabled={loading}>
           {loading ? "..." : t("login")}

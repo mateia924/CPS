@@ -5,6 +5,7 @@ import { api, fieldErrors, generalError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { roleLabel, useLocale } from "@/lib/i18n";
 import { DataTable } from "@/components/DataTable";
+import { promptDialog } from "@/components/Dialog";
 import { FormField } from "@/components/FormField";
 import { WarningsBanner } from "@/components/WarningsBanner";
 import type { LegalEntity, Paginated, Role, TenantUser } from "@/lib/types";
@@ -20,6 +21,7 @@ export default function RolesPage() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [refreshToken, setRefreshToken] = useState(0);
+  const [resetPasswordError, setResetPasswordError] = useState<string | null>(null);
 
   // Sprint 6.5.10 (UAT note 8): "مستخدم جديد" — POST /users/ (name,
   // email, temp password, allowed entities) then POST /users/{id}/
@@ -120,9 +122,26 @@ export default function RolesPage() {
     }
   };
 
+  const onResetPassword = async (user: TenantUser) => {
+    setResetPasswordError(null);
+    const newValue = await promptDialog({
+      title: t("resetPassword"),
+      message: `${user.first_name} ${user.last_name} — ${user.email}`,
+      placeholder: t("resetPasswordNewValue"),
+    });
+    if (!newValue) return;
+    try {
+      await api.post(`/users/${user.id}/reset_password/`, { new_password: newValue });
+      setRefreshToken((n) => n + 1);
+    } catch (err) {
+      setResetPasswordError(generalError((err as { body?: unknown }).body, t("couldNotSave")));
+    }
+  };
+
   return (
     <div>
       <h1>{t("rolesAndUsers")}</h1>
+      <WarningsBanner warnings={resetPasswordError ? [resetPasswordError] : []} variant="error" />
 
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -261,9 +280,37 @@ export default function RolesPage() {
           {
             key: "role_names",
             label: t("roles"),
-            render: (row) => row.role_names.map((name) => roleLabel(t, name)).join(", "),
+            render: (row) => (
+              <>
+                {row.role_names.map((name) => roleLabel(t, name)).join(", ")}
+                {row.must_change_password && (
+                  <>
+                    {" "}
+                    <span
+                      style={{
+                        display: "inline-block",
+                        padding: "0.15rem 0.6rem",
+                        borderRadius: "var(--radius-pill)",
+                        fontSize: "0.8rem",
+                        fontWeight: 600,
+                        color: "var(--warning)",
+                        background: "var(--warning-bg)",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {t("mustChangePasswordBadge")}
+                    </span>
+                  </>
+                )}
+              </>
+            ),
           },
         ]}
+        renderExtraActions={(row) => (
+          <button className="secondary" onClick={() => onResetPassword(row)}>
+            {t("resetPassword")}
+          </button>
+        )}
       />
     </div>
   );

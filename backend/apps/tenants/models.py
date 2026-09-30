@@ -63,6 +63,17 @@ class Tenant(models.Model):
     default_legal_entity = models.ForeignKey(
         "organization.LegalEntity", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
+    # Sprint 6.6.2 (item 1): apps.access.Role NAMES (the tenant's own
+    # RBAC roles, e.g. "Owner") — a user holding any role named here
+    # must set up 2FA on next login (apps.accounts.services.
+    # user_requires_2fa_setup). Defaults to [] (off) — the spec's own
+    # wording is "عند التفعيل" (once the Owner actively turns this ON
+    # from Settings), never a silent default-on for every brand-new
+    # tenant; a non-empty default here would force EVERY fresh
+    # registration straight into the 2FA setup screen before the Owner
+    # ever saw the rest of the product, which is not what "عند
+    # التفعيل" describes.
+    require_2fa_for_roles = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

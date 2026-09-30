@@ -41,7 +41,10 @@ class TenantSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ("id", "email", "first_name", "last_name", "role", "date_joined", "notify_approvals_email")
+        fields = (
+            "id", "email", "first_name", "last_name", "role", "date_joined",
+            "notify_approvals_email", "must_change_password", "totp_confirmed",
+        )
         read_only_fields = fields
 
 
@@ -177,3 +180,27 @@ class TenantLoginSerializer(serializers.Serializer):
             request=request,
         )
         return attrs
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    """Sprint 6.6.2 (item 2): both the forced must_change_password flow
+    and the ordinary self-service "ملفي الشخصي" path use this — the
+    caller already has a valid access token either way, so re-checking
+    `current_password` is the only thing distinguishing "I meant to
+    change this" from a stolen still-logged-in session."""
+
+    current_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True)
+
+    def validate_current_password(self, value):
+        user = self.context["request"].user
+        if not user.check_password(value):
+            raise serializers.ValidationError(_("Current password is incorrect."))
+        return value
+
+    def validate_new_password(self, value):
+        user = self.context["request"].user
+        if value.lower() == user.email.lower():
+            raise serializers.ValidationError(_("The new password cannot be your email address."))
+        validate_password(value, user=user)
+        return value

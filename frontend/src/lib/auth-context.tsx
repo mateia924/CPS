@@ -26,6 +26,12 @@ interface AuthPayload {
   user: User;
   access: string;
   refresh: string;
+  // Sprint 6.6.2 (items 1/2): both also come back from /auth/me/ on
+  // every later load — kept here too so the login page can redirect
+  // straight to the right forced screen without waiting on a second
+  // round trip.
+  must_change_password: boolean;
+  requires_2fa_setup: boolean;
 }
 
 interface AuthContextValue {
@@ -40,7 +46,12 @@ interface AuthContextValue {
    * `me === null` is otherwise indistinguishable from "no permissions". */
   meError: string | null;
   isReady: boolean;
-  login: (subdomain: string, email: string, password: string) => Promise<void>;
+  login: (
+    subdomain: string,
+    email: string,
+    password: string,
+    totpCode?: string
+  ) => Promise<{ must_change_password: boolean; requires_2fa_setup: boolean }>;
   register: (payload: {
     company_name: string;
     subdomain: string;
@@ -127,10 +138,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const login = async (subdomain: string, email: string, password: string) => {
+  const login = async (subdomain: string, email: string, password: string, totpCode?: string) => {
     const payload = await api.post<AuthPayload>(
       "/auth/login/",
-      { subdomain, email, password },
+      { subdomain, email, password, ...(totpCode ? { totp_code: totpCode } : {}) },
       false
     );
     // Auth itself succeeded once we have tokens — a subsequent /me
@@ -141,6 +152,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setTenant(payload.tenant);
     setUser(payload.user);
     await loadMe();
+    return { must_change_password: payload.must_change_password, requires_2fa_setup: payload.requires_2fa_setup };
   };
 
   const register: AuthContextValue["register"] = async (data) => {

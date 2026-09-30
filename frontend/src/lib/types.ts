@@ -175,6 +175,7 @@ export interface TenantUser {
   role_ids: string[];
   role_names: string[];
   legal_entity_ids: string[];
+  must_change_password: boolean;
 }
 
 export interface MeFeatures {
@@ -193,7 +194,10 @@ export interface MeResponse {
     status: "trial" | "active" | "past_due" | "suspended" | "archived";
     past_due_since: string | null;
   };
-  user: { id: string; email: string; first_name: string; last_name: string; notify_approvals_email: boolean };
+  user: {
+    id: string; email: string; first_name: string; last_name: string; notify_approvals_email: boolean;
+    must_change_password: boolean; totp_confirmed: boolean;
+  };
   roles: string[];
   permissions: string[];
   legal_entity_ids: string[];
@@ -205,6 +209,10 @@ export interface MeResponse {
   default_legal_entity_id: string | null;
   features: MeFeatures;
   simplified_mode: boolean;
+  // Sprint 6.6.2 (item 1): true when one of the user's roles is in the
+  // tenant's require_2fa_for_roles and they haven't enrolled yet — the
+  // dashboard forces the 2FA setup screen while this is true.
+  requires_2fa_setup: boolean;
 }
 
 // --- Platform (sprint 2, docs/SYSTEM_ANALYSIS.md 3.14) ---
@@ -915,6 +923,9 @@ export interface TenantFeaturesSettings {
 // Sprint 6.5.14: الإعدادات ← الشركة ← متقدم.
 export interface TenantSettings {
   default_legal_entity: string | null;
+  // Sprint 6.6.2 (item 1): apps.access.Role names — any user holding
+  // one of these roles must set up 2FA on their next login.
+  require_2fa_for_roles: string[];
 }
 
 export interface AttachmentRule {

@@ -39,7 +39,7 @@ class UserListSerializer(serializers.ModelSerializer):
         model = User
         fields = (
             "id", "email", "first_name", "last_name", "is_active",
-            "role_ids", "role_names", "legal_entity_ids",
+            "role_ids", "role_names", "legal_entity_ids", "must_change_password",
         )
         read_only_fields = fields
 
@@ -104,6 +104,10 @@ class CreateUserSerializer(serializers.Serializer):
             last_name=validated_data.get("last_name", ""),
             role=User.Role.STAFF,
             is_staff=False,
+            # Sprint 6.6.2 (item 2): "مستخدم جديد" always issues a
+            # temporary password — the new user is routed straight to
+            # the change-password screen on first login.
+            must_change_password=True,
         )
 
         if is_simplified_mode(tenant):
@@ -120,6 +124,23 @@ class CreateUserSerializer(serializers.Serializer):
             )
 
         return user
+
+
+class ResetPasswordSerializer(serializers.Serializer):
+    """Sprint 6.6.2 (item 2): "إعادة التعيين من «تعديل»" — an admin
+    (roles.manage) picks a fresh password for someone else's account;
+    the target user never has to know it was them, since the moment
+    they next log in with it they're routed straight to the
+    change-password screen (must_change_password=True)."""
+
+    new_password = serializers.CharField(write_only=True)
+
+    def validate_new_password(self, value):
+        user = self.context["user"]
+        if value.lower() == user.email.lower():
+            raise serializers.ValidationError("The new password cannot be the user's email address.")
+        validate_password(value, user=user)
+        return value
 
 
 class RoleAssignmentSerializer(serializers.Serializer):

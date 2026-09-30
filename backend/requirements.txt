@@ -10,6 +10,7 @@ redis==7.4.1
 gunicorn==26.1.0
 python-dotenv==1.1.1
 pyotp==2.10.0
+qrcode==8.2
 django-ratelimit==4.1.0
 django-storages==1.14.6
 boto3==1.43.100

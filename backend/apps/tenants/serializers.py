@@ -1,3 +1,4 @@
+from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
 from .models import Tenant, TenantFeatures
@@ -26,7 +27,24 @@ class TenantSettingsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Tenant
-        fields = ("default_legal_entity",)
+        # Sprint 6.6.2 (item 1): "إعداد على المستأجر require_2fa_for_
+        # roles" — same Owner-only PATCH screen, validated against the
+        # tenant's own RBAC role names below.
+        fields = ("default_legal_entity", "require_2fa_for_roles")
+
+    def validate_require_2fa_for_roles(self, value):
+        from apps.access.models import Role
+
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise serializers.ValidationError(_("A list of role names is required."))
+        tenant = self.context["request"].user.tenant
+        valid_names = set(Role.objects.filter(tenant=tenant).values_list("name", flat=True))
+        unknown = set(value) - valid_names
+        if unknown:
+            raise serializers.ValidationError(
+                _("Unknown role name(s): %(names)s") % {"names": ", ".join(sorted(unknown))}
+            )
+        return value
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

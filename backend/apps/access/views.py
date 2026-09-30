@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.accounts.models import User
+from apps.accounts.services import invalidate_all_sessions
 from apps.common.viewsets import TenantScopedViewSet
 from apps.platform.models import AuditLog
 from apps.platform.services import log_action
@@ -15,6 +16,7 @@ from .permissions import HasModulePermission
 from .serializers import (
     CreateUserSerializer,
     PermissionSerializer,
+    ResetPasswordSerializer,
     RoleAssignmentSerializer,
     RoleSerializer,
     UserListSerializer,
@@ -90,6 +92,7 @@ class UserViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
         "assign": "roles.manage",
         "deactivate": "roles.manage",
         "activate": "roles.manage",
+        "reset_password": "roles.manage",
     }
 
     def get_serializer_class(self):
@@ -170,6 +173,30 @@ class UserViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
         return Response(UserListSerializer(user).data)
 
     @action(detail=True, methods=["post"])
+    def reset_password(self, request, pk=None):
+        """Sprint 6.6.2 (item 2): "إعادة التعيين من «تعديل»" — sets a
+        temporary password and forces the change-password screen on
+        the target's next login; also ends every session they're
+        currently in, same as a self-service password change."""
+        user = self.get_object()
+        serializer = ResetPasswordSerializer(data=request.data, context={"user": user})
+        serializer.is_valid(raise_exception=True)
+        user.set_password(serializer.validated_data["new_password"])
+        user.must_change_password = True
+        user.save(update_fields=["password", "must_change_password"])
+        invalidate_all_sessions(user)
+        log_action(
+            actor_type=AuditLog.ActorType.TENANT_USER,
+            actor_id=request.user.id,
+            action="tenant_user.reset_password",
+            target_type="accounts.User",
+            target_id=user.id,
+            tenant_id=request.user.tenant_id,
+            request=request,
+        )
+        return Response(UserListSerializer(user).data)
+
+    @action(detail=True, methods=["post"])
     def deactivate(self, request, pk=None):
         user = self.get_object()
         if user_is_owner(user) and active_owner_count(user.tenant, exclude_user_id=user.id) == 0:
@@ -178,6 +205,12 @@ class UserViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
             )
         user.is_active = False
         user.save(update_fields=["is_active"])
+        # Sprint 6.6.2 (item 4): "تعطيل المستخدم (إبطال كل التوكنات)" —
+        # simplejwt's own access-token auth already re-checks is_active
+        # per request, but TokenRefreshView never does, so a deactivated
+        # user could otherwise keep minting fresh access tokens forever
+        # from a refresh token issued before deactivation.
+        invalidate_all_sessions(user)
         log_action(
             actor_type=AuditLog.ActorType.TENANT_USER,
             actor_id=request.user.id,
