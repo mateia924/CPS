@@ -66,16 +66,20 @@ $COMPOSE up -d || fail "restart"
 # check that races this window gets one spurious 502, not a real
 # failure. Poll (not sleep-once) until the backend answers or this
 # many tries are exhausted, then hand off to smoke.sh for the real check.
+# Polls /admin/login/ (Django, always present, never rate-limited) —
+# NOT /api/auth/login/: a first cut of this polled that endpoint
+# directly and burned through nginx's own login rate limit (auth_login
+# zone, burst=5) before smoke.sh ever got to make its own real login
+# call, failing smoke with a spurious 429 instead of ever finishing.
 log "waiting for the backend to actually accept connections"
 READY=0
 for _ in $(seq 1 30); do
-  STATUS="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${HTTP_PORT:-3000}/api/auth/login/" -X POST \
-    -H "Content-Type: application/json" -d '{}' || true)"
+  STATUS="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${HTTP_PORT:-3000}/admin/login/" || true)"
   # nginx itself always answers (curl's own exit code alone can't tell
   # "backend is up" from "backend refused the connection" — nginx
-  # returns a real 502/503 to the client either way) — a 400 here means
-  # the request actually reached Django and got validated/rejected,
-  # proof the backend is genuinely serving.
+  # returns a real 502/503 to the client either way) — any real HTTP
+  # status here (200 for the login page) means the request actually
+  # reached Django, proof the backend is genuinely serving.
   if [ "$STATUS" != "502" ] && [ "$STATUS" != "503" ] && [ "$STATUS" != "000" ]; then
     READY=1
     break
