@@ -24,15 +24,26 @@ just to answer "is the process up", which defeats its purpose as a
 liveness check independent of DB health.
 """
 
+import json
+
 from django.db import connections, transaction
 from rest_framework.exceptions import APIException
 from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.tokens import UntypedToken
 
 from apps.common.rls import clear_local_tenant_id, set_local_tenant_id
 from apps.tenants.authentication import TenantAwareJWTAuthentication
 from apps.tenants.routers import clear_admin_request, mark_admin_request
 
 EXEMPT_PATHS = ("/api/health/",)
+
+# Sprint 6.6.3 (item 1): the one endpoint whose token travels in the
+# POST body instead of the Authorization header — simplejwt's own
+# stock TokenRefreshView, whose TokenRefreshSerializer.validate() does
+# its own SELECT on accounts_user (the same RLS-protected query every
+# other fix in this file works around) using the user_id claim off
+# the refresh token itself.
+REFRESH_TOKEN_PATH = "/api/auth/refresh/"
 
 
 class AdminDatabaseRoutingMiddleware:
@@ -55,6 +66,22 @@ class AdminDatabaseRoutingMiddleware:
 
 
 class RLSTenantMiddleware:
+    """`tenant_id` is read directly off the ACCESS TOKEN'S OWN claims
+    (apps.accounts.views._tokens_for_user sets `refresh["tenant_id"]`,
+    and simplejwt's RefreshToken.access_token copies every custom
+    claim over) — deliberately NOT via a full TenantAwareJWTAuthentica
+    tion.authenticate() call, which was this middleware's first
+    version and broke live logins the hard way: that call's own
+    get_user() is itself a SELECT on accounts_user (RLS-protected), and
+    at the point this middleware runs, `cps.tenant_id` isn't set yet —
+    that's exactly what it's trying to determine. Decoding the token
+    (get_validated_token(), pure cryptographic/claims validation, no DB
+    query at all) and reading `tenant_id` straight from its payload
+    sidesteps the chicken-and-egg entirely. The real, full
+    authentication (including the User SELECT, now correctly scoped)
+    still happens normally afterward, inside the view's own dispatch().
+    """
+
     def __init__(self, get_response):
         self.get_response = get_response
         self.authenticator = TenantAwareJWTAuthentication()
@@ -65,13 +92,27 @@ class RLSTenantMiddleware:
 
         with transaction.atomic(using="default"):
             tenant_id = None
-            try:
-                result = self.authenticator.authenticate(request)
-            except (TokenError, APIException):
-                result = None
-            if result is not None:
-                user, _token = result
-                tenant_id = getattr(user, "tenant_id", None)
+            header = self.authenticator.get_header(request)
+            if header is not None:
+                raw_token = self.authenticator.get_raw_token(header)
+                if raw_token is not None:
+                    try:
+                        validated_token = self.authenticator.get_validated_token(raw_token)
+                    except (TokenError, APIException):
+                        validated_token = None
+                    if validated_token is not None:
+                        tenant_id = validated_token.get("tenant_id")
+
+            if tenant_id is None and request.path == REFRESH_TOKEN_PATH:
+                try:
+                    raw_refresh = json.loads(request.body or b"{}").get("refresh")
+                except (ValueError, UnicodeDecodeError):
+                    raw_refresh = None
+                if raw_refresh:
+                    try:
+                        tenant_id = UntypedToken(raw_refresh).get("tenant_id")
+                    except TokenError:
+                        tenant_id = None
 
             with connections["default"].cursor() as cursor:
                 # Sprint 6.6.3: the `true` (missing_ok) form of

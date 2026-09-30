@@ -189,6 +189,31 @@ def test_login_under_the_restricted_role_for_a_pre_existing_user(settings):
             content_type="application/json",
         )
         assert response.status_code == 200, response.json()
+
+        # Sprint 6.6.3 (item 1) — a SECOND, separate live bug: every
+        # *subsequent* authenticated request goes through apps.tenants.
+        # middleware.RLSTenantMiddleware too, and its own FIRST version
+        # called TenantAwareJWTAuthentication.authenticate() in full to
+        # learn `tenant_id` — whose own get_user() is itself a SELECT
+        # on accounts_user, with no `cps.tenant_id` set yet (that's
+        # what this call was trying to determine in the first place).
+        # Fixed by reading `tenant_id` directly off the access token's
+        # own claims (a pure, DB-free claims decode) instead. /auth/me/
+        # is the simplest such request — this would have caught it.
+        me = client.get("/api/auth/me/", HTTP_AUTHORIZATION=f"Bearer {response.json()['access']}")
+        assert me.status_code == 200, me.json()
+
+        # Sprint 6.6.3 (item 1) — a THIRD, separate live bug: simplejwt's
+        # own stock TokenRefreshView carries its token in the POST body,
+        # not the Authorization header the middleware otherwise reads —
+        # its TokenRefreshSerializer.validate() does its own SELECT on
+        # accounts_user too. Fixed by falling back to decoding the
+        # refresh token straight out of the request body for this one
+        # path.
+        refresh = client.post(
+            "/api/auth/refresh/", {"refresh": response.json()["refresh"]}, content_type="application/json",
+        )
+        assert refresh.status_code == 200, refresh.json()
     finally:
         connection.close()
         connection.settings_dict.update(original)
