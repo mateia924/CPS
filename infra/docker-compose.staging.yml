@@ -1,0 +1,59 @@
+# Staging overlay — sprint 6.6.0: a full, independent stack (its own
+# Postgres/Redis/MinIO/ClamAV, its own containers and volumes, under
+# compose project "cps-staging" — never "infra", the project docker-
+# compose.local.yml manages on 3000) on port 3001. This is where every
+# human UAT session happens from now on — the owner/Fatma never clicks
+# through port 3000 again. Fed by `scripts/staging_refresh.sh` (restore
+# the latest dev backup here + rewrite every user's password to a
+# single known value), never by hand-editing data on it directly.
+#
+# Same base services as docker-compose.yml/local.yml — built image, no
+# bind-mounts, no --reload, same as a real deployment — the whole point
+# is that staging behaves like the live environment would, not like an
+# interactive dev sandbox. The only differences here are: its own env
+# file (.env.staging, never .env — a different Postgres/MinIO/JWT
+# secrets, a different NEXT_PUBLIC_API_URL baked in at build time for
+# port 3001) and nginx's own published port.
+#
+# Usage: scripts/staging_refresh.sh runs this for you; directly:
+#   docker compose -p cps-staging --env-file ../.env.staging \
+#     -f docker-compose.yml -f docker-compose.staging.yml up -d --build
+
+services:
+  # `!override` (not a plain scalar) matters here: compose MERGES two
+  # plain `env_file:` scalars/lists across files (later file's keys win,
+  # but anything ONLY in the base's ../.env — e.g. HTTP_PORT — still
+  # leaks through into this container's environment). `!override`
+  # replaces the base's env_file list outright, so nothing from the
+  # real dev `.env` ever reaches a staging container. Verified with
+  # `docker compose ... config` before relying on it.
+  postgres:
+    env_file: !override
+      - ../.env.staging
+
+  minio:
+    env_file: !override
+      - ../.env.staging
+
+  backend:
+    env_file: !override
+      - ../.env.staging
+    environment:
+      CPS_ENVIRONMENT: staging
+    # apps.tenants's migrate-backup guard reads docs/ops/backups.log
+    # from inside the container — same reasoning as docker-compose.
+    # local.yml's identical mount.
+    volumes:
+      - ../docs:/docs:ro,Z
+
+  celery_worker:
+    env_file: !override
+      - ../.env.staging
+    environment:
+      CPS_ENVIRONMENT: staging
+
+  nginx:
+    ports:
+      - "${STAGING_HTTP_PORT:-3001}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro,Z

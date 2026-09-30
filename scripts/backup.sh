@@ -42,7 +42,17 @@ COMPOSE="docker compose --env-file $REPO_DIR/.env"
 cd "$REPO_DIR/infra"
 
 echo "[$(date -Iseconds)] Starting backup -> $DUMP_FILE"
-$COMPOSE exec -T postgres pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > "$DUMP_FILE"
+# Sprint 6.6.0 (found while validating scripts/staging_refresh.sh): a
+# plain pg_dump embeds `OWNER TO $POSTGRES_USER` / GRANT statements
+# tied to THIS role's exact name — restoring onto a target whose own
+# Postgres role has a different name (staging's "cps_staging", or any
+# future production host's own) fails outright ("role ... does not
+# exist") before a single row loads. --no-owner --no-privileges drops
+# those statements; the restoring connection's own role becomes the
+# owner instead, which is exactly what every restore here actually
+# wants (this same fix is what scripts/restore_test.sh in 6.6.4 will
+# rely on too).
+$COMPOSE exec -T postgres pg_dump --no-owner --no-privileges -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > "$DUMP_FILE"
 
 if [ ! -s "$DUMP_FILE" ]; then
   echo "[$(date -Iseconds)] ERROR: backup file is empty — deleting and failing loudly." >&2

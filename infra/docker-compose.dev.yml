@@ -1,9 +1,19 @@
-# Dev overlay. This host is dev-only — see README "Reserved ports on this
-# host" before ever changing HTTP_PORT away from 3000.
+# Interactive dev overlay — sprint 6.6.0: this file's OLD role (serving
+# port 3000, what Fatma's UAT actually hit) is exactly the hazard this
+# sprint exists to remove — hot-reload + bind-mounts meant a live-tenant
+# request could land mid-way between a model edit and its migration
+# (the "column does not exist" 500 window). This file now serves ONLY
+# an interactive coding sandbox on port 3002, in its OWN compose project
+# ("cps-dev" — never the bare/default "infra" project docker-compose.
+# local.yml manages on 3000, so `docker compose down` in one can never
+# touch the other's containers). Never used for UAT — see docker-
+# compose.staging.yml for that, and docker-compose.local.yml (via
+# scripts/deploy.sh) for what's actually live on 3000.
 #
-# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml \
-#          --env-file ../.env up -d --build
-# or simply: make dev-up (from the repo root)
+# Usage: make dev-up / dev-down / dev-logs (Makefile passes -p cps-dev
+# and --env-file ../.env for you), or directly:
+#   docker compose -p cps-dev --env-file ../.env \
+#     -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 
 services:
   backend:
@@ -14,13 +24,20 @@ services:
     # stale code indefinitely (exactly what happened in 4.8 — the
     # container had been running since before that sprint's first
     # commit). `--reload` watches every .py file under the working dir
-    # and restarts workers on change; production (docker-compose.prod.yml)
-    # never adds this flag, only dev. This does NOT replace the "restart
-    # + curl /me" rule after the sprint's last commit — reload watches
-    # file changes, not migrations or Docker image rebuilds.
+    # and restarts workers on change; docker-compose.local.yml/prod.yml
+    # never add this flag, only this file. This does NOT replace the
+    # "restart + curl /me" rule after the sprint's last commit — reload
+    # watches file changes, not migrations or Docker image rebuilds.
+    # Sprint 6.6.0 (found while validating this exact file against a
+    # genuinely fresh cps-dev volume — the OLD dev.yml this replaced
+    # had the same gap, silently masked for sprints because the bucket
+    # had already been created, once, in the long-lived volume it kept
+    # reusing): ensure_attachments_bucket is idempotent and safe on
+    # every start, same as the base command already runs it.
     command: >
       sh -c "python manage.py migrate --noinput &&
              python manage.py collectstatic --noinput &&
+             python manage.py ensure_attachments_bucket &&
              exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --reload"
     volumes:
       - ../backend:/app:Z
@@ -43,15 +60,20 @@ services:
       target: deps
     command: sh -c "npm install && npm run dev"
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
-      NEXT_PUBLIC_APP_DOMAIN: ${NEXT_PUBLIC_APP_DOMAIN}
+      # Sprint 6.6.0: this sandbox's own origin (port 3002), not the
+      # live one docker-compose.local.yml serves on 3000 — `next dev`
+      # reads NEXT_PUBLIC_* from process.env at request time (no build
+      # step to bake it into), so overriding it here is enough, unlike
+      # the built overlays where it's an image build ARG.
+      NEXT_PUBLIC_API_URL: ${DEV_NEXT_PUBLIC_API_URL:-http://154.41.209.222:3002/api}
+      NEXT_PUBLIC_APP_DOMAIN: ${DEV_NEXT_PUBLIC_APP_DOMAIN:-localhost:3002}
     volumes:
       - ../frontend:/app:Z
       - frontend_node_modules:/app/node_modules
 
   nginx:
     ports:
-      - "${HTTP_PORT:-3000}:80"
+      - "${DEV_HTTP_PORT:-3002}:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro,Z
 

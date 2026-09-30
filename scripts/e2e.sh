@@ -22,7 +22,13 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 PLAYWRIGHT_IMAGE="mcr.microsoft.com/playwright:v1.49.1-noble"
-API_URL="$(grep '^NEXT_PUBLIC_API_URL=' .env | cut -d= -f2-)"
+# Sprint 6.6.0: `make dev-up` now serves the interactive sandbox on
+# port 3002 (DEV_NEXT_PUBLIC_API_URL), not port 3000 (NEXT_PUBLIC_API_URL
+# is the local/live stack scripts/deploy.sh manages, on its own compose
+# project "infra" — never what this suite exercises) — this keeps the
+# original intent (test against whatever `make dev-up` just brought up)
+# unchanged, only the variable name moved.
+API_URL="$(grep '^DEV_NEXT_PUBLIC_API_URL=' .env | cut -d= -f2-)"
 BASE_URL="${API_URL%/api}"
 SCREENS_DIR="docs/uat/screens/6.5.8"
 SUBDOMAIN="smoke-$(date +%s)"
@@ -32,7 +38,7 @@ rm -f "$SCREENS_DIR"/*.png
 mkdir -p "$SCREENS_DIR"
 
 echo "[e2e] archiving any leftover smoke-* tenants first"
-docker exec infra-backend-1 python manage.py archive_smoke_tenants
+docker exec cps-dev-backend-1 python manage.py archive_smoke_tenants
 
 echo "[e2e] phase 1: register, approval rule, voucher, asset, clean error, start/withdraw/restart"
 docker run --rm --network host \
@@ -42,7 +48,7 @@ docker run --rm --network host \
   sh -c "npm install --no-audit --no-fund && npx playwright test 01-setup-and-schedule.spec.ts --reporter=list"
 
 echo "[e2e] seeding a second (Accountant) user for the emergency-approval scenario"
-docker exec infra-backend-1 python manage.py create_test_user \
+docker exec cps-dev-backend-1 python manage.py create_test_user \
   --subdomain "$SUBDOMAIN" --email "accountant@$SUBDOMAIN.test" --password "SmokeE2E!2026" --role Accountant
 
 echo "[e2e] phase 2: emergency-approval prompt, generate due now"
@@ -63,7 +69,7 @@ docker run --rm --network host \
 # one tenant, not a bug in either. Deactivating (never deleting) frees
 # the seat; phase 2 is already done with it by this point.
 echo "[e2e] deactivating phase 2's seeded Accountant to free a seat under the Free plan's max_users=2"
-docker exec infra-backend-1 python manage.py shell -c "
+docker exec cps-dev-backend-1 python manage.py shell -c "
 from apps.accounts.models import User
 User.objects.filter(tenant__subdomain='$SUBDOMAIN', email='accountant@$SUBDOMAIN.test').update(is_active=False)
 "
@@ -104,6 +110,6 @@ docker run --rm --network host \
   sh -c "npx playwright test 07-voucher-insufficient-balance-message.spec.ts --reporter=list"
 
 echo "[e2e] archiving the smoke-* tenant this run created"
-docker exec infra-backend-1 python manage.py archive_smoke_tenants
+docker exec cps-dev-backend-1 python manage.py archive_smoke_tenants
 
 echo "[e2e] ALL CHECKS PASSED — screenshots in $SCREENS_DIR/"

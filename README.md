@@ -201,9 +201,19 @@ docs/       SYSTEM_ANALYSIS.md (المرجع الملزم) + CPS_Technical_Archi
 سيكونان على سيرفر إنتاج منفصل لاحقًا، والنقل بين السيرفرين عبر GitHub —
 لا نشر مباشر من هنا. لذلك:
 
-- الـ stack هنا يعمل دائمًا على **المنفذ 3000** فقط (dev overlay).
 - ملفات الإنتاج (`docker-compose.prod.yml`) جاهزة ومُختبرة syntax لكنها
   **لا تعمل على هذا السيرفر أبدًا**.
+- **سبرنت 6.6.0:** ثلاث بيئات مستقلة على هذا السيرفر الآن، لا واحدة —
+  انظر `docs/ops/DEPLOY.md` للتفصيل الكامل:
+  - **3000 — "الحي" (local):** ما يخدمه هذا السيرفر فعليًا الآن، بلا
+    إعادة تحميل، من صورة مبنية. **لا يُغيَّر إلا عبر `scripts/deploy.sh`
+    (`make deploy`)** — لا `docker compose up -d --build` يدويًا هنا
+    أبدًا.
+  - **3002 — صندوق التطوير التفاعلي (`make dev-up`):** إعادة تحميل حقيقية
+    + bind-mount، للكتابة والتجربة فقط — مستأجرات `smoke-*` فقط، لا
+    Fatma/acme هنا أو في أي بيئة أخرى.
+  - **3001 — staging:** نسخة كاملة مستقلة، حيث يُنفَّذ كل UAT بشري من
+    الآن (`scripts/staging_refresh.sh`).
 
 ### المنافذ المحجوزة على هذا السيرفر — لا تستخدمها
 
@@ -217,25 +227,35 @@ docs/       SYSTEM_ANALYSIS.md (المرجع الملزم) + CPS_Technical_Archi
   لاحظ أن هذا يختلف عن 8080 المذكور أعلاه — وثّقنا 8080 كمحجوز بناءً على
   توجيه صريح رغم أن إعداد ORDS الحالي يُظهر 9475؛ لو دة غير دقيق صحّحه) |
 | 9475, 11839, 16385, 22, 6010, 111 | خدمات نظام/Oracle أخرى (راجع `ss -tlnp` قبل حجز أي منفذ جديد) |
-| **3000** | **CPS (هذا المشروع) — dev فقط** |
+| **3000** | **CPS — local (الحي، `docker-compose.local.yml`، `scripts/deploy.sh`)** |
+| **3001** | **CPS — staging (`docker-compose.staging.yml`)** |
+| **3002** | **CPS — صندوق التطوير التفاعلي (`docker-compose.dev.yml`، `make dev-up`)** |
 
 قبل حجز أي منفذ جديد لهذا المشروع مستقبلاً، شغّل `ss -tlnp` وتأكد إنه فاضي.
 
-## التشغيل محليًا (تطوير)
+## التشغيل محليًا (سبرنت 6.6.0: صندوق التطوير، منفذ 3002)
 
 ```bash
 cd /opt/cps
 cp .env.example .env        # ثم عدّل القيم، خصوصًا DJANGO_SECRET_KEY وكلمات المرور
-make dev-up                 # = docker compose -f infra/docker-compose.yml
+make dev-up                 # = docker compose -p cps-dev -f infra/docker-compose.yml
                              #   -f infra/docker-compose.dev.yml --env-file .env up -d --build
 ```
 
 أوامر أخرى: `make dev-down`, `make dev-logs`, `make dev-build`,
-`make dev-config` (للتحقق من الـ YAML بدون تشغيل).
+`make dev-config` (للتحقق من الـ YAML بدون تشغيل)، `make test`,
+`make lint`, `make check`.
 
-في وضع dev الـ frontend يعمل بـ `next dev` (Turbopack، hot-reload حقيقي
-عبر mount لمجلد `frontend/` بالكامل) بدل الـ build الثابت المستخدم في
-الإنتاج.
+هذا صندوق كتابة وتجربة فقط — مستقل تمامًا (project منفصل "cps-dev"،
+قاعدته وتخزينه الخاصان، فارغان عند أول تشغيل). استخدم مستأجرات `smoke-*`
+عبر الـ API/الواجهة ثم `manage.py archive_smoke_tenants` في نفس
+الجلسة — لا تُنشئ بيانات "حقيقية" هنا ولا تلمس Fatma/acme (تلك تعيش على
+3000، ولا تُلمَس إلا عبر `scripts/deploy.sh`؛ الفحص البشري من الآن على
+staging، منفذ 3001 — انظر `docs/ops/DEPLOY.md`).
+
+الـ frontend هنا يعمل بـ `next dev` (Turbopack، hot-reload حقيقي عبر
+mount لمجلد `frontend/` بالكامل) بدل الـ build الثابت المستخدم في
+local/staging/الإنتاج.
 
 **تنبيه عن `infra/nginx/nginx.conf`:** هذا الملف مُمنتَج كـ bind mount
 لملف واحد (لا مجلد كامل)، وbind mount من نوع "ملف واحد" على Linux مربوط
@@ -247,9 +267,9 @@ make dev-up                 # = docker compose -f infra/docker-compose.yml
 كامل، وتعديلات الملفات بداخلها تُرى فورًا بدون مشكلة.)
 
 بعد التشغيل:
-- الواجهة: http://localhost:3000/
-- الـ API: http://localhost:3000/api/
-- لوحة إدارة Django: http://localhost:3000/admin/
+- الواجهة: http://localhost:3002/
+- الـ API: http://localhost:3002/api/
+- لوحة إدارة Django: http://localhost:3002/admin/
 
 الـ backend container يشغّل `migrate` و `collectstatic` تلقائيًا عند كل
 إقلاع (جزء من `command:` في `infra/docker-compose.yml`). حاويتا `backend`
@@ -269,7 +289,7 @@ volume `static_data` (يُنشأ root-owned افتراضيًا)، ثم يُسق�
 الفحص الحي يعمل فعليًا:
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml \
+docker compose -p cps-dev -f infra/docker-compose.yml -f infra/docker-compose.dev.yml \
   --env-file .env logs clamav | tail -20   # ابحث عن "Self checking is enabled"
 ```
 
@@ -282,7 +302,7 @@ docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml \
 ### إنشاء مستخدم مشرف (superuser) لدخول /admin
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml \
+docker compose -p cps-dev -f infra/docker-compose.yml -f infra/docker-compose.dev.yml \
   --env-file .env exec backend python manage.py createsuperuser
 ```
 (سيطلب منك اختيار Tenant موجود مسبقًا — أنشئ مستأجرًا أولًا عبر
@@ -296,7 +316,7 @@ docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml \
 مباشرة):
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml \
+docker compose -p cps-dev -f infra/docker-compose.yml -f infra/docker-compose.dev.yml \
   --env-file .env exec backend python manage.py create_platform_user \
   --email admin@example.com --full-name "اسمك" --role super_admin
 ```

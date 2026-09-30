@@ -1,0 +1,92 @@
+# النشر — الأدلة والملفات (سبرنت 6.6.0)
+
+هذا المستند يشرح كل ملف compose على هذا الخادم، ومتى يُستخدم كل واحد،
+ولماذا. القاعدة الوحيدة التي لا تُكسَر أبدًا: **لا تغيير على ما يخدمه
+المنفذ 3000 إلا عبر `scripts/deploy.sh`** — لا `docker compose ... up
+-d --build` يدويًا ضد `docker-compose.local.yml`، ولا استثناء.
+
+## الملفات الأربعة
+
+| الملف | الغرض | المشروع (project) | المنفذ | من يشغّله |
+|---|---|---|---|---|
+| `infra/docker-compose.yml` | التعريفات المشتركة (لا يُشغَّل بمفرده أبدًا) | — | — | — |
+| `infra/docker-compose.local.yml` | **الحي** — ما يخدمه هذا الخادم فعليًا الآن، بلا إعادة تحميل، من صورة مبنية | `infra` | 3000 | `scripts/deploy.sh` فقط |
+| `infra/docker-compose.dev.yml` | صندوق التطوير التفاعلي — إعادة تحميل + bind-mount، للكتابة والتجربة على مستأجرات `smoke-*` فقط | `cps-dev` | 3002 | `make dev-up` |
+| `infra/docker-compose.staging.yml` | staging — نسخة مستقلة كاملة، حيث يُنفَّذ كل UAT بشري من الآن | `cps-staging` | 3001 | `make staging-up` / `scripts/staging_refresh.sh` |
+| `infra/docker-compose.prod.yml` | سيرفر الإنتاج المستقل المستقبلي (6.6.8) — لا يُشغَّل على هذا الخادم أبدًا | — | 80/443 | — |
+
+كل مشروع (project) مستقل تمامًا: قاعدته وحاوياته وأحجامه الخاصة، تحت
+اسم compose project مختلف — `docker compose down` في أحدهما لا يمسّ
+الآخرين أبدًا.
+
+## `scripts/deploy.sh` — الطريق الوحيد لتغيير الحي (3000)
+
+```
+scripts/deploy.sh
+```
+
+الخطوات، بالترتيب، وتتوقف عند أول فشل:
+
+1. **نسخة احتياطية** (`scripts/backup.sh`) — تسجّل سطرًا في
+   `docs/ops/backups.log`؛ هذا ما يُرضي حارس migrate في الخطوة 3.
+2. **بناء الصور** من الشيفرة الحالية (`docker compose build`).
+3. **الهجرات** — بحاوية مؤقتة من الصورة الجديدة؛ حارس
+   `apps.tenants.management.commands.migrate` يرفض أي migration
+   معلَّقة بلا نسخة احتياطية أحدث من 15 دقيقة (الخطوة 1 أعلاه توفّرها).
+4. **إعادة التشغيل** من الصور الجديدة (`docker compose up -d`).
+5. **`make smoke`** — مع انتظار فعلي (لا تخمين) حتى يستجيب الخادم
+   الخلفي فعليًا قبل الفحص، لتفادي نافذة "502" اللحظية بين إقلاع nginx
+   وإقلاع gunicorn الكاملين.
+
+كل تشغيلة تُسجَّل سطرًا في `docs/ops/deploys.log` (الوقت، الهاش،
+النتيجة OK/FAILED والسبب عند الفشل).
+
+## صندوق التطوير (`make dev-up`, منفذ 3002)
+
+للكتابة والتجربة فقط — لا UAT هنا أبدًا. مستقل تمامًا (قاعدته/تخزينه
+الخاص، فارغ عند أول تشغيل)؛ استخدم مستأجرات `smoke-*` عبر الـ
+API/الواجهة، ثم `manage.py archive_smoke_tenants` في نفس الجلسة (§0
+قاعدة 3) — لا تلمس Fatma/acme مباشرة هنا أو في أي بيئة أخرى.
+
+```
+make dev-up      # يبني ويشغّل
+make dev-logs    # سجلات مباشرة
+make dev-down    # إيقاف
+make test        # pytest داخل الصندوق
+make lint        # ruff داخل الصندوق
+make check       # فحوص الواجهة البنيوية (brand/money/forms/entity-default)
+make migrate     # migrate على قاعدة الصندوق فقط — لا يمسّ 3000 أبدًا
+```
+
+## staging (`make staging-up`, منفذ 3001)
+
+نسخة كاملة مستقلة، بيئتها `.env.staging` (نسخ `.env.staging.example`
+وتعبئته فعليًا قبل أول تشغيل — لم يُدرَج في الريبو، مثل `.env`
+نفسها). لا تُعدَّل بياناتها يدويًا أبدًا — فقط عبر:
+
+```
+scripts/staging_refresh.sh
+# أو: make staging-refresh
+```
+
+يستعيد آخر نسخة احتياطية من `/opt/cps-backups/` (نفس نسخ الحي) إلى
+قاعدة staging المستقلة، ثم يعيد كتابة كلمة سر **كل** مستخدم إلى قيمة
+UAT معروفة واحدة (`STAGING_UAT_PASSWORD` في `.env.staging`) — البريد
+الحقيقي لكل مستخدم يبقى كما هو دون أي تغيير. أمر `manage.py
+reset_passwords_for_staging` الذي يفعل هذا يرفض العمل خارج
+`CPS_ENVIRONMENT=staging` بشكل صريح — لا يمكن تشغيله بالخطأ على الحي.
+
+بعد كل تشغيلة: نفس عدد المستأجرات كالحي (تحقّق يدوي بسيط)، وتسجيل
+دخول أي مستخدم حقيقي (بريده الحقيقي + `STAGING_UAT_PASSWORD`) يعمل
+فورًا على `http://<هذا الخادم>:3001`.
+
+## ملاحظة فنية: `env_file: !override`
+
+`infra/docker-compose.staging.yml` يستخدم `env_file: !override
+[../.env.staging]` لكل خدمة (لا `env_file: ../.env.staging` كنص
+عادي) — لأن compose **يُدمِج** قوائم `env_file` عبر الملفات (لا
+يستبدلها) حين تكون نصًا عاديًا، فيبقى أي متغيّر موجود فقط في `.env`
+الحقيقي (وليس في `.env.staging`) مسرَّبًا إلى حاوية staging. `!override`
+هو الوسم الصريح في Compose لاستبدال القائمة كليًا بدل دمجها — تحقَّق
+من هذا فعليًا بـ `docker compose ... config` قبل الاعتماد عليه (سبرنت
+6.6.0).
