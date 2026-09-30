@@ -5,11 +5,16 @@ set -euo pipefail
 # latest dev backup (the same file scripts/backup.sh already produces
 # for the local/live stack) into staging's OWN, fully independent
 # Postgres instance (compose project "cps-staging", never "infra"),
-# then rewrites every tenant user's password to one known UAT value
-# (real emails stay untouched — see apps/accounts/management/commands/
-# reset_passwords_for_staging.py for why this is safe: it hard-refuses
-# outside CPS_ENVIRONMENT=staging). Never hand-edit data on staging
-# directly — re-run this instead.
+# then anonymizes every tenant user (apps.accounts.management.commands.
+# anonymize_staging_users — hard-refuses outside CPS_ENVIRONMENT=
+# staging): the email's local part is kept but its domain becomes
+# "<tenant subdomain>.staging.test" (a real address, e.g. Fatma's own
+# Owner login, never actually reaches anyone once it's on staging —
+# EMAIL_BACKEND is forced to console there regardless of any EMAIL_HOST
+# in .env.staging, config/settings.py), and every password becomes the
+# one known STAGING_UAT_PASSWORD value. The login path itself needed no
+# code change — it already just matches whatever email is stored.
+# Never hand-edit data on staging directly — re-run this instead.
 #
 # Usage: scripts/staging_refresh.sh
 #        make staging-refresh
@@ -65,10 +70,26 @@ $COMPOSE exec -T backend python manage.py migrate --noinput
 log "restarting nginx so it re-resolves backend's new address"
 $COMPOSE restart nginx
 
-log "step 6/6: rewriting every user's password to the known staging UAT value"
-$COMPOSE exec -T backend python manage.py reset_passwords_for_staging --password "$STAGING_UAT_PASSWORD"
+log "step 6/6: anonymizing every user's email domain and rewriting their password"
+$COMPOSE exec -T backend python manage.py anonymize_staging_users --password "$STAGING_UAT_PASSWORD"
+# Sprint 6.6.2 (not built yet): once tenant 2FA / must_change_password /
+# session invalidation exist, this step should also re-arm 2FA setup,
+# clear must_change_password, and revoke every outstanding refresh
+# token for every user on every refresh — a stale staging session
+# should never survive past a restore. Add those calls here then.
 
 TENANT_COUNT="$($COMPOSE exec -T backend python manage.py shell -c \
-  "from apps.tenants.models import Tenant; print(Tenant.objects.count())" | tr -d '\r')"
+  "from apps.tenants.models import Tenant; print(Tenant.objects.count())" | tail -1 | tr -d '\r')"
 log "staging now has $TENANT_COUNT tenant(s) — compare against dev's own count to confirm the restore."
-log "done. Log in on http://<this-host>:${STAGING_HTTP_PORT:-3001} with any real tenant email + the known password in .env.staging (STAGING_UAT_PASSWORD)."
+
+FATMA_OWNER_EMAIL="$($COMPOSE exec -T backend python manage.py shell -c \
+  "from apps.accounts.models import User; u = User.objects.filter(tenant__subdomain='fatma', role='owner').first(); print(u.email if u else '')" \
+  | tail -1 | tr -d '\r')"
+
+log "done. Email pattern: <local part>@<tenant subdomain>.staging.test — password: the one value below."
+if [ -n "$FATMA_OWNER_EMAIL" ]; then
+  log "Fatma's Owner login on http://<this-host>:${STAGING_HTTP_PORT:-3001} -> $FATMA_OWNER_EMAIL"
+fi
+# Sprint 6.6.0 (owner decision): printed once, here, at the very end —
+# never logged anywhere persistent (docs/ops/*.log never see it).
+log "staging password for every user: $STAGING_UAT_PASSWORD"

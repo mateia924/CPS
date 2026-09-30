@@ -326,7 +326,15 @@ if env("CPS_ENVIRONMENT", default="") == "production" and not ATTACHMENT_SCAN_EN
 # ---------------------------------------------------------------------------
 
 EMAIL_HOST = env("EMAIL_HOST", default="")
-if EMAIL_HOST:
+# Sprint 6.6.0 (owner decision, staging_refresh.sh's own email-
+# anonymization pattern): staging emails are real people's addresses
+# with only the domain swapped, not synthetic .test ones — a future
+# .env.staging that ever picks up a real EMAIL_HOST (copy-paste from
+# .env.example, say) must never be able to make staging actually mail
+# one of them. Hard override, checked before EMAIL_HOST at all.
+if env("CPS_ENVIRONMENT", default="") == "staging":
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+elif EMAIL_HOST:
     EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
     EMAIL_PORT = env.int("EMAIL_PORT", default=587)
     EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
