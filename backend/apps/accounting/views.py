@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 
 from apps.access.permissions import HasModulePermission
 from apps.common.validators import future_date_warning
-from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
+from apps.common.viewsets import EntityScopedMixin, SoftDeleteViewSetMixin, TenantScopedViewSet
 from apps.organization.models import CostCenter, LegalEntity
 from apps.organization.services import get_accessible_entity_ids
 from apps.treasury.services import ExchangeRateNotFound, get_rate_with_warnings
@@ -246,11 +246,14 @@ def _resolve_opening_lines(tenant, raw_lines):
     return resolved
 
 
-class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+class JournalEntryViewSet(
+    EntityScopedMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
+):
     """القيود اليدوية (3.15.1/3.15.9) + القيود التلقائية (فواتير) في نفس
     الشاشة، للقراءة معًا. الإنشاء/الاعتماد/الترحيل/العكس متاحة فقط
     للقيود اليدوية (source_type فارغ) عبر الإجراءات أدناه."""
 
+    queryset = JournalEntry.objects.prefetch_related("lines", "lines__account")
     serializer_class = JournalEntrySerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
     permission_map = {
@@ -267,10 +270,9 @@ class JournalEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
     }
 
     def get_queryset(self):
-        accessible_ids = get_accessible_entity_ids(self.request.user)
-        queryset = JournalEntry.objects.filter(
-            tenant=self.request.user.tenant, legal_entity_id__in=accessible_ids
-        ).prefetch_related("lines", "lines__account")
+        # Sprint 6.6.1: tenant + entity via EntityScopedMixin's own
+        # super() chain (was a manual accessible_ids filter inline).
+        queryset = super().get_queryset().filter(tenant=self.request.user.tenant)
         # Sprint 6.5.18 (UAT item 5): an explicit, OPTIONAL further
         # narrowing on top of accessible_ids above — never a silent
         # default. No `legal_entity` param means every accessible entity.
@@ -475,20 +477,24 @@ class TaxCodeViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
     }
 
 
-class TaxPeriodViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+class TaxPeriodViewSet(EntityScopedMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """فترات الإقرار (3.16.2): قائمة بسيطة فقط — التوليد تلقائي
     (apps.accounting.services.generate_tax_periods_for_year عند
     التسجيل ولكل مستأجر موجود)، والإقرار نفسه سبرنت 10."""
 
+    queryset = TaxPeriod.objects.select_related("legal_entity")
     serializer_class = TaxPeriodSerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
     permission_map = {"list": "accounting.view", "retrieve": "accounting.view"}
 
     def get_queryset(self):
-        accessible_ids = get_accessible_entity_ids(self.request.user)
-        return TaxPeriod.objects.filter(
-            tenant=self.request.user.tenant, legal_entity_id__in=accessible_ids
-        )
+        queryset = super().get_queryset().filter(tenant=self.request.user.tenant)
+        # Sprint 6.6.1 (item 4): same optional, non-default-narrowing
+        # entity filter as every other list — see JournalEntryViewSet.
+        legal_entity_id = self.request.query_params.get("legal_entity")
+        if legal_entity_id:
+            queryset = queryset.filter(legal_entity_id=legal_entity_id)
+        return queryset
 
 
 class DashboardSummaryView(APIView):
@@ -747,12 +753,17 @@ class FiscalPeriodViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
         return Response(FiscalPeriodSerializer(period).data)
 
 
-class OpeningBalanceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+class OpeningBalanceViewSet(
+    EntityScopedMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
+):
     """Sprint 6.3 (decisions 5-8) — "الأرصدة الافتتاحية". Same split as
     JournalEntryViewSet: create()/lines build a DRAFT document from
     resolved account/party objects; readiness/submit/withdraw/approve/
     reject are separate actions, each a state transition."""
 
+    queryset = OpeningBalanceEntry.objects.select_related("legal_entity").prefetch_related(
+        "lines", "lines__account", "lines__party"
+    )
     serializer_class = OpeningBalanceEntrySerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
     permission_map = {
@@ -769,12 +780,13 @@ class OpeningBalanceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vi
     }
 
     def get_queryset(self):
-        accessible_ids = get_accessible_entity_ids(self.request.user)
-        return (
-            OpeningBalanceEntry.objects.filter(tenant=self.request.user.tenant, legal_entity_id__in=accessible_ids)
-            .select_related("legal_entity")
-            .prefetch_related("lines", "lines__account", "lines__party")
-        )
+        queryset = super().get_queryset().filter(tenant=self.request.user.tenant)
+        # Sprint 6.6.1 (item 4): same optional, non-default-narrowing
+        # entity filter as every other list — see JournalEntryViewSet.
+        legal_entity_id = self.request.query_params.get("legal_entity")
+        if legal_entity_id:
+            queryset = queryset.filter(legal_entity_id=legal_entity_id)
+        return queryset
 
     def create(self, request, *args, **kwargs):
         serializer = OpeningBalanceCreateSerializer(data=request.data, context={"request": request})
@@ -900,9 +912,14 @@ def _resolve_recurring_entry_input(tenant, data):
     return from_account, to_account, cost_center
 
 
-class RecurringEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+class RecurringEntryViewSet(
+    EntityScopedMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
+):
     """Sprint 6.4 (decisions 9-10) — "القيود الدورية"."""
 
+    queryset = RecurringEntry.objects.select_related("legal_entity", "from_account", "to_account").prefetch_related(
+        "installments"
+    )
     serializer_class = RecurringEntrySerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
     permission_map = {
@@ -919,12 +936,13 @@ class RecurringEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vi
     }
 
     def get_queryset(self):
-        accessible_ids = get_accessible_entity_ids(self.request.user)
-        return (
-            RecurringEntry.objects.filter(tenant=self.request.user.tenant, legal_entity_id__in=accessible_ids)
-            .select_related("legal_entity", "from_account", "to_account")
-            .prefetch_related("installments")
-        )
+        queryset = super().get_queryset().filter(tenant=self.request.user.tenant)
+        # Sprint 6.6.1 (item 4): same optional, non-default-narrowing
+        # entity filter as every other list — see JournalEntryViewSet.
+        legal_entity_id = self.request.query_params.get("legal_entity")
+        if legal_entity_id:
+            queryset = queryset.filter(legal_entity_id=legal_entity_id)
+        return queryset
 
     def create(self, request, *args, **kwargs):
         serializer = RecurringEntryCreateSerializer(data=request.data, context={"request": request})
@@ -1027,16 +1045,17 @@ class RecurringEntryViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, vi
         return Response(result)
 
 
-class RecurringInstallmentViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+class RecurringInstallmentViewSet(EntityScopedMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    # Sprint 6.6.1: an installment has no legal_entity of its own —
+    # reached only through entry.legal_entity.
+    entity_lookup = "entry__legal_entity_id"
+    queryset = RecurringInstallment.objects.select_related("entry", "period")
     serializer_class = RecurringInstallmentSerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
     permission_map = {"retrieve": "accounting.view", "regenerate": "accounting.post"}
 
     def get_queryset(self):
-        accessible_ids = get_accessible_entity_ids(self.request.user)
-        return RecurringInstallment.objects.filter(
-            entry__tenant=self.request.user.tenant, entry__legal_entity_id__in=accessible_ids
-        ).select_related("entry", "period")
+        return super().get_queryset().filter(entry__tenant=self.request.user.tenant)
 
     @action(detail=True, methods=["post"])
     def regenerate(self, request, pk=None):

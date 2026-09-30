@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.access.permissions import HasModulePermission
-from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
+from apps.common.viewsets import EntityScopedViewSet, SoftDeleteViewSetMixin, TenantScopedViewSet
 from apps.tenants.services import TenantLimitExceeded, check_branch_limit
 
 from .models import CostCenter, LegalEntity
@@ -18,7 +18,11 @@ from .serializers import (
 from .services import get_accessible_entity_ids
 
 
-class LegalEntityViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
+class LegalEntityViewSet(SoftDeleteViewSetMixin, EntityScopedViewSet):
+    # Sprint 6.6.1: the row being reached IS the entity, not a document
+    # pointing at one — "id", not the mixin's own "legal_entity_id"
+    # default.
+    entity_lookup = "id"
     serializer_class = LegalEntitySerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
     queryset = LegalEntity.objects.all()
@@ -36,10 +40,6 @@ class LegalEntityViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         "deactivate": "organization.manage",
         "activate": "organization.manage",
     }
-
-    def get_queryset(self):
-        accessible_ids = get_accessible_entity_ids(self.request.user)
-        return super().get_queryset().filter(id__in=accessible_ids)
 
     def create(self, request, *args, **kwargs):
         # Sprint 2 (3.14): plan's max_branches only limits BRANCH-type

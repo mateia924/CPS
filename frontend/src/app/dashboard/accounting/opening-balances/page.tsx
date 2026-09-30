@@ -80,6 +80,11 @@ function OpeningBalancesContent() {
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [statusRows, setStatusRows] = useState<OpeningBalanceStatusRow[]>([]);
   const [legalEntityId, setLegalEntityId] = useState(() => searchParams.get("entity") ?? "");
+  // Sprint 6.6.1 (item 4): the LIST's own optional entity filter —
+  // separate from `legalEntityId` above (the create form's own
+  // required field) — defaults to "الكل" so the list itself never
+  // silently narrows to just the form's currently-selected entity.
+  const [listEntityId, setListEntityId] = useState("");
   const [kind, setKind] = useState<OpeningBalanceKind>(
     () => (searchParams.get("kind") as OpeningBalanceKind) || "initial"
   );
@@ -339,8 +344,18 @@ function OpeningBalancesContent() {
         </form>
       </div>
 
+      <FormField name="list_entity_filter" label={t("entityFilter")}>
+        <select value={listEntityId} onChange={(e) => setListEntityId(e.target.value)}>
+          <option value="">{t("allEntities")}</option>
+          {entities.map((entity) => (
+            <option key={entity.id} value={entity.id}>{entity.code} — {entity.name}</option>
+          ))}
+        </select>
+      </FormField>
+
       <DataTable<OpeningBalanceEntry>
         endpoint="/opening-balances/"
+        extraParams={{ legal_entity: listEntityId }}
         refreshToken={refreshToken}
         hasActiveToggle={false}
         columns={[

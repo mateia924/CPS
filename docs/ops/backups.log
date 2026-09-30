@@ -28,3 +28,4 @@
 2026-09-30T16:18:50+03:00	387e1e2	cps-db-20260930-161850.sql.gz	6.6.0: fixed pg_dump --no-owner --no-privileges for cross-role restores
 2026-09-30T16:55:30+03:00	bd072f3	cps-db-20260930-165529.sql.gz	deploy.sh bd072f3b180c80c5d625ec37c27dacdea1f56b7c
 2026-09-30T16:57:24+03:00	bd072f3	cps-db-20260930-165723.sql.gz	deploy.sh bd072f3b180c80c5d625ec37c27dacdea1f56b7c
+2026-09-30T18:36:56+03:00	ad121d4	cps-db-20260930-183655.sql.gz	deploy.sh ad121d4075039d3300b5106e7f75775e5962b1e1

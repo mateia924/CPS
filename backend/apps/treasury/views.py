@@ -12,6 +12,8 @@ from apps.access.permissions import HasModulePermission
 from apps.access.services import user_has_permission
 from apps.accounting.services import get_or_create_treasury_account, ledger_lines
 from apps.common.viewsets import (
+    EntityScopedMixin,
+    EntityScopedViewSet,
     SoftDeleteViewSetMixin,
     TenantScopedViewSet,
     log_master_data_change,
@@ -101,7 +103,7 @@ class _TreasuryMovementsMixin:
         return Response(result)
 
 
-class BankViewSet(_TreasuryMovementsMixin, SoftDeleteViewSetMixin, TenantScopedViewSet):
+class BankViewSet(_TreasuryMovementsMixin, SoftDeleteViewSetMixin, EntityScopedViewSet):
     serializer_class = BankSerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
     queryset = Bank.objects.all()
@@ -153,7 +155,7 @@ class BankReconciliationDashboardView(APIView):
         return Response(rows)
 
 
-class CashBoxViewSet(_TreasuryMovementsMixin, SoftDeleteViewSetMixin, TenantScopedViewSet):
+class CashBoxViewSet(_TreasuryMovementsMixin, SoftDeleteViewSetMixin, EntityScopedViewSet):
     serializer_class = CashBoxSerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
     queryset = CashBox.objects.all()
@@ -176,7 +178,7 @@ class CashBoxViewSet(_TreasuryMovementsMixin, SoftDeleteViewSetMixin, TenantScop
         get_or_create_treasury_account(serializer.instance, "CASH")
 
 
-class CustodyViewSet(_TreasuryMovementsMixin, SoftDeleteViewSetMixin, TenantScopedViewSet):
+class CustodyViewSet(_TreasuryMovementsMixin, SoftDeleteViewSetMixin, EntityScopedViewSet):
     serializer_class = CustodySerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
     queryset = Custody.objects.all()
@@ -319,7 +321,7 @@ class IbanChangeRequestViewSet(
 
 
 class BankStatementViewSet(
-    mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
+    EntityScopedMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
 ):
     """`GET /api/bank-statements/?bank=<id>` (list, filtered per bank —
     same `?party=`/`?employee=` filter pattern as VoucherViewSet/
@@ -327,6 +329,9 @@ class BankStatementViewSet(
     lines), `POST /api/bank-statements/import/` (block 5.5.1). Never
     created via the generic DRF `create` — always through `import_`."""
 
+    # Sprint 6.6.1: BankStatement has no legal_entity of its own —
+    # reached only through bank.legal_entity.
+    entity_lookup = "bank__legal_entity_id"
     permission_classes = [IsAuthenticated, HasModulePermission]
     queryset = BankStatement.objects.all()
     permission_map = {
@@ -376,12 +381,15 @@ class BankStatementViewSet(
         return Response(payload, status=201)
 
 
-class BankStatementLineViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+class BankStatementLineViewSet(EntityScopedMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """`POST /api/statement-lines/{id}/match/`, `unmatch/`, `ignore/`,
     `GET .../candidates/` — block 5.5.2. Lines are only ever reached
     through a statement's own list (`BankStatementSerializer.lines`);
     this ViewSet exists purely to host the matching actions."""
 
+    # Sprint 6.6.1: two hops — a line has no legal_entity of its own,
+    # nor does its statement; only the statement's own bank does.
+    entity_lookup = "statement__bank__legal_entity_id"
     serializer_class = BankStatementLineSerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
     queryset = BankStatementLine.objects.all()
@@ -443,11 +451,15 @@ class BankStatementLineViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
 
 class CashCountViewSet(
-    mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet
+    EntityScopedMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin,
+    viewsets.GenericViewSet,
 ):
     """`GET /api/cash-counts/?cash_box=<id>`, `POST /api/cash-counts/`
     (draft, block 5.5.3), `POST /api/cash-counts/{id}/confirm/`."""
 
+    # Sprint 6.6.1: CashCount has no legal_entity of its own — reached
+    # only through cash_box.legal_entity.
+    entity_lookup = "cash_box__legal_entity_id"
     serializer_class = CashCountSerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
     queryset = CashCount.objects.all()

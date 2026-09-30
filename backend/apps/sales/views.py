@@ -1,14 +1,13 @@
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.utils.translation import gettext_lazy as _
-from rest_framework import filters, viewsets
+from rest_framework import filters
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.access.permissions import HasModulePermission
 from apps.common.validators import future_date_warning
-from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
-from apps.organization.services import get_accessible_entity_ids
+from apps.common.viewsets import EntityScopedViewSet, SoftDeleteViewSetMixin, TenantScopedViewSet
 from apps.tenants.services import TenantLimitExceeded, check_invoice_limit
 
 from .models import Customer, Invoice, Product
@@ -68,7 +67,8 @@ class ProductViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
     }
 
 
-class InvoiceViewSet(viewsets.ModelViewSet):
+class InvoiceViewSet(EntityScopedViewSet):
+    queryset = Invoice.objects.select_related("party", "legal_entity").prefetch_related("lines", "lines__product")
     permission_classes = [IsAuthenticated, HasModulePermission]
     # PUT is deliberately excluded — PATCH (partial_update) is the only
     # write-after-create path, and it always requires the full `lines`
@@ -91,12 +91,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     }
 
     def get_queryset(self):
-        accessible_ids = get_accessible_entity_ids(self.request.user)
-        queryset = (
-            Invoice.objects.filter(tenant=self.request.user.tenant, legal_entity_id__in=accessible_ids)
-            .select_related("party", "legal_entity")
-            .prefetch_related("lines", "lines__product")
-        )
+        queryset = super().get_queryset().filter(tenant=self.request.user.tenant)
         # Sprint 3.5: backs the customer detail screen's "فواتيره" list
         # (docs/SYSTEM_ANALYSIS.md 3.18 rule 2).
         customer_id = self.request.query_params.get("customer")

@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.access.permissions import HasModulePermission
-from apps.organization.services import get_accessible_entity_ids
+from apps.common.viewsets import EntityScopedMixin
 from apps.treasury.services import ExchangeRateNotFound, TreasuryConflictError
 
 from .models import Voucher
@@ -29,12 +29,14 @@ from .services import (
 
 
 class VoucherViewSet(
-    mixins.CreateModelMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
+    EntityScopedMixin, mixins.CreateModelMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
 ):
     """docs/SYSTEM_ANALYSIS.md 3.8 — سندات القبض/الصرف/التسوية، محرك
     واحد. `create` only ever builds a DRAFT; every transition after
     that is its own action, same shape as JournalEntryViewSet (4.4)."""
 
+    queryset = Voucher.objects.prefetch_related("lines")
     serializer_class = VoucherSerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
     permission_map = {
@@ -50,10 +52,7 @@ class VoucherViewSet(
     }
 
     def get_queryset(self):
-        accessible_ids = get_accessible_entity_ids(self.request.user)
-        queryset = Voucher.objects.filter(
-            tenant=self.request.user.tenant, legal_entity_id__in=accessible_ids
-        ).prefetch_related("lines")
+        queryset = super().get_queryset().filter(tenant=self.request.user.tenant)
         voucher_type = self.request.query_params.get("voucher_type")
         if voucher_type:
             queryset = queryset.filter(voucher_type=voucher_type)

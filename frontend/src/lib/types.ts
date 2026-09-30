@@ -805,6 +805,7 @@ export type TaxPeriodStatus = "open" | "filed" | "paid";
 export interface TaxPeriod {
   id: string;
   legal_entity: string;
+  legal_entity_name: string;
   period_type: TaxPeriodType;
   start: string;
   end: string;

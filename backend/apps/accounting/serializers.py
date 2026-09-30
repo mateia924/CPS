@@ -234,11 +234,17 @@ class TaxCodeSerializer(serializers.ModelSerializer):
 
 
 class TaxPeriodSerializer(serializers.ModelSerializer):
+    # Sprint 6.6.1 (item 4): the list now mixes every accessible entity's
+    # periods (TaxPeriodViewSet is entity-scoped as of this sprint) —
+    # the UI needs a display name, not just the raw id, same pattern as
+    # JournalEntry/OpeningBalanceEntry/RecurringEntry/Voucher/Invoice.
+    legal_entity_name = serializers.CharField(source="legal_entity.name", read_only=True)
+
     class Meta:
         model = TaxPeriod
         fields = (
-            "id", "legal_entity", "period_type", "start", "end", "status", "filed_at",
-            "reference", "created_at",
+            "id", "legal_entity", "legal_entity_name", "period_type", "start", "end", "status",
+            "filed_at", "reference", "created_at",
         )
         read_only_fields = fields
 
