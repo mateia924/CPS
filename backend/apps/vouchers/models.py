@@ -9,10 +9,10 @@ from apps.common.constants import (
     RATE_DECIMAL_PLACES,
     RATE_MAX_DIGITS,
 )
-from apps.common.models import DocumentStateMixin, TenantScopedModel
+from apps.common.models import DocumentStateMixin, SoftDeleteModelMixin, TenantScopedModel
 
 
-class Voucher(TenantScopedModel, DocumentStateMixin):
+class Voucher(TenantScopedModel, DocumentStateMixin, SoftDeleteModelMixin):
     """docs/SYSTEM_ANALYSIS.md 3.8 / docs/prompts/sprint-5.md block 5.3:
     the one engine behind سند قبض / سند صرف / سند تسوية. `status` comes
     from DocumentStateMixin — same DRAFT→PENDING_APPROVAL→APPROVED→

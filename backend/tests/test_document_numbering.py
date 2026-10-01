@@ -357,6 +357,89 @@ def test_viewer_without_manage_permission_cannot_edit(db):
 
 
 @pytest.mark.django_db
+def test_changing_prefix_with_documents_issued_this_year_is_rejected(tenant_a, client_a):
+    """Sprint 6.6.5 (item 4, revised after the real INVX-2026-00005/
+    00002 incident on tenant Fatma): changing the prefix mid-year for
+    a doc_type with real numbered documents already this year is a
+    400 without an explicit override_reason."""
+    from apps.accounting.models import Account
+
+    client_a.get("/api/document-numbering-settings/")
+    setting = DocumentNumberingSetting.objects.get(tenant=tenant_a, doc_type="journal_entry")
+    from apps.accounting.services import create_manual_journal_entry
+
+    create_manual_journal_entry(
+        tenant=tenant_a, user=UserFactory(tenant=tenant_a), legal_entity=LegalEntityFactory(tenant=tenant_a),
+        date=date(2026, 3, 1),
+        line_specs=[
+            {"account": Account.objects.get(tenant=tenant_a, system_key="CASH"), "debit_fc": Decimal("5"), "credit_fc": Decimal("0")},
+            {"account": Account.objects.get(tenant=tenant_a, system_key="SALES"), "debit_fc": Decimal("0"), "credit_fc": Decimal("5")},
+        ],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+    from apps.accounting.models import JournalEntry
+    from apps.accounting.services import submit_journal_entry_for_approval
+
+    # Submitting assigns the real number (first exit from DRAFT).
+    entry = JournalEntry.objects.get(tenant=tenant_a, date=date(2026, 3, 1))
+    submit_journal_entry_for_approval(entry, entry.created_by)
+
+    response = client_a.patch(
+        f"/api/document-numbering-settings/{setting.id}/", {"prefix": "JVX"}, format="json",
+    )
+    assert response.status_code == 400, response.data
+    setting.refresh_from_db()
+    assert setting.prefix != "JVX"
+
+
+@pytest.mark.django_db
+def test_changing_prefix_with_override_reason_succeeds_and_is_logged(tenant_a, client_a):
+    from apps.accounting.models import Account, JournalEntry
+    from apps.accounting.services import (
+        create_manual_journal_entry,
+        submit_journal_entry_for_approval,
+    )
+    from apps.platform.models import AuditLog
+
+    client_a.get("/api/document-numbering-settings/")
+    setting = DocumentNumberingSetting.objects.get(tenant=tenant_a, doc_type="journal_entry")
+    create_manual_journal_entry(
+        tenant=tenant_a, user=UserFactory(tenant=tenant_a), legal_entity=LegalEntityFactory(tenant=tenant_a),
+        date=date(2026, 3, 1),
+        line_specs=[
+            {"account": Account.objects.get(tenant=tenant_a, system_key="CASH"), "debit_fc": Decimal("5"), "credit_fc": Decimal("0")},
+            {"account": Account.objects.get(tenant=tenant_a, system_key="SALES"), "debit_fc": Decimal("0"), "credit_fc": Decimal("5")},
+        ],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+    entry = JournalEntry.objects.get(tenant=tenant_a, date=date(2026, 3, 1))
+    submit_journal_entry_for_approval(entry, entry.created_by)
+
+    response = client_a.patch(
+        f"/api/document-numbering-settings/{setting.id}/",
+        {"prefix": "JVX", "override_reason": "اختبار مقصود"},
+        format="json",
+    )
+    assert response.status_code == 200, response.data
+    setting.refresh_from_db()
+    assert setting.prefix == "JVX"
+    log = AuditLog.objects.filter(action="numbering_setting.prefix_override", target_id=setting.id).first()
+    assert log is not None
+    assert log.after["reason"] == "اختبار مقصود"
+
+
+@pytest.mark.django_db
+def test_changing_prefix_with_no_documents_this_year_succeeds(tenant_a, client_a):
+    client_a.get("/api/document-numbering-settings/")
+    setting = DocumentNumberingSetting.objects.get(tenant=tenant_a, doc_type="journal_entry")
+
+    response = client_a.patch(
+        f"/api/document-numbering-settings/{setting.id}/", {"prefix": "JVX"}, format="json",
+    )
+    assert response.status_code == 200, response.data
+
+
+@pytest.mark.django_db
 def test_numbering_settings_are_tenant_isolated(db):
     tenant_a = TenantFactory()
     tenant_b = TenantFactory()

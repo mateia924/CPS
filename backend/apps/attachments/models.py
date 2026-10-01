@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from apps.common.constants import MONEY_DECIMAL_PLACES, MONEY_MAX_DIGITS
-from apps.common.models import TenantScopedModel
+from apps.common.models import SoftDeleteModelMixin, TenantScopedModel
 
 from .storage import AttachmentStorage
 
@@ -125,7 +125,7 @@ class Attachment(TenantScopedModel):
         return f"{self.original_name} ({self.category})"
 
 
-class AttachmentRule(TenantScopedModel):
+class AttachmentRule(TenantScopedModel, SoftDeleteModelMixin):
     """Sprint 6.7 (3.17 rule 4, sprint-6.md decision 15): الإعدادات ←
     «قواعد المرفقات الإلزامية» — a tenant opts into requiring an
     attachment of a given category on a document type once its amount

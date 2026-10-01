@@ -9,7 +9,12 @@ from apps.access.permissions import HasModulePermission
 from apps.accounting.models import RecurringEntry
 from apps.accounting.recurring import generate_due_installments as _generate_due_installments
 from apps.accounting.serializers import OpeningBalanceReasonSerializer, RecurringEntrySerializer
-from apps.common.viewsets import EntityScopedMixin, EntityScopedViewSet, SoftDeleteViewSetMixin
+from apps.common.viewsets import (
+    EntityScopedMixin,
+    EntityScopedViewSet,
+    SoftDeleteDocumentViewSetMixin,
+    SoftDeleteViewSetMixin,
+)
 
 from .depreciation import (
     DepreciationAlreadyActive,
@@ -273,12 +278,21 @@ class DepreciationScheduleViewSet(EntityScopedMixin, mixins.RetrieveModelMixin, 
         return Response(RecurringEntrySerializer(entry).data)
 
 
-class AssetDisposalViewSet(EntityScopedMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+class AssetDisposalViewSet(
+    EntityScopedMixin, SoftDeleteDocumentViewSetMixin, mixins.RetrieveModelMixin,
+    mixins.DestroyModelMixin, viewsets.GenericViewSet,
+):
     """Sprint 6.5.4 (decision 11): the ASSET_DISPOSAL approval
     channel's own endpoint — same generic-inbox dispatch pattern as
     DepreciationScheduleViewSet above, but the underlying document is
     its own AssetDisposal model (unlike start/addition, a disposal is
-    never itself a RecurringEntry)."""
+    never itself a RecurringEntry).
+
+    Sprint 6.6.5: a DRAFT disposal (never reached APPROVED, so no
+    posted gain/loss journal entry exists yet — see apps.assets.
+    disposal.dispose_asset's own docstring) is soft-deletable, same
+    default status tuple as every other document; APPROVED always
+    posts, so it's never eligible."""
 
     # Sprint 6.6.1: AssetDisposal has no legal_entity field of its own
     # — reached only through asset.legal_entity. Previously unscoped
@@ -294,6 +308,7 @@ class AssetDisposalViewSet(EntityScopedMixin, mixins.RetrieveModelMixin, viewset
         "approve": "assets.depreciate",
         "reject": "assets.depreciate",
         "withdraw": "assets.depreciate",
+        "destroy": "assets.depreciate",
     }
 
     def get_queryset(self):

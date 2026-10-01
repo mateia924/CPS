@@ -132,3 +132,20 @@ def test_tenant_isolation(tenant_a, tenant_b, client_a, client_b):
     response = client_b.get("/api/attachment-rules/")
     assert response.status_code == 200
     assert response.data["count"] == 0
+
+
+@pytest.mark.django_db
+def test_delete_rule_soft_deletes(tenant_a, client_a):
+    """Sprint 6.6.5 (unified delete rule): a standalone config row,
+    nothing ever references it — soft delete always succeeds."""
+    rule = AttachmentRule.objects.create(
+        tenant=tenant_a, doc_type=AttachmentRule.DocType.VOUCHER_PAYMENT,
+        min_amount_base=Decimal("5000"), required_category="fatura_original", is_active=True,
+    )
+    response = client_a.delete(f"/api/attachment-rules/{rule.id}/")
+    assert response.status_code == 204, response.data
+
+    rule.refresh_from_db()
+    assert rule.deleted_at is not None
+    assert AttachmentRule.objects.filter(id=rule.id).exists()
+    assert client_a.get(f"/api/attachment-rules/{rule.id}/").status_code == 404

@@ -2,10 +2,10 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from apps.common.constants import MONEY_DECIMAL_PLACES, MONEY_MAX_DIGITS
-from apps.common.models import TenantScopedModel
+from apps.common.models import SoftDeleteModelMixin, TenantScopedModel
 
 
-class ApprovalRule(TenantScopedModel):
+class ApprovalRule(TenantScopedModel, SoftDeleteModelMixin):
     """Sprint 4.5 (docs/SYSTEM_ANALYSIS.md 3.15.1): الإعدادات ← "قواعد
     الاعتماد". A document of `doc_type` whose base-currency amount is
     >= `min_amount` requires `required_role` to approve it — matching
@@ -69,6 +69,16 @@ class ApprovalRule(TenantScopedModel):
 
     class Meta:
         ordering = ["doc_type", "-min_amount"]
+        constraints = [
+            # Sprint 6.6.5 (item 3): ignores soft-deleted/deactivated
+            # rows, same "uniqueness guards ignore soft-deleted/
+            # rejected entries" rule as everywhere else this sprint.
+            models.UniqueConstraint(
+                fields=["tenant", "doc_type", "min_amount"],
+                name="unique_approval_rule_active_per_tenant_doctype_amount",
+                condition=models.Q(is_active=True, deleted_at__isnull=True),
+            )
+        ]
 
     def __str__(self):
         return f"{self.doc_type} >= {self.min_amount} -> {self.required_role}"

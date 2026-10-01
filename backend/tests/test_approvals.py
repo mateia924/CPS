@@ -389,6 +389,59 @@ def test_approval_rule_crud_and_permissions(db):
 
 
 @pytest.mark.django_db
+def test_duplicate_active_rule_for_same_doc_type_and_amount_rejected(db):
+    """Sprint 6.6.5 item 3: (tenant, doc_type, min_amount) uniqueness
+    among active rules — which one `get_matching_rule` would pick
+    between two identical rules is undefined, so the form rejects a
+    second one outright with a friendly message."""
+    tenant = TenantFactory()
+    roles = seed_default_roles(tenant)
+    owner = UserFactory(tenant=tenant, email="owner@dup-rule.test")
+    owner.roles.add(roles["Owner"])
+    owner_client = APIClient()
+    owner_client.force_authenticate(user=owner)
+
+    first = owner_client.post(
+        "/api/approval-rules/",
+        {"doc_type": "invoice", "min_amount": "5000.00", "required_role": str(roles["Owner"].id)},
+        format="json",
+    )
+    assert first.status_code == 201, first.data
+
+    second = owner_client.post(
+        "/api/approval-rules/",
+        {"doc_type": "invoice", "min_amount": "5000.00", "required_role": str(roles["Accountant"].id)},
+        format="json",
+    )
+    assert second.status_code == 400, second.data
+    assert "min_amount" in second.data
+
+
+@pytest.mark.django_db
+def test_duplicate_rule_allowed_after_original_is_deactivated(db):
+    tenant = TenantFactory()
+    roles = seed_default_roles(tenant)
+    owner = UserFactory(tenant=tenant, email="owner@dup-rule-2.test")
+    owner.roles.add(roles["Owner"])
+    owner_client = APIClient()
+    owner_client.force_authenticate(user=owner)
+
+    first = owner_client.post(
+        "/api/approval-rules/",
+        {"doc_type": "invoice", "min_amount": "5000.00", "required_role": str(roles["Owner"].id)},
+        format="json",
+    )
+    assert owner_client.post(f"/api/approval-rules/{first.data['id']}/deactivate/").status_code == 200
+
+    second = owner_client.post(
+        "/api/approval-rules/",
+        {"doc_type": "invoice", "min_amount": "5000.00", "required_role": str(roles["Accountant"].id)},
+        format="json",
+    )
+    assert second.status_code == 201, second.data
+
+
+@pytest.mark.django_db
 def test_approval_rules_are_tenant_isolated(tenant_a, tenant_b, client_a):
     roles_b = seed_default_roles(tenant_b)
     rule_b = ApprovalRule.objects.create(

@@ -194,6 +194,11 @@ def create_iban_change_request(tenant, user, target_type, target_id, new_iban, r
     has_pending = IbanChangeRequest.objects.filter(
         tenant=tenant, content_type=content_type, object_id=target.id,
         status__in=[IbanChangeRequest.Status.DRAFT, IbanChangeRequest.Status.PENDING_APPROVAL],
+        # Sprint 6.6.5 (§6.2): a soft-deleted DRAFT (now deletable,
+        # same unified rule as everywhere else) must never keep
+        # blocking a fresh request — same fix as apps.accounting.
+        # opening_balances.create_opening_balance_entry got in 6.6.3d.
+        deleted_at__isnull=True,
     ).exists()
     if has_pending:
         raise ValidationError(

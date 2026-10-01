@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.access.permissions import HasModulePermission
-from apps.common.viewsets import TenantScopedViewSet
+from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
 from apps.platform.models import AuditLog
 from apps.platform.services import log_action
 
@@ -204,8 +204,12 @@ class AttachmentDownloadView(APIView):
         return response
 
 
-class AttachmentRuleViewSet(TenantScopedViewSet):
-    """Sprint 6.7 (decision 15): الإعدادات ← «قواعد المرفقات الإلزامية»."""
+class AttachmentRuleViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
+    """Sprint 6.7 (decision 15): الإعدادات ← «قواعد المرفقات الإلزامية».
+
+    Sprint 6.6.5 (unified delete rule): a standalone config row —
+    nothing ever holds a real FK to it — so the Collector-based check
+    never finds a blocking reference; soft delete always succeeds."""
 
     serializer_class = AttachmentRuleSerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
@@ -217,4 +221,6 @@ class AttachmentRuleViewSet(TenantScopedViewSet):
         "update": "attachments.manage",
         "partial_update": "attachments.manage",
         "destroy": "attachments.manage",
+        "deactivate": "attachments.manage",
+        "activate": "attachments.manage",
     }

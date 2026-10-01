@@ -413,3 +413,86 @@ def test_iban_requests_are_tenant_isolated(tenant_a, client_a, tenant_b, client_
 
     listing = client_b.get("/api/iban-requests/")
     assert all(row["id"] != request_id for row in listing.data.get("results", listing.data))
+
+
+@pytest.mark.django_db
+def test_delete_draft_iban_request_soft_deletes(tenant_a, client_a):
+    _seed_iban_rule(tenant_a)
+    bank = _make_bank(client_a, tenant_a, iban=SA_IBAN)
+    create = client_a.post(
+        "/api/iban-requests/",
+        {"target_type": "bank", "target_id": bank["id"], "new_iban": DE_IBAN, "reason": "تحديث"},
+        format="json",
+    )
+    assert create.status_code == 201, create.data
+    request_id = create.data["id"]
+
+    deleted = client_a.delete(f"/api/iban-requests/{request_id}/")
+    assert deleted.status_code == 204, deleted.data
+
+    from apps.treasury.models import IbanChangeRequest
+
+    stored = IbanChangeRequest.objects.get(id=request_id)
+    assert stored.deleted_at is not None
+    assert client_a.get(f"/api/iban-requests/{request_id}/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_delete_pending_iban_request_returns_409(tenant_a, client_a):
+    _seed_iban_rule(tenant_a)
+    bank = _make_bank(client_a, tenant_a, iban=SA_IBAN)
+    accountant_user, accountant_client = _accountant(tenant_a)
+    create = accountant_client.post(
+        "/api/iban-requests/",
+        {"target_type": "bank", "target_id": bank["id"], "new_iban": DE_IBAN, "reason": "تحديث"},
+        format="json",
+    )
+    request_id = create.data["id"]
+    _submit_request(accountant_client, request_id)
+
+    deleted = accountant_client.delete(f"/api/iban-requests/{request_id}/")
+    assert deleted.status_code == 409, deleted.data
+
+
+@pytest.mark.django_db
+def test_delete_approved_iban_request_returns_409(tenant_a, client_a):
+    _seed_iban_rule(tenant_a)
+    bank = _make_bank(client_a, tenant_a, iban=SA_IBAN)
+    accountant_user, accountant_client = _accountant(tenant_a)
+    create = accountant_client.post(
+        "/api/iban-requests/",
+        {"target_type": "bank", "target_id": bank["id"], "new_iban": DE_IBAN, "reason": "تحديث"},
+        format="json",
+    )
+    request_id = create.data["id"]
+    _submit_request(accountant_client, request_id)
+    approve = client_a.post(f"/api/iban-requests/{request_id}/approve/")
+    assert approve.status_code == 200, approve.data
+
+    deleted = client_a.delete(f"/api/iban-requests/{request_id}/")
+    assert deleted.status_code == 409, deleted.data
+
+
+@pytest.mark.django_db
+def test_deleting_a_draft_request_frees_the_target_for_a_fresh_one(tenant_a, client_a):
+    """Sprint 6.6.5 (§6.2, self-caught fix): before this fix, deleting
+    a still-DRAFT request left it matching create_iban_change_request's
+    own "already pending" guard (status__in=[DRAFT, PENDING_APPROVAL]
+    had no deleted_at filter) — a soft-deleted draft would keep
+    blocking a fresh request on the same target forever."""
+    _seed_iban_rule(tenant_a)
+    bank = _make_bank(client_a, tenant_a, iban=SA_IBAN)
+    create = client_a.post(
+        "/api/iban-requests/",
+        {"target_type": "bank", "target_id": bank["id"], "new_iban": DE_IBAN, "reason": "تحديث"},
+        format="json",
+    )
+    request_id = create.data["id"]
+    assert client_a.delete(f"/api/iban-requests/{request_id}/").status_code == 204
+
+    second = client_a.post(
+        "/api/iban-requests/",
+        {"target_type": "bank", "target_id": bank["id"], "new_iban": DE_IBAN, "reason": "تحديث ثانٍ"},
+        format="json",
+    )
+    assert second.status_code == 201, second.data

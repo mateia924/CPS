@@ -1,12 +1,14 @@
+from django.db.models.deletion import Collector, ProtectedError
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
-from rest_framework import filters, mixins, viewsets
+from rest_framework import filters, mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.accounts.models import User
 from apps.accounts.services import invalidate_all_sessions
-from apps.common.viewsets import TenantScopedViewSet
+from apps.common.viewsets import TenantScopedViewSet, log_master_data_change
 from apps.platform.models import AuditLog
 from apps.platform.services import log_action
 from apps.tenants.services import TenantLimitExceeded, check_user_limit
@@ -49,25 +51,46 @@ class RoleViewSet(TenantScopedViewSet):
         "destroy": "roles.manage",
     }
 
+    def get_queryset(self):
+        return super().get_queryset().filter(deleted_at__isnull=True)
+
     def perform_create(self, serializer):
         # Roles created through the API are never system roles — only
         # the four seeded at registration are (see access/services.py).
         serializer.save(tenant=self.request.user.tenant, is_system=False)
 
     def destroy(self, request, *args, **kwargs):
+        # Sprint 6.6.5 (unified delete rule, "لا DELETE فعلي في أي
+        # مكان"): this used to fall through to super().destroy() (a
+        # real SQL DELETE) once past the system-role/M2M-users guards
+        # below — soft-deleting instead now, same as every other
+        # master-data ViewSet. Role.users is a plain M2M (no on_delete=
+        # PROTECT to lean on — that's FK-only), so "in use" still needs
+        # this explicit check; a role referenced by ApprovalRule.
+        # required_role (a real PROTECT FK) is caught by the Collector
+        # the same way SoftDeleteViewSetMixin does it for every other
+        # model, instead of the crash this would previously raise.
         role = self.get_object()
         if role.is_system:
             return Response({"detail": _("System roles cannot be deleted.")}, status=400)
-        # Role.users is a plain M2M (no on_delete=PROTECT to lean on —
-        # that's FK-only), so "in use" needs an explicit check here
-        # rather than catching ProtectedError like SoftDeleteViewSetMixin
-        # does for FK-protected models.
         if role.users.exists():
             return Response(
                 {"detail": _("This role is assigned to at least one user and cannot be deleted.")},
                 status=409,
             )
-        return super().destroy(request, *args, **kwargs)
+        collector = Collector(using=role._state.db)
+        try:
+            collector.collect([role])
+        except ProtectedError:
+            return Response(
+                {"detail": _("This role is referenced elsewhere and cannot be deleted.")},
+                status=status.HTTP_409_CONFLICT,
+            )
+        role.deleted_at = timezone.now()
+        role.deleted_by = request.user
+        role.save(update_fields=["deleted_at", "deleted_by"])
+        log_master_data_change(request, role, "deleted")
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class UserViewSet(mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):

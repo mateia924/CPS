@@ -167,6 +167,59 @@ def create_voucher(
 
 
 @transaction.atomic
+def replace_voucher_lines(voucher, user, line_specs, request=None):
+    """Sprint 6.6.5 (§6.2 addition): generalizes the exact full-replace
+    pattern apps.accounting.opening_balances.replace_opening_balance_
+    lines built for OpeningBalanceEntry in 6.6.3d — a still-DRAFT
+    voucher's own page can re-save its whole line set, same invoice-
+    allocation validation as create_voucher, never touching treasury/
+    date/currency/exchange_rate (those are fixed at creation, same as
+    every other field this action doesn't take)."""
+    if voucher.status != Voucher.Status.DRAFT:
+        raise VoucherValidationError({"detail": [str(_("لا يمكن تعديل سطور سند إلا وهو في حالة مسودة."))]})
+
+    for spec in line_specs:
+        if spec["line_type"] == VoucherLine.LineType.INVOICE:
+            invoice = spec["invoice"]
+            if invoice.legal_entity_id != voucher.legal_entity_id:
+                raise VoucherValidationError({"lines": [_("Invoice belongs to a different legal entity.")]})
+            if invoice.party_id != (voucher.party_id or None):
+                raise VoucherValidationError({"lines": [_("Invoice does not belong to this voucher's party.")]})
+            allocated = spec.get("allocated_invoice_fc", spec["amount_fc"])
+            if allocated > invoice.balance_fc:
+                raise VoucherValidationError(
+                    {"lines": [_("Allocated amount exceeds the invoice's remaining balance.")]}
+                )
+
+    total_fc = Decimal("0")
+    lines = []
+    for i, spec in enumerate(line_specs, start=1):
+        total_fc += _line_cash_amount(spec)
+        lines.append(
+            VoucherLine(
+                voucher=voucher,
+                line_no=i,
+                line_type=spec["line_type"],
+                invoice=spec.get("invoice"),
+                allocated_invoice_fc=spec.get("allocated_invoice_fc"),
+                account=spec.get("account"),
+                tax_code=spec.get("tax_code"),
+                amount_includes_tax=spec.get("amount_includes_tax", False),
+                cost_center=spec.get("cost_center"),
+                description=spec.get("description", ""),
+                amount_fc=spec["amount_fc"],
+            )
+        )
+    voucher.lines.all().delete()
+    VoucherLine.objects.bulk_create(lines)
+
+    voucher.total_fc = total_fc
+    voucher.total_base = (total_fc * voucher.exchange_rate).quantize(CENTS, rounding=ROUND_HALF_UP)
+    voucher.save(update_fields=["total_fc", "total_base"])
+    return voucher
+
+
+@transaction.atomic
 def create_internal_transfer_voucher(
     tenant, user, legal_entity, date, treasury_kind, treasury_id,
     counter_treasury_kind, counter_treasury_id, amount_fc, counter_amount_fc=None,

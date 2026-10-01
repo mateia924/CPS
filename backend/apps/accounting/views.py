@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db.models import Count
 from django.utils.translation import gettext_lazy as _
 from rest_framework import filters, mixins, viewsets
 from rest_framework.decorators import action
@@ -10,7 +11,13 @@ from rest_framework.views import APIView
 
 from apps.access.permissions import HasModulePermission
 from apps.common.validators import future_date_warning
-from apps.common.viewsets import EntityScopedMixin, SoftDeleteViewSetMixin, TenantScopedViewSet
+from apps.common.viewsets import (
+    EntityScopedMixin,
+    SoftDeleteDocumentViewSetMixin,
+    SoftDeleteViewSetMixin,
+    TenantScopedViewSet,
+    log_master_data_change,
+)
 from apps.organization.models import CostCenter, LegalEntity
 from apps.organization.services import get_accessible_entity_ids
 from apps.treasury.services import ExchangeRateNotFound, get_rate_with_warnings
@@ -42,6 +49,7 @@ from .periods import (
     FiscalYearBoundariesLocked,
     PeriodLocked,
     close_period,
+    fiscal_year_emptiness_reason,
     lock_period,
     reopen_period,
     update_fiscal_year_boundaries,
@@ -66,6 +74,7 @@ from .serializers import (
     JournalEntryReverseSerializer,
     JournalEntrySerializer,
     ManualJournalEntryCreateSerializer,
+    ManualJournalLineInputSerializer,
     OpeningBalanceApproveSerializer,
     OpeningBalanceCreateSerializer,
     OpeningBalanceEntrySerializer,
@@ -87,6 +96,7 @@ from .services import (
     ledger_lines,
     post_journal_entry,
     reject_journal_entry,
+    replace_manual_journal_entry_lines,
     reverse_journal_entry,
     submit_journal_entry_for_approval,
     withdraw_journal_entry,
@@ -108,6 +118,7 @@ class AccountViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         "retrieve": "accounting.view",
         "tree": "accounting.view",
         "ledger": "accounting.view",
+        "check": "accounting.view",
         "create": "accounting.manage",
         "update": "accounting.manage",
         "partial_update": "accounting.manage",
@@ -120,6 +131,40 @@ class AccountViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
     def tree(self, request):
         roots = Account.objects.filter(tenant=request.user.tenant, parent__isnull=True).order_by("code")
         return Response(AccountTreeSerializer(roots, many=True).data)
+
+    @action(detail=False, methods=["get"])
+    def check(self, request):
+        """"فحص الدليل" (sprint 6.6.5 item 2) — currently a single
+        warning category: a parent account (has children) that ALSO
+        has posted movements of its own, e.g. a tenant's own 1000/4000
+        grandfathered from before `AccountSerializer.validate` started
+        blocking this for any NEW parent/child pairing. These keep
+        posting/reporting exactly as they are — this is a surfaced
+        warning for the owner to see and decide on, never an
+        auto-fix."""
+        accounts = (
+            Account.objects.filter(tenant=request.user.tenant)
+            .annotate(child_count=Count("children"), line_count=Count("journal_lines"))
+            .filter(child_count__gt=0, line_count__gt=0)
+            .order_by("code")
+        )
+        return Response(
+            {
+                "parent_accounts_with_movements": [
+                    {
+                        "id": str(account.id), "code": account.code, "name": account.name,
+                        "child_count": account.child_count, "line_count": account.line_count,
+                        "warning": str(
+                            _(
+                                "This account has both sub-accounts and its own posted movements "
+                                "— grandfathered from before this was disallowed for new accounts."
+                            )
+                        ),
+                    }
+                    for account in accounts
+                ]
+            }
+        )
 
     @action(detail=True, methods=["get"])
     def ledger(self, request, pk=None):
@@ -248,11 +293,16 @@ def _resolve_opening_lines(tenant, raw_lines):
 
 
 class JournalEntryViewSet(
-    EntityScopedMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
+    EntityScopedMixin, SoftDeleteDocumentViewSetMixin, mixins.ListModelMixin,
+    mixins.RetrieveModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet
 ):
     """القيود اليدوية (3.15.1/3.15.9) + القيود التلقائية (فواتير) في نفس
     الشاشة، للقراءة معًا. الإنشاء/الاعتماد/الترحيل/العكس متاحة فقط
-    للقيود اليدوية (source_type فارغ) عبر الإجراءات أدناه."""
+    للقيود اليدوية (source_type فارغ) عبر الإجراءات أدناه.
+
+    سبرنت 6.6.5: الحذف (مسودة فقط — `deletable_statuses` الافتراضية)
+    يُصالِح نفسه تلقائيًا مع هذه القاعدة أيضًا — قيد تلقائي (من فاتورة
+    مثلًا) لا يكون "مسودة" قط، فلا يصل لمرحلة الحذف أصلًا."""
 
     queryset = JournalEntry.objects.prefetch_related("lines", "lines__account")
     serializer_class = JournalEntrySerializer
@@ -261,6 +311,7 @@ class JournalEntryViewSet(
         "list": "accounting.view",
         "retrieve": "accounting.view",
         "create": "accounting.manage",
+        "lines": "accounting.manage",
         "submit": "accounting.manage",
         "approve": "accounting.manage",
         "reject": "accounting.manage",
@@ -268,6 +319,7 @@ class JournalEntryViewSet(
         "reverse": "accounting.manage",
         "withdraw": "accounting.manage",
         "trial_balance": "accounting.view",
+        "destroy": "accounting.manage",
     }
 
     def get_queryset(self):
@@ -327,6 +379,29 @@ class JournalEntryViewSet(
         payload = JournalEntrySerializer(entry).data
         payload["warnings"] = future_date_warning(data["date"]) + rate_warnings
         return Response(payload, status=201)
+
+    @action(detail=True, methods=["patch"])
+    def lines(self, request, pk=None):
+        """Sprint 6.6.5 (§6.2 addition): a still-DRAFT manual entry's
+        own page can re-save its whole line set, same full-replace
+        shape as OpeningBalanceViewSet.lines (6.6.3d)."""
+        entry = self.get_object()
+        serializer = ManualJournalLineInputSerializer(data=request.data.get("lines", []), many=True)
+        serializer.is_valid(raise_exception=True)
+        tenant = request.user.tenant
+        try:
+            resolved_lines = _resolve_manual_lines(tenant, serializer.validated_data)
+            replace_manual_journal_entry_lines(
+                entry, request.user, resolved_lines,
+                override_reason=request.data.get("override_reason", ""), request=request,
+            )
+        except (ValidationError, ValueError) as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": [str(exc)]}
+            return Response(detail, status=400)
+        except PermissionDenied as exc:
+            return Response({"detail": str(exc)}, status=403)
+        entry.refresh_from_db()
+        return Response(JournalEntrySerializer(entry).data)
 
     @action(detail=True, methods=["post"])
     def submit(self, request, pk=None):
@@ -634,18 +709,34 @@ class DashboardSummaryView(APIView):
 class FiscalYearViewSet(TenantScopedViewSet):
     """Sprint 6.1 (decision 1): "السنوات والفترات المالية" — CRUD مقيَّد:
     create/update always build or rebuild the year's periods together
-    with it (FiscalYearWriteSerializer), delete isn't offered at all
-    (rule 10 — no financial-setup data is ever deleted)."""
+    with it (FiscalYearWriteSerializer).
+
+    Sprint 6.6.5 (§6.2 addition): rule 10's old "delete isn't offered
+    at all" is superseded — a year that is COMPLETELY empty (not even
+    a draft document, not even a scheduled-but-ungenerated
+    installment, not even a single closed/locked period —
+    periods.fiscal_year_emptiness_reason is the single source of truth
+    for this, shared with update_fiscal_year_boundaries's own stricter
+    start/end-date guard) is now soft-deletable, same unified rule as
+    every other document/master-data type this sprint. A year auto-
+    created ahead of time (`is_auto_created`) with nothing in it yet
+    is exactly this case — see docs/prompts/sprint-6.6.md §6.2 (its own
+    "years auto-created from long tables" cleanup is a separate,
+    sprint-10 debt, unrelated to this delete capability existing)."""
 
     queryset = FiscalYear.objects.all().prefetch_related("periods")
     permission_classes = [IsAuthenticated, HasModulePermission]
-    http_method_names = ["get", "post", "patch", "head", "options"]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     permission_map = {
         "list": "accounting.view",
         "retrieve": "accounting.view",
         "create": "accounting.manage_fiscal_periods",
         "partial_update": "accounting.manage_fiscal_periods",
+        "destroy": "accounting.manage_fiscal_periods",
     }
+
+    def get_queryset(self):
+        return super().get_queryset().filter(deleted_at__isnull=True)
 
     def get_serializer_class(self):
         if self.action in ("create", "partial_update"):
@@ -657,6 +748,19 @@ class FiscalYearViewSet(TenantScopedViewSet):
         serializer.is_valid(raise_exception=True)
         year = serializer.save()
         return Response(FiscalYearSerializer(year).data, status=201)
+
+    def destroy(self, request, *args, **kwargs):
+        from django.utils import timezone
+
+        year = self.get_object()
+        reason = fiscal_year_emptiness_reason(year)
+        if reason is not None:
+            return Response({"detail": reason}, status=409)
+        year.deleted_at = timezone.now()
+        year.deleted_by = request.user
+        year.save(update_fields=["deleted_at", "deleted_by"])
+        log_master_data_change(request, year, "deleted")
+        return Response(status=204)
 
     def partial_update(self, request, *args, **kwargs):
         year = self.get_object()
@@ -935,9 +1039,44 @@ def _resolve_recurring_entry_input(tenant, data):
 
 
 class RecurringEntryViewSet(
-    EntityScopedMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
+    EntityScopedMixin, SoftDeleteDocumentViewSetMixin, mixins.ListModelMixin,
+    mixins.RetrieveModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet
 ):
     """Sprint 6.4 (decisions 9-10) — "القيود الدورية"."""
+
+    # Sprint 6.6.5: CANCELLED is reachable via the `cancel` action below,
+    # but `cancel_recurring_entry` only stops FUTURE `DUE` installments —
+    # an already-GENERATED one's own posted JournalEntry is deliberately
+    # left untouched (not a mass reversal). So CANCELLED alone does NOT
+    # guarantee zero real movement; `_extra_delete_guard` below adds the
+    # missing "no GENERATED installments" check on top of this.
+    deletable_statuses = ("draft", "cancelled")
+
+    def _extra_delete_guard(self, instance):
+        if instance.installments.filter(status=RecurringInstallment.Status.GENERATED).exists():
+            return Response(
+                {
+                    "detail": _(
+                        "This schedule has generated installments with posted journal entries "
+                        "and cannot be deleted."
+                    )
+                },
+                status=409,
+            )
+        return None
+
+    def _after_soft_delete(self, instance):
+        # Sprint 6.6.5 (§6.2, self-caught fix): a DRAFT depreciation
+        # schedule is `apps.assets.depreciation._ACTIVE_SCHEDULE_
+        # STATUSES`-active — deleting it without detaching would leave
+        # Asset.depreciation_entry pointing at a now-soft-deleted row,
+        # permanently blocking a fresh start-depreciation call on that
+        # asset. Same detach `cancel_depreciation_schedule` already
+        # does; a no-op for every other kind (nothing ever points a
+        # plain prepaid/deferred entry this way).
+        from apps.assets.models import Asset
+
+        Asset.objects.filter(depreciation_entry=instance).update(depreciation_entry=None)
 
     queryset = RecurringEntry.objects.select_related("legal_entity", "from_account", "to_account").prefetch_related(
         "installments"
@@ -955,6 +1094,7 @@ class RecurringEntryViewSet(
         "reject": "accounting.manage",
         "cancel": "accounting.manage",
         "generate_due": "accounting.post",
+        "destroy": "accounting.manage",
     }
 
     def get_queryset(self):

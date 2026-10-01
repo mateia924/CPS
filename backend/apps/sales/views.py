@@ -7,7 +7,12 @@ from rest_framework.response import Response
 
 from apps.access.permissions import HasModulePermission
 from apps.common.validators import future_date_warning
-from apps.common.viewsets import EntityScopedViewSet, SoftDeleteViewSetMixin, TenantScopedViewSet
+from apps.common.viewsets import (
+    EntityScopedViewSet,
+    SoftDeleteDocumentViewSetMixin,
+    SoftDeleteViewSetMixin,
+    TenantScopedViewSet,
+)
 from apps.tenants.services import TenantLimitExceeded, check_invoice_limit
 
 from .models import Customer, Invoice, Product
@@ -67,13 +72,21 @@ class ProductViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
     }
 
 
-class InvoiceViewSet(EntityScopedViewSet):
+class InvoiceViewSet(SoftDeleteDocumentViewSetMixin, EntityScopedViewSet):
+    # Sprint 6.6.5: deliberately the mixin's own default ("draft" only)
+    # — CANCELLED here only ever means `apps.sales.services.
+    # void_invoice`, which requires the invoice to already be ISSUED
+    # and posts a real reversal journal entry; a voided invoice has
+    # genuine history and must never be deletable.
+
     queryset = Invoice.objects.select_related("party", "legal_entity").prefetch_related("lines", "lines__product")
     permission_classes = [IsAuthenticated, HasModulePermission]
     # PUT is deliberately excluded — PATCH (partial_update) is the only
     # write-after-create path, and it always requires the full `lines`
     # array anyway (same shape as create), so there's no reason for both.
-    http_method_names = ["get", "post", "patch", "head", "options"]
+    # DELETE re-included in 6.6.5 (unified delete rule) — soft delete
+    # only, see SoftDeleteDocumentViewSetMixin above, never a real one.
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["number"]
     ordering_fields = ["issue_date", "number", "total", "created_at"]
@@ -88,6 +101,7 @@ class InvoiceViewSet(EntityScopedViewSet):
         "void": "invoices.approve",
         "deliver": "invoices.view",
         "withdraw": "invoices.create",
+        "destroy": "invoices.create",
     }
 
     def get_queryset(self):

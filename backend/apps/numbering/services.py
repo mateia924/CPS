@@ -30,6 +30,51 @@ DEFAULT_PREFIXES = {
 }
 
 
+def issued_documents_this_year_count(tenant, doc_type, as_of=None):
+    """Sprint 6.6.5 (item 4, revised after the real INVX-2026-00005/
+    00002 incident on tenant Fatma): how many `doc_type` documents
+    already carry a real (non-blank) number in the CURRENT calendar
+    year — `date.year` is exactly the "year" `next_document_number`
+    itself scopes a reset-yearly sequence by, so this is the same
+    "year" a prefix change would otherwise silently split a tenant's
+    own sequence across without warning. Only covers doc types with a
+    genuine date dimension (an invoice/journal entry/voucher/schedule/
+    cash count really did happen on some day) — the party-code types
+    (CUS/SUP/EMP/AFF) have no such "this year" concept at all and are
+    deliberately not covered here."""
+    year = (as_of or timezone.localdate()).year
+
+    if doc_type == "invoice":
+        from apps.sales.models import Invoice
+
+        return Invoice.objects.filter(tenant=tenant, issue_date__year=year).exclude(number="").count()
+    if doc_type == "journal_entry":
+        from apps.accounting.models import JournalEntry
+
+        return JournalEntry.objects.filter(tenant=tenant, date__year=year).exclude(number="").count()
+    if doc_type in ("voucher_receipt", "voucher_payment", "voucher_settlement"):
+        from apps.vouchers.models import Voucher
+
+        voucher_type = doc_type.removeprefix("voucher_")
+        return (
+            Voucher.objects.filter(tenant=tenant, voucher_type=voucher_type, date__year=year)
+            .exclude(number="")
+            .count()
+        )
+    if doc_type == "recurring_entry":
+        from apps.accounting.models import RecurringEntry
+
+        # No single "the" date on a schedule (it spans many
+        # installments) — created_at's own year is the practical
+        # proxy, same scope a reset-yearly sequence would have used.
+        return RecurringEntry.objects.filter(tenant=tenant, created_at__year=year).exclude(number="").count()
+    if doc_type == "cash_count":
+        from apps.treasury.models import CashCount
+
+        return CashCount.objects.filter(tenant=tenant, created_at__year=year).exclude(number="").count()
+    return 0
+
+
 def get_or_create_numbering_setting(tenant, doc_type):
     setting, _created = DocumentNumberingSetting.objects.get_or_create(
         tenant=tenant,

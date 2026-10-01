@@ -9,10 +9,10 @@ from apps.common.constants import (
     RATE_DECIMAL_PLACES,
     RATE_MAX_DIGITS,
 )
-from apps.common.models import TenantScopedModel
+from apps.common.models import SoftDeleteModelMixin, TenantScopedModel
 
 
-class Bank(TenantScopedModel):
+class Bank(TenantScopedModel, SoftDeleteModelMixin):
     """docs/SYSTEM_ANALYSIS.md 3.3 section 2: registration only, no
     movements yet — `gl_account` is nullable-for-now, filled in
     automatically starting sprint 4 (same pattern as Party.gl_account)."""
@@ -44,7 +44,7 @@ class Bank(TenantScopedModel):
         return self.name
 
 
-class CashBox(TenantScopedModel):
+class CashBox(TenantScopedModel, SoftDeleteModelMixin):
     legal_entity = models.ForeignKey(
         "organization.LegalEntity", on_delete=models.PROTECT, related_name="cash_boxes"
     )
@@ -204,7 +204,7 @@ class BankStatementLine(TenantScopedModel):
         return f"{self.date} {self.amount}"
 
 
-class Custody(TenantScopedModel):
+class Custody(TenantScopedModel, SoftDeleteModelMixin):
     """عهدة: cash advanced to a specific employee — unlike CashBox, the
     employee link is mandatory (3.3 section 2)."""
 
@@ -291,7 +291,7 @@ class CashCount(TenantScopedModel):
         return f"{self.cash_box} — {self.count_date}"
 
 
-class IbanChangeRequest(TenantScopedModel):
+class IbanChangeRequest(TenantScopedModel, SoftDeleteModelMixin):
     """Sprint 5.5 (block 5.5.0, CFO_REVIEW_1 C10, SYSTEM_ANALYSIS.md
     3.15.9): the only path a *non-empty* Bank.iban or Party.iban may
     change through (first entry on an empty field is a plain edit — see

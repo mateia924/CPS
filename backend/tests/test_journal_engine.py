@@ -513,6 +513,135 @@ def test_journal_entry_actions_are_tenant_isolated(tenant_a, tenant_b, client_a)
 
 
 # ---------------------------------------------------------------------
+# Sprint 6.6.5 (unified delete rule): a draft manual entry has no
+# posted movement at all and gets a real "حذف" (soft delete); once
+# posted, it stays 409 forever — reverse() is the only undo path.
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_delete_draft_journal_entry_soft_deletes(tenant_a, client_a):
+    entity = LegalEntityFactory(tenant=tenant_a)
+    cash, sales = _leaf_pair(tenant_a)
+    create = client_a.post(
+        "/api/journal-entries/",
+        {
+            "legal_entity": str(entity.id), "date": "2026-01-01", "memo": "draft to delete",
+            "lines": [
+                {"account": str(cash.id), "debit_fc": "20.00", "credit_fc": "0"},
+                {"account": str(sales.id), "debit_fc": "0", "credit_fc": "20.00"},
+            ],
+        },
+        format="json",
+    )
+    assert create.status_code == 201
+    entry_id = create.data["id"]
+
+    deleted = client_a.delete(f"/api/journal-entries/{entry_id}/")
+    assert deleted.status_code == 204, deleted.data
+
+    entry = JournalEntry.objects.get(id=entry_id)
+    assert entry.deleted_at is not None
+    assert client_a.get(f"/api/journal-entries/{entry_id}/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_delete_posted_journal_entry_returns_409(tenant_a, client_a):
+    entity = LegalEntityFactory(tenant=tenant_a)
+    cash, sales = _leaf_pair(tenant_a)
+    create = client_a.post(
+        "/api/journal-entries/",
+        {
+            "legal_entity": str(entity.id), "date": "2026-01-01", "memo": "to post",
+            "lines": [
+                {"account": str(cash.id), "debit_fc": "20.00", "credit_fc": "0"},
+                {"account": str(sales.id), "debit_fc": "0", "credit_fc": "20.00"},
+            ],
+        },
+        format="json",
+    )
+    entry_id = create.data["id"]
+    # No tenant ApprovalRule is seeded in this fixture, so submit
+    # auto-approves immediately ("لا قاعدة مطابقة = اعتماد تلقائي").
+    assert client_a.post(f"/api/journal-entries/{entry_id}/submit/").status_code == 200
+    assert client_a.post(f"/api/journal-entries/{entry_id}/post/").status_code == 200
+
+    deleted = client_a.delete(f"/api/journal-entries/{entry_id}/")
+    assert deleted.status_code == 409, deleted.data
+
+
+# ---------------------------------------------------------------------
+# Sprint 6.6.5 (§6.2 addition): a still-DRAFT manual entry's own page
+# can re-save its whole line set, generalizing the exact pattern
+# OpeningBalanceViewSet.lines already had since 6.6.3d.
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_patch_lines_on_draft_journal_entry_replaces_them(tenant_a, client_a):
+    entity = LegalEntityFactory(tenant=tenant_a)
+    cash, sales = _leaf_pair(tenant_a)
+    create = client_a.post(
+        "/api/journal-entries/",
+        {
+            "legal_entity": str(entity.id), "date": "2026-01-01", "memo": "draft",
+            "lines": [
+                {"account": str(cash.id), "debit_fc": "20.00", "credit_fc": "0"},
+                {"account": str(sales.id), "debit_fc": "0", "credit_fc": "20.00"},
+            ],
+        },
+        format="json",
+    )
+    entry_id = create.data["id"]
+
+    response = client_a.patch(
+        f"/api/journal-entries/{entry_id}/lines/",
+        {
+            "lines": [
+                {"account": str(cash.id), "debit_fc": "50.00", "credit_fc": "0"},
+                {"account": str(sales.id), "debit_fc": "0", "credit_fc": "50.00"},
+            ]
+        },
+        format="json",
+    )
+    assert response.status_code == 200, response.data
+    amounts = {line["account_code"]: (line["debit"], line["credit"]) for line in response.data["lines"]}
+    assert amounts[cash.code] == ("50.00", "0.00")
+
+
+@pytest.mark.django_db
+def test_patch_lines_on_posted_journal_entry_is_rejected(tenant_a, client_a):
+    entity = LegalEntityFactory(tenant=tenant_a)
+    cash, sales = _leaf_pair(tenant_a)
+    create = client_a.post(
+        "/api/journal-entries/",
+        {
+            "legal_entity": str(entity.id), "date": "2026-01-01", "memo": "to post",
+            "lines": [
+                {"account": str(cash.id), "debit_fc": "20.00", "credit_fc": "0"},
+                {"account": str(sales.id), "debit_fc": "0", "credit_fc": "20.00"},
+            ],
+        },
+        format="json",
+    )
+    entry_id = create.data["id"]
+    assert client_a.post(f"/api/journal-entries/{entry_id}/submit/").status_code == 200
+    assert client_a.post(f"/api/journal-entries/{entry_id}/post/").status_code == 200
+
+    response = client_a.patch(
+        f"/api/journal-entries/{entry_id}/lines/",
+        {
+            "lines": [
+                {"account": str(cash.id), "debit_fc": "99.00", "credit_fc": "0"},
+                {"account": str(sales.id), "debit_fc": "0", "credit_fc": "99.00"},
+            ]
+        },
+        format="json",
+    )
+    assert response.status_code == 400, response.data
+
+
+# ---------------------------------------------------------------------
 # CFO_REVIEW_1 C4: every state transition locks the row (select_for_
 # update) inside its own transaction before re-checking status — two
 # concurrent "post" requests for the same entry must never both

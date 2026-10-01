@@ -14,6 +14,7 @@ from apps.accounting.services import get_or_create_treasury_account, ledger_line
 from apps.common.viewsets import (
     EntityScopedMixin,
     EntityScopedViewSet,
+    SoftDeleteDocumentViewSetMixin,
     SoftDeleteViewSetMixin,
     TenantScopedViewSet,
     log_master_data_change,
@@ -228,13 +229,18 @@ class ExchangeRateViewSet(TenantScopedViewSet):
 
 
 class IbanChangeRequestViewSet(
-    mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet
+    SoftDeleteDocumentViewSetMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet,
 ):
     """الإعدادات ← "طلبات تغيير IBAN" (3.15.9, sprint 5.5 block 5.5.0).
     `create` only ever builds a DRAFT (no attachment required yet); the
     IBAN letter attachment (3.17) is required by `submit`, not here —
     same two-step shape as every other document that needs an
-    AttachmentPanel before it can move."""
+    AttachmentPanel before it can move.
+
+    Sprint 6.6.5: a DRAFT request never touched the real Bank/Party
+    IBAN at all (apply_iban_change only runs at approve time) — the
+    mixin's own default ("draft" only) is exactly right, unchanged."""
 
     serializer_class = IbanChangeRequestSerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
@@ -247,6 +253,7 @@ class IbanChangeRequestViewSet(
         "withdraw": "treasury.request_iban_change",
         "approve": "treasury.request_iban_change",
         "reject": "treasury.request_iban_change",
+        "destroy": "treasury.request_iban_change",
     }
 
     def get_queryset(self):

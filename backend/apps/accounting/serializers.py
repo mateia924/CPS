@@ -62,6 +62,30 @@ class AccountSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"parent": [_("An account must have the same type as its parent.")]}
             )
+        # Sprint 6.6.5 (item 2): a parent that already has posted
+        # movements of its own can't take on a brand-new child —
+        # unlike the handful of grandfathered accounts (e.g. 1000/4000
+        # on a live tenant) that already violate this from before the
+        # rule existed and keep posting/reporting as-is (flagged by
+        # "فحص الدليل" instead, see AccountViewSet.check), a NEW
+        # parent/child pairing is never created pre-violating it.
+        # Only matters when this account is actually becoming (or
+        # staying) that parent's child for the first time — an
+        # unrelated edit of an account that already has this exact
+        # parent isn't re-litigating the assignment.
+        parent_is_new_assignment = self.instance is None or parent != self.instance.parent
+        if parent is not None and parent_is_new_assignment and parent.journal_lines.exists():
+            raise serializers.ValidationError(
+                {
+                    "parent": [
+                        _(
+                            "This account already has posted movements of its own and cannot take on a "
+                            "new sub-account — create a new parent account above it and move this "
+                            "account under that instead."
+                        )
+                    ]
+                }
+            )
         return attrs
 
     def update(self, instance, validated_data):

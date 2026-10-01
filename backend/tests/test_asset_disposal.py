@@ -397,3 +397,42 @@ def test_comprehensive_acceptance_scenario(tenant_a, owner_client, user_a):
     totals = register_vs_ledger(tenant_a, as_of=date(2026, 12, 31))
     assert totals["register_cost"] == Decimal("0.00")
     assert totals["register_accumulated_depreciation"] == Decimal("0.00")
+
+
+def test_delete_draft_disposal_soft_deletes(tenant_a, owner_client, user_a):
+    """Sprint 6.6.5: `dispose_asset` always auto-submits immediately —
+    this tenant fixture seeds no asset_disposal ApprovalRule, so every
+    disposal auto-approves and posts in the same call (see the other
+    tests in this file, every `dispose/` response already has a
+    journal_entry). A genuinely still-DRAFT row (no rule matched yet,
+    i.e. before `submit_for_approval` ever runs) is therefore only
+    reachable by constructing it directly, same as this mixin's
+    eligibility contract requires regardless of how it's reached."""
+    from apps.assets.models import AssetDisposal
+
+    entity = _entity(tenant_a)
+    asset = _asset_with_running_schedule(tenant_a, entity, owner_client)
+    disposal = AssetDisposal.objects.create(
+        tenant=tenant_a, asset=asset, date=date(2026, 9, 1), fraction=Decimal("0.5"),
+        cost_share=Decimal("6000.00"), accum_share=Decimal("4000.00"), gain_loss=Decimal("0"),
+        created_by=user_a,
+    )
+
+    deleted = owner_client.delete(f"/api/asset-disposals/{disposal.id}/")
+    assert deleted.status_code == 204, deleted.data
+    disposal.refresh_from_db()
+    assert disposal.deleted_at is not None
+    assert owner_client.get(f"/api/asset-disposals/{disposal.id}/").status_code == 404
+
+
+def test_delete_approved_disposal_returns_409(tenant_a, owner_client):
+    entity = _entity(tenant_a)
+    asset = _asset_with_running_schedule(tenant_a, entity, owner_client)
+    generate_due_installments(tenant=tenant_a, as_of=date(2026, 8, 31))
+    response = owner_client.post(
+        f"/api/assets/{asset.id}/dispose/", {"date": "2026-09-15", "fraction": "1"}, format="json",
+    )
+    assert response.status_code == 201, response.data
+
+    deleted = owner_client.delete(f"/api/asset-disposals/{response.data['id']}/")
+    assert deleted.status_code == 409, deleted.data

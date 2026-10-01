@@ -186,6 +186,81 @@ def test_editing_year_boundaries_without_posted_entries_succeeds(tenant_a, clien
     assert len(response.data["periods"]) == 4
 
 
+@pytest.mark.django_db
+def test_renaming_a_year_with_posted_entries_still_succeeds(tenant_a, client_a):
+    """Sprint 6.6.5 (§6.2 addition): a pure rename (identical resulting
+    period ranges) never touches a single FiscalPeriod row, so it's
+    never blocked by the strict "completely empty" bar that real
+    boundary moves require — the year's NAME is always editable."""
+    _post_manual_entry(tenant_a, date(2026, 1, 15))
+    year_id = FiscalYear.objects.get(tenant=tenant_a, name="2026").id
+    response = client_a.patch(
+        f"/api/fiscal-years/{year_id}/",
+        {"name": "السنة 2026", "start_date": "2026-01-01", "end_date": "2026-12-31", "period_length": "monthly"},
+        format="json",
+    )
+    assert response.status_code == 200, response.data
+    assert response.data["name"] == "السنة 2026"
+
+
+# ---------------------------------------------------------------------
+# Sprint 6.6.5 (§6.2 addition): fiscal years enter the unified delete
+# rule — soft delete only when completely empty (no document of any
+# status, no scheduled installment, no closed/locked period).
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_delete_empty_year_soft_deletes(tenant_a, client_a):
+    created = client_a.post(
+        "/api/fiscal-years/",
+        {"name": "2030", "start_date": "2030-01-01", "end_date": "2030-12-31", "period_length": "monthly"},
+        format="json",
+    )
+    year_id = created.data["id"]
+
+    deleted = client_a.delete(f"/api/fiscal-years/{year_id}/")
+    assert deleted.status_code == 204, deleted.data
+
+    year = FiscalYear.objects.get(id=year_id)
+    assert year.deleted_at is not None
+    assert client_a.get(f"/api/fiscal-years/{year_id}/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_delete_year_with_a_draft_document_is_rejected(tenant_a, client_a):
+    """Stricter than the document-level delete rule on purpose — a
+    DRAFT journal entry is itself freely deletable, but the YEAR it's
+    dated in is not, since deleting the year would otherwise orphan
+    it (sprint 6.6.5 §6.2: "ولا حتى مسودة")."""
+    create_manual_journal_entry(
+        tenant=tenant_a, user=UserFactory(tenant=tenant_a), legal_entity=LegalEntityFactory(tenant=tenant_a),
+        date=date(2026, 3, 1),
+        line_specs=[
+            {"account": Account.objects.get(tenant=tenant_a, system_key="CASH"), "debit_fc": Decimal("5"), "credit_fc": Decimal("0")},
+            {"account": Account.objects.get(tenant=tenant_a, system_key="SALES"), "debit_fc": Decimal("0"), "credit_fc": Decimal("5")},
+        ],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+    year_id = FiscalYear.objects.get(tenant=tenant_a, name="2026").id
+
+    response = client_a.delete(f"/api/fiscal-years/{year_id}/")
+    assert response.status_code == 409, response.data
+    assert "journal entry" in response.data["detail"]
+
+
+@pytest.mark.django_db
+def test_delete_year_with_a_closed_period_is_rejected(tenant_a, client_a):
+    period = _period(tenant_a, 1)
+    period.status = FiscalPeriod.Status.CLOSED
+    period.save(update_fields=["status"])
+    year_id = FiscalYear.objects.get(tenant=tenant_a, name="2026").id
+
+    response = client_a.delete(f"/api/fiscal-years/{year_id}/")
+    assert response.status_code == 409, response.data
+    assert "closed" in response.data["detail"].lower() or "locked" in response.data["detail"].lower()
+
+
 # ---------------------------------------------------------------------
 # The posting-date gate
 # ---------------------------------------------------------------------

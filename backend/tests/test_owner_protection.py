@@ -109,6 +109,9 @@ def test_role_assigned_to_a_user_cannot_be_deleted(tenant_with_roles):
 
 @pytest.mark.django_db
 def test_unassigned_custom_role_can_be_deleted(tenant_with_roles):
+    """Sprint 6.6.5 (unified delete rule): soft delete, not a real SQL
+    DELETE — the row survives with `deleted_at` set and disappears from
+    the API."""
     tenant, roles = tenant_with_roles
     owner = UserFactory(tenant=tenant, email="unassigned-owner@test.test")
     owner.roles.add(roles["Owner"])
@@ -118,3 +121,10 @@ def test_unassigned_custom_role_can_be_deleted(tenant_with_roles):
     custom_role = RoleFactory(tenant=tenant, name="Unused", is_system=False)
     response = client.delete(f"/api/roles/{custom_role.id}/")
     assert response.status_code == 204
+
+    from apps.access.models import Role
+
+    custom_role.refresh_from_db()
+    assert custom_role.deleted_at is not None
+    assert Role.objects.filter(id=custom_role.id).exists()
+    assert client.get(f"/api/roles/{custom_role.id}/").status_code == 404

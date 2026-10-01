@@ -3,7 +3,7 @@ import uuid
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-from apps.common.models import TenantScopedModel
+from apps.common.models import SoftDeleteModelMixin, TenantScopedModel
 
 
 class Permission(models.Model):
@@ -21,7 +21,7 @@ class Permission(models.Model):
         return self.code
 
 
-class Role(TenantScopedModel):
+class Role(TenantScopedModel, SoftDeleteModelMixin):
     """Tenant-scoped so each tenant's copy of a system role (Owner,
     Accountant, Sales, Viewer) can be edited independently without
     affecting other tenants — "أدوار نظامية ... قابلة للتعديل"."""

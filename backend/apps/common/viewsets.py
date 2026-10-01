@@ -1,4 +1,6 @@
 from django.db.models import ProtectedError
+from django.db.models.deletion import Collector
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -152,32 +154,47 @@ class SoftDeleteViewSetMixin:
     entity with transactions is only ever deactivated, never actually
     deleted; an actual-delete attempt returns 409".
 
-    - DELETE attempts a real delete. Every relationship that should
-      block it is already `on_delete=PROTECT` at the model level
-      (Invoice.party, InvoiceLine.product, LegalEntity/CostCenter's
-      self-FK parent, etc.) — this mixin's only job is turning the
-      resulting ProtectedError into a clean 409 instead of a 500. An
-      entity with zero references really is deleted.
+    Sprint 6.6.5 (owner decision 29 Sept, unified delete rule — "لا
+    DELETE فعلي في أي مكان"): `destroy` no longer issues a real SQL
+    DELETE at all, not even for an entity with zero references. It
+    reuses Django's own deletion `Collector` to run the EXACT SAME
+    "would anything PROTECT-block this?" walk a real `.delete()` would
+    do — `collector.collect([instance])` raises `ProtectedError`
+    immediately on the first blocking relation it finds, with no
+    actual mutation performed either way — then either 409s (real
+    movements exist; the UI's own button would have shown "تعطيل"
+    instead of "حذف" for this exact row) or soft-deletes (`deleted_at`/
+    `deleted_by`, apps.common.models.SoftDeleteModelMixin — the model
+    MUST have these two fields now). Requires the model to have both
+    `is_active` (deactivate/activate, unchanged) and `deleted_at`.
+
+    - `list` hides inactive rows unless `?show_inactive=true` is passed,
+      and ALWAYS hides soft-deleted ones regardless (no equivalent
+      "show deleted" escape hatch — a deleted row is gone from the API
+      surface entirely, same as every document's own soft delete).
     - `deactivate`/`activate` toggle `is_active` directly and always
       succeed regardless of references — this is the primary, safe
       action the UI's "تعطيل/إعادة تفعيل" buttons call.
-    - `list` hides inactive rows unless `?show_inactive=true` is passed;
-      `retrieve`/`deactivate`/`activate`/etc. are never filtered by
+    - `retrieve`/`deactivate`/`activate`/etc. are never filtered by
       is_active, since you must be able to fetch and reactivate an
-      inactive record by id.
-
-    Requires the model to have an `is_active` BooleanField.
+      inactive record by id — but ARE filtered by deleted_at, since a
+      deleted record has no reactivation path at all (unlike
+      deactivate, deletion is the project's only genuinely one-way
+      door on master data, matching a posted document's own "no
+      delete, ever" rule in spirit).
     """
 
     def get_queryset(self):
         queryset = super().get_queryset()
         if self.action == "list" and self.request.query_params.get("show_inactive") != "true":
             queryset = queryset.filter(is_active=True)
-        return queryset
+        return queryset.filter(deleted_at__isnull=True)
 
     def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        collector = Collector(using=instance._state.db)
         try:
-            return super().destroy(request, *args, **kwargs)
+            collector.collect([instance])
         except ProtectedError:
             return Response(
                 {
@@ -187,6 +204,11 @@ class SoftDeleteViewSetMixin:
                 },
                 status=status.HTTP_409_CONFLICT,
             )
+        instance.deleted_at = timezone.now()
+        instance.deleted_by = request.user
+        instance.save(update_fields=["deleted_at", "deleted_by"])
+        log_master_data_change(request, instance, "deleted")
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=["post"])
     def deactivate(self, request, pk=None):
@@ -203,3 +225,88 @@ class SoftDeleteViewSetMixin:
         instance.save(update_fields=["is_active"])
         log_master_data_change(request, instance, "activated")
         return Response(self.get_serializer(instance).data)
+
+
+class SoftDeleteDocumentViewSetMixin:
+    """Sprint 6.6.5 (owner decision 29 Sept, unified delete rule), the
+    document half — generalizes the exact pattern `apps.accounting.
+    opening_balances.delete_opening_balance_entry` built for
+    OpeningBalanceEntry in sprint 6.6.3d to every other document type:
+    a draft/rejected/cancelled document (no posted ledger movement at
+    all) gets a real "حذف" button; the model MUST have `deleted_at`/
+    `deleted_by` (apps.common.models.SoftDeleteModelMixin) and a
+    `status` field. Never a real SQL DELETE ("لا DELETE فعلي في أي
+    مكان") — a posted/approved/pending-approval document stays 409,
+    no exceptions, no override point for that part.
+
+    `deletable_statuses` names which `instance.status` values are
+    eligible — override per model. The one default here (`"draft"`)
+    covers every `apps.common.models.DocumentStateMixin`-based
+    document (JournalEntry, Voucher) as-is: that mixin's own
+    vocabulary has no separate terminal "rejected" value at all —
+    `apps.approvals.services.reject()` bounces those straight back to
+    DRAFT, so DRAFT already covers it. A richer Status's own terminal,
+    non-posted value (RecurringEntry's `cancelled`) can be added to
+    the tuple IF AND ONLY IF reaching that status genuinely guarantees
+    zero real movement — found live while wiring this up: Invoice's
+    own `cancelled` is NOT such a case (`void_invoice` only runs on an
+    already-ISSUED invoice and posts a real reversal entry — a voided
+    invoice has real history and must stay 409 forever, so Invoice
+    keeps the plain default), and RecurringEntry's `cancelled` needed
+    its own extra `_extra_delete_guard` override below for the exact
+    same reason (cancel only stops FUTURE due installments — an
+    already-generated one's own posted JournalEntry survives
+    untouched, see apps.accounting.recurring.cancel_recurring_entry).
+
+    `_extra_delete_guard(instance)` is the override point for that
+    kind of model-specific "status says deletable but check something
+    else too" case — return a `Response` (409) to block, or `None` to
+    let the generic status check's own verdict stand.
+    """
+
+    deletable_statuses = ("draft",)
+
+    def get_queryset(self):
+        return super().get_queryset().filter(deleted_at__isnull=True)
+
+    def _extra_delete_guard(self, instance):
+        return None
+
+    def destroy(self, request, *args, **kwargs):
+        from apps.platform.models import AuditLog
+        from apps.platform.services import log_action
+
+        instance = self.get_object()
+        if instance.status not in self.deletable_statuses:
+            return Response(
+                {
+                    "detail": _(
+                        "This document has a posted/pending movement and cannot be deleted — "
+                        "use withdraw/reverse/cancel instead."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        guard_response = self._extra_delete_guard(instance)
+        if guard_response is not None:
+            return guard_response
+        instance.deleted_at = timezone.now()
+        instance.deleted_by = request.user
+        instance.save(update_fields=["deleted_at", "deleted_by"])
+        self._after_soft_delete(instance)
+
+        model = type(instance)
+        target_type = f"{model._meta.app_label}.{model._meta.model_name}"
+        log_action(
+            actor_type=AuditLog.ActorType.TENANT_USER, actor_id=request.user.id,
+            action=f"{target_type}.deleted", target_type=target_type, target_id=instance.pk,
+            tenant_id=request.user.tenant_id, before={"status": instance.status}, request=request,
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _after_soft_delete(self, instance):
+        """Override point for a model-specific cleanup side effect that
+        must run right after a successful soft delete — e.g.
+        RecurringEntryViewSet detaching Asset.depreciation_entry so a
+        deleted DRAFT schedule can't keep blocking a fresh one."""
+        return None

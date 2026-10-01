@@ -235,3 +235,58 @@ def test_tenant_isolation(tenant_a, tenant_b, owner_client, user_b):
     other_client = _client(user_b)
     response = other_client.get(f"/api/recurring-entries/{entry_id}/")
     assert response.status_code == 404
+
+
+def test_delete_draft_schedule_soft_deletes(tenant_a, owner_client):
+    entity = _entity(tenant_a)
+    entry_id = _create(owner_client, tenant_a, entity, "1200", 12)
+
+    deleted = owner_client.delete(f"/api/recurring-entries/{entry_id}/")
+    assert deleted.status_code == 204, deleted.data
+
+    entry = RecurringEntry.objects.get(id=entry_id)
+    assert entry.deleted_at is not None
+    assert owner_client.get(f"/api/recurring-entries/{entry_id}/").status_code == 404
+
+
+def test_delete_cancelled_schedule_with_no_generated_installments_soft_deletes(tenant_a, owner_client):
+    entity = _entity(tenant_a)
+    entry_id = _create(owner_client, tenant_a, entity, "3000", 3)
+    _submit_and_approve(owner_client, entry_id)
+    # Cancelled before any installment was ever generated — zero real
+    # movement, same as a plain draft.
+    cancelled = owner_client.post(f"/api/recurring-entries/{entry_id}/cancel/")
+    assert cancelled.status_code == 200, cancelled.data
+
+    deleted = owner_client.delete(f"/api/recurring-entries/{entry_id}/")
+    assert deleted.status_code == 204, deleted.data
+    entry = RecurringEntry.objects.get(id=entry_id)
+    assert entry.deleted_at is not None
+
+
+def test_delete_cancelled_schedule_with_generated_installment_returns_409(tenant_a, owner_client):
+    """Sprint 6.6.5 self-caught fix: `cancel` only stops FUTURE `due`
+    installments — an already-generated one's own posted JournalEntry
+    survives untouched, so this cancelled schedule still has real
+    history and must stay 409, same as a posted document."""
+    entity = _entity(tenant_a)
+    entry_id = _create(owner_client, tenant_a, entity, "3000", 3)
+    _submit_and_approve(owner_client, entry_id)
+    generate_due_installments(tenant=tenant_a, as_of=_period(tenant_a, 1).end_date)
+
+    cancelled = owner_client.post(f"/api/recurring-entries/{entry_id}/cancel/")
+    assert cancelled.status_code == 200, cancelled.data
+
+    deleted = owner_client.delete(f"/api/recurring-entries/{entry_id}/")
+    assert deleted.status_code == 409, deleted.data
+    entry = RecurringEntry.objects.get(id=entry_id)
+    assert entry.deleted_at is None
+
+
+def test_delete_approved_schedule_returns_409(tenant_a, owner_client):
+    entity = _entity(tenant_a)
+    entry_id = _create(owner_client, tenant_a, entity, "1200", 12)
+    _submit_and_approve(owner_client, entry_id)
+
+    deleted = owner_client.delete(f"/api/recurring-entries/{entry_id}/")
+    assert deleted.status_code == 409, deleted.data

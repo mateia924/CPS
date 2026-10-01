@@ -4,10 +4,10 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-from apps.common.models import StructuredAddressMixin, TenantScopedModel
+from apps.common.models import SoftDeleteModelMixin, StructuredAddressMixin, TenantScopedModel
 
 
-class LegalEntity(TenantScopedModel, StructuredAddressMixin):
+class LegalEntity(TenantScopedModel, StructuredAddressMixin, SoftDeleteModelMixin):
     """A node in the legal tree (docs/SYSTEM_ANALYSIS.md 3.1): holding /
     sibling company / branch, unlimited depth via `parent`. Distinct from
     CostCenter below — this tree has financial ownership, a tax number
@@ -86,7 +86,7 @@ class LegalEntity(TenantScopedModel, StructuredAddressMixin):
             node = node.parent
 
 
-class CostCenter(TenantScopedModel):
+class CostCenter(TenantScopedModel, SoftDeleteModelMixin):
     """A node in the analytical/profitability tree (3.1, 3.2) — never
     issues documents, never has a "chart of accounts" type of its own
     (the account is the independent second analytical dimension).

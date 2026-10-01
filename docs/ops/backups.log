@@ -48,3 +48,9 @@
 2026-10-01T22:04:37+03:00	93c8623	cps-db-20261001-220436.sql.gz.gpg	deploy.sh 93c862335c86ef99c45a74178cf7e97b7e117054
 2026-10-01T22:09:34+03:00	ca466e8	cps-db-20261001-220932.sql.gz.gpg	test MinIO interim upload (6.6.4 Option 1)
 2026-10-01T22:10:37+03:00	ca466e8	cps-db-20261001-221036.sql.gz.gpg	retest MinIO upload after manual bucket creation
+2026-10-01T22:23:21+03:00	9cc09ab	cps-db-20261001-222320.sql.gz.gpg	make migrate
+2026-10-01T22:39:09+03:00	9cc09ab	cps-db-20261001-223908.sql.gz.gpg	make migrate
+2026-10-01T22:47:20+03:00	9cc09ab	cps-db-20261001-224719.sql.gz.gpg	make migrate
+2026-10-01T22:54:34+03:00	9cc09ab	cps-db-20261001-225433.sql.gz.gpg	make migrate
+2026-10-01T23:04:32+03:00	9cc09ab	cps-db-20261001-230431.sql.gz.gpg	make migrate
+2026-10-01T23:49:59+03:00	9cc09ab	cps-db-20261001-234958.sql.gz.gpg	make migrate

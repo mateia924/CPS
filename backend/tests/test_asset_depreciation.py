@@ -591,3 +591,34 @@ def test_entity_restricted_user_cannot_see_or_approve_other_entitys_schedule(ten
 
     generate_due = restricted_client.post(f"/api/assets/{asset_b.id}/generate-due-now/")
     assert generate_due.status_code == 404, generate_due.data
+
+
+def test_deleting_a_rejected_draft_schedule_frees_the_asset_for_a_fresh_start(tenant_a, user_a):
+    """Sprint 6.6.5 (§6.2, self-caught fix): before this fix, deleting
+    a rejected (DRAFT) schedule via the new /recurring-entries/{id}/
+    endpoint left Asset.depreciation_entry pointing at the now-soft-
+    deleted row — since DRAFT is itself in _ACTIVE_SCHEDULE_STATUSES,
+    start_depreciation would wrongly keep refusing forever. The fix
+    detaches it on delete, same as cancel_depreciation_schedule
+    already does."""
+    role = _seed_depreciation_rule(tenant_a).required_role
+    UserFactory(tenant=tenant_a, email="second-owner@del-detach.test").roles.add(role)
+    client = _client(user_a)
+    entity = _entity(tenant_a)
+    asset = AssetFactory(
+        tenant=tenant_a, legal_entity=entity, purchase_date="2026-01-01", purchase_cost="12000.00",
+        salvage_value="0", useful_life_months=12,
+    )
+    started = _start(client, asset.id)
+    schedule_id = started.data["depreciation_schedule_id"]
+    rejected = client.post(f"/api/depreciation-schedules/{schedule_id}/reject/", {"reason": "خطأ"})
+    assert rejected.status_code == 200, rejected.data
+    assert rejected.data["status"] == "draft"
+
+    deleted = client.delete(f"/api/recurring-entries/{schedule_id}/")
+    assert deleted.status_code == 204, deleted.data
+    asset.refresh_from_db()
+    assert asset.depreciation_entry_id is None
+
+    restarted = _start(client, asset.id)
+    assert restarted.status_code == 201, restarted.data

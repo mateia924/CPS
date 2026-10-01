@@ -654,6 +654,50 @@ def create_manual_journal_entry(
     return entry
 
 
+def replace_manual_journal_entry_lines(entry, user, line_specs, override_reason="", request=None):
+    """Sprint 6.6.5 (§6.2 addition): generalizes the exact full-replace
+    pattern apps.accounting.opening_balances.replace_opening_balance_
+    lines built for OpeningBalanceEntry in 6.6.3d — a still-DRAFT
+    manual entry's own page can re-save its whole line set on every
+    edit, same validation as create_manual_journal_entry (control-
+    account override, cost-center requirement, FX-rounding, balance),
+    just never touching date/currency/exchange_rate/memo/reference.
+    An auto-generated entry (source_type set) never reaches DRAFT in
+    the first place (see JournalEntryViewSet's own docstring), so
+    there's no separate guard needed for that case here."""
+    if entry.status != JournalEntry.Status.DRAFT:
+        raise ValidationError(_("لا يمكن تعديل سطور قيد إلا وهو في حالة مسودة."))
+
+    for spec in line_specs:
+        check_cost_center_required(entry.tenant, spec["account"], spec.get("cost_center"))
+
+    control_lines = [spec for spec in line_specs if not spec["account"].allow_manual_posting]
+    if control_lines:
+        if not override_reason:
+            raise ValidationError(
+                _(
+                    "لا يمكن الترحيل يدويًا على حساب رقابة (%(codes)s) بدون تجاوز مسجَّل بسبب — "
+                    "استخدم سند قبض/صرف أو حرّك الضريبة من الفاتورة."
+                )
+                % {"codes": ", ".join(sorted({spec["account"].code for spec in control_lines}))}
+            )
+        from apps.access.services import user_has_permission
+
+        if not user_has_permission(user, "accounting.post_control_accounts"):
+            raise PermissionDenied(
+                _("You do not have permission to override a control account's posting restriction.")
+            )
+
+    lines = build_journal_lines_with_fx_rounding(entry.tenant, entry, line_specs, entry.exchange_rate)
+    _require_fc_balance_if_single_currency(entry, lines)
+    entry.lines.all().delete()
+    JournalLine.objects.bulk_create(lines)
+    if bool(control_lines) != entry.is_control_override:
+        entry.is_control_override = bool(control_lines)
+        entry.save(update_fields=["is_control_override"])
+    return entry
+
+
 def _require_fc_balance_if_single_currency(entry, lines):
     """Sprint 5.0 (docs/prompts/sprint-5.md decision 6): "التوازن
     بالعملة الأساسية إلزامي دائمًا؛ التوازن بعملة المعاملة يُفرض على

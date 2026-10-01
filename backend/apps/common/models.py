@@ -49,6 +49,38 @@ class DocumentStateMixin(models.Model):
         abstract = True
 
 
+class SoftDeleteModelMixin(models.Model):
+    """Sprint 6.6.5 (owner decision 29 Sept, unified delete rule): the
+    one and only "delete" marker across the whole project from now on
+    — `deleted_at`/`deleted_by`, never a real SQL `DELETE`, on both
+    master data (an unused bank/cash box/custody/asset/party/product/
+    cost center/account/tax code/approval rule) and financial
+    documents (a draft/rejected/cancelled invoice/voucher/journal
+    entry/recurring schedule/asset document). See apps.common.
+    viewsets.UnifiedSoftDeleteViewSetMixin for the enforcement side —
+    this model mixin only carries the two fields; eligibility (does
+    this specific instance have real movements/isn't in a terminal
+    posted/approved state) is enforced there, not here.
+
+    Deliberately separate from `is_active` (master data's own existing
+    "deactivated, still referenced by history" marker, sprint 1.5) —
+    an entity WITH real movements is deactivated (`is_active=False`,
+    `deleted_at` stays NULL, the record itself must keep resolving
+    correctly in every historical report that references it), while
+    one with none is fully soft-deleted (`deleted_at` set) and
+    disappears from the UI entirely, same as `deleted_at` already
+    works for `apps.accounting.models.OpeningBalanceEntry` since
+    sprint 6.6.3d — this mixin is that same pattern, generalized."""
+
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        abstract = True
+
+
 class StructuredAddressMixin(models.Model):
     """Sprint 5.6 (block 5.6): the Saudi-format structured address
     (building number, street, district, city, postal code, short

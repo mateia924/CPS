@@ -4,10 +4,10 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from apps.common.constants import MONEY_DECIMAL_PLACES, MONEY_MAX_DIGITS
-from apps.common.models import StructuredAddressMixin, TenantScopedModel
+from apps.common.models import SoftDeleteModelMixin, StructuredAddressMixin, TenantScopedModel
 
 
-class Party(TenantScopedModel, StructuredAddressMixin):
+class Party(TenantScopedModel, StructuredAddressMixin, SoftDeleteModelMixin):
     """docs/SYSTEM_ANALYSIS.md 3.3: unified "طرف" — one record per real
     counterparty, carrying any number of PartyRole rows (customer,
     supplier, employee, affiliate, bank) instead of a separate table per

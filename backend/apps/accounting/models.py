@@ -14,10 +14,10 @@ from apps.common.constants import (
     RATE_DECIMAL_PLACES,
     RATE_MAX_DIGITS,
 )
-from apps.common.models import DocumentStateMixin, TenantScopedModel
+from apps.common.models import DocumentStateMixin, SoftDeleteModelMixin, TenantScopedModel
 
 
-class Account(TenantScopedModel):
+class Account(TenantScopedModel, SoftDeleteModelMixin):
     """Sprint 4.3 (ARCH_REVIEW_1.md §3.1): partial rebuild — `code`,
     `name`, `type`, `is_system` are unchanged from before; `parent`
     follows the exact same self-FK/cycle-check pattern already proven
@@ -144,7 +144,7 @@ class Account(TenantScopedModel):
         super().save(*args, **kwargs)
 
 
-class JournalEntry(TenantScopedModel, DocumentStateMixin):
+class JournalEntry(TenantScopedModel, DocumentStateMixin, SoftDeleteModelMixin):
     # Same 3-step migration story as Invoice.legal_entity — see
     # apps/accounting/migrations/0002-0004.
     legal_entity = models.ForeignKey(
@@ -312,7 +312,7 @@ class JournalLine(models.Model):
         return f"{self.account.code} D{self.debit} C{self.credit}"
 
 
-class TaxCode(TenantScopedModel):
+class TaxCode(TenantScopedModel, SoftDeleteModelMixin):
     """Sprint 4.6 (docs/SYSTEM_ANALYSIS.md 3.16.2; rule 16: "الضريبة على
     البند عبر tax_code (FK) لا نسبة حرّة"). Seeded per country via
     apps/compliance/<country>/tax_codes.json — apps.accounting.services.
@@ -407,7 +407,7 @@ class TaxPeriod(TenantScopedModel):
         return f"{self.legal_entity} {self.start}..{self.end}"
 
 
-class FiscalYear(TenantScopedModel):
+class FiscalYear(TenantScopedModel, SoftDeleteModelMixin):
     """Sprint 6.1 (3.9, sprint-6.md decision 1/2): one fiscal year per
     tenant (not per legal entity — a branch never has its own fiscal
     year; per-company years are sprint 12), no overlap with another
@@ -604,7 +604,7 @@ class OpeningBalanceLine(models.Model):
         return f"{self.account} {self.debit_fc}/{self.credit_fc}"
 
 
-class RecurringEntry(TenantScopedModel):
+class RecurringEntry(TenantScopedModel, SoftDeleteModelMixin):
     """Sprint 6.4 (docs/SYSTEM_ANALYSIS.md 3.15.4, sprint-6.md decision
     9): "القيود الدورية" — a prepaid expense/deferred revenue/accrual
     schedule that generates one POSTED JournalEntry per due installment

@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.access.permissions import HasModulePermission
-from apps.common.viewsets import EntityScopedMixin
+from apps.common.viewsets import EntityScopedMixin, SoftDeleteDocumentViewSetMixin
 from apps.treasury.services import ExchangeRateNotFound, TreasuryConflictError
 
 from .models import Voucher
@@ -13,6 +13,7 @@ from .serializers import (
     InternalTransferCreateSerializer,
     RejectVoucherSerializer,
     VoucherCreateSerializer,
+    VoucherLineInputSerializer,
     VoucherSerializer,
     resolve_voucher_lines,
 )
@@ -23,18 +24,22 @@ from .services import (
     create_voucher,
     post_voucher,
     reject_voucher,
+    replace_voucher_lines,
     reverse_voucher,
     withdraw_voucher,
 )
 
 
 class VoucherViewSet(
-    EntityScopedMixin, mixins.CreateModelMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin,
-    viewsets.GenericViewSet,
+    EntityScopedMixin, SoftDeleteDocumentViewSetMixin, mixins.CreateModelMixin, mixins.ListModelMixin,
+    mixins.RetrieveModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet,
 ):
     """docs/SYSTEM_ANALYSIS.md 3.8 — سندات القبض/الصرف/التسوية، محرك
     واحد. `create` only ever builds a DRAFT; every transition after
-    that is its own action, same shape as JournalEntryViewSet (4.4)."""
+    that is its own action, same shape as JournalEntryViewSet (4.4).
+
+    سبرنت 6.6.5 (البند 5، المسودة العالقة): هذا هو ما يسمح الآن بحذف
+    مسودة سند الصرف القديمة على Fatma فعليًا من الواجهة."""
 
     queryset = Voucher.objects.prefetch_related("lines")
     serializer_class = VoucherSerializer
@@ -43,12 +48,14 @@ class VoucherViewSet(
         "list": "vouchers.view",
         "retrieve": "vouchers.view",
         "create": "vouchers.add",
+        "lines": "vouchers.add",
         "transfer": "vouchers.add",
         "post": "vouchers.post",
         "approve": "vouchers.approve",
         "reject": "vouchers.approve",
         "withdraw": "vouchers.add",
         "reverse": "vouchers.reverse",
+        "destroy": "vouchers.add",
     }
 
     def get_queryset(self):
@@ -104,6 +111,24 @@ class VoucherViewSet(
             detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
             return Response(detail, status=400)
         return Response(VoucherSerializer(voucher).data, status=201)
+
+    @action(detail=True, methods=["patch"])
+    def lines(self, request, pk=None):
+        """Sprint 6.6.5 (§6.2 addition): a still-DRAFT voucher's own
+        page can re-save its whole line set, same full-replace shape
+        as OpeningBalanceViewSet.lines (6.6.3d)."""
+        voucher = self.get_object()
+        serializer = VoucherLineInputSerializer(data=request.data.get("lines", []), many=True)
+        serializer.is_valid(raise_exception=True)
+        tenant = request.user.tenant
+        try:
+            resolved_lines = resolve_voucher_lines(tenant, serializer.validated_data)
+            replace_voucher_lines(voucher, request.user, resolved_lines, request=request)
+        except (VoucherValidationError, ValidationError, ValueError) as exc:
+            detail = exc.message_dict if hasattr(exc, "message_dict") else {"detail": str(exc)}
+            return Response(detail, status=400)
+        voucher.refresh_from_db()
+        return Response(VoucherSerializer(voucher).data)
 
     @action(detail=False, methods=["post"])
     def transfer(self, request):

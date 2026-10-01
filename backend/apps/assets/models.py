@@ -2,10 +2,10 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 
 from apps.common.constants import MONEY_DECIMAL_PLACES, MONEY_MAX_DIGITS
-from apps.common.models import TenantScopedModel
+from apps.common.models import SoftDeleteModelMixin, TenantScopedModel
 
 
-class Asset(TenantScopedModel):
+class Asset(TenantScopedModel, SoftDeleteModelMixin):
     """docs/SYSTEM_ANALYSIS.md 3.3 section 3 + sprint 6.5 (decision 1):
     still a subsidiary register, not a document that posts its own
     purchase entry — the purchase itself is a manual JV/voucher on
@@ -146,7 +146,7 @@ class AssetAddition(TenantScopedModel):
         return f"{self.asset.code} +{self.amount_base}"
 
 
-class AssetDisposal(TenantScopedModel):
+class AssetDisposal(TenantScopedModel, SoftDeleteModelMixin):
     """Sprint 6.5 (decision 7): a full or partial disposal — cumulative
     `fraction` of the *original* asset (Σ across every AssetDisposal on
     this asset ≤ 1); cost/accumulated-depreciation shares taken at that

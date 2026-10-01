@@ -15,10 +15,10 @@ from apps.common.constants import (
     RATE_DECIMAL_PLACES,
     RATE_MAX_DIGITS,
 )
-from apps.common.models import TenantScopedModel
+from apps.common.models import SoftDeleteModelMixin, TenantScopedModel
 
 
-class Customer(TenantScopedModel):
+class Customer(TenantScopedModel, SoftDeleteModelMixin):
     name = models.CharField(_("name"), max_length=255)
     email = models.EmailField(_("email"), blank=True)
     phone = models.CharField(_("phone"), max_length=50, blank=True)
@@ -34,7 +34,7 @@ class Customer(TenantScopedModel):
         return self.name
 
 
-class Product(TenantScopedModel):
+class Product(TenantScopedModel, SoftDeleteModelMixin):
     sku = models.CharField(_("SKU"), max_length=64)
     name = models.CharField(_("name"), max_length=255)
     unit_price = models.DecimalField(
@@ -66,7 +66,7 @@ class Product(TenantScopedModel):
         return self.name
 
 
-class Invoice(TenantScopedModel):
+class Invoice(TenantScopedModel, SoftDeleteModelMixin):
     class Status(models.TextChoices):
         DRAFT = "draft", _("Draft")
         # Sprint 4.5 (3.15.1): the same two intermediate values every

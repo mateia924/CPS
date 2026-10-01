@@ -131,3 +131,46 @@ def test_void_already_cancelled_invoice_rejected(tenant_a, client_a):
 
     response = client_a.post(f"/api/invoices/{invoice['id']}/void/")
     assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_delete_draft_invoice_soft_deletes(tenant_a, client_a):
+    customer = PartyFactory(tenant=tenant_a)
+    product = ProductFactory(tenant=tenant_a)
+    invoice = _create_invoice(client_a, customer, product).data
+
+    deleted = client_a.delete(f"/api/invoices/{invoice['id']}/")
+    assert deleted.status_code == 204, deleted.data
+
+    from apps.sales.models import Invoice
+
+    stored = Invoice.objects.get(id=invoice["id"])
+    assert stored.deleted_at is not None
+    assert client_a.get(f"/api/invoices/{invoice['id']}/").status_code == 404
+
+
+@pytest.mark.django_db
+def test_delete_issued_invoice_returns_409(tenant_a, client_a):
+    customer = PartyFactory(tenant=tenant_a)
+    product = ProductFactory(tenant=tenant_a)
+    invoice = _create_invoice(client_a, customer, product).data
+    client_a.post(f"/api/invoices/{invoice['id']}/issue/")
+
+    deleted = client_a.delete(f"/api/invoices/{invoice['id']}/")
+    assert deleted.status_code == 409, deleted.data
+
+
+@pytest.mark.django_db
+def test_delete_voided_invoice_returns_409(tenant_a, client_a):
+    """Sprint 6.6.5 self-caught fix: a voided invoice posts a real
+    reversal journal entry (void_invoice requires ISSUED first) — real
+    history, never deletable, same as any other posted document."""
+    customer = PartyFactory(tenant=tenant_a)
+    product = ProductFactory(tenant=tenant_a)
+    invoice = _create_invoice(client_a, customer, product).data
+    client_a.post(f"/api/invoices/{invoice['id']}/issue/")
+    voided = client_a.post(f"/api/invoices/{invoice['id']}/void/")
+    assert voided.status_code == 200, voided.data
+
+    deleted = client_a.delete(f"/api/invoices/{invoice['id']}/")
+    assert deleted.status_code == 409, deleted.data

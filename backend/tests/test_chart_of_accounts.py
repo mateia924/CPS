@@ -298,6 +298,98 @@ def test_account_without_lines_can_have_its_type_changed(tenant_a, client_a):
 
 
 # ---------------------------------------------------------------------
+# Sprint 6.6.5 item 2: a posted-movements account can't gain a new
+# child (the "move to a new parent above it" path), but an existing
+# grandfathered one (from before this rule existed) keeps posting and
+# reporting as-is, flagged only as a warning by `/api/accounts/check/`
+# ("فحص الدليل").
+# ---------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_creating_a_child_under_an_account_with_posted_lines_is_rejected(tenant_a, client_a):
+    entity = LegalEntityFactory(tenant=tenant_a)
+    parent = Account.objects.create(tenant=tenant_a, code="9000", name="Parent", type=Account.Type.ASSET)
+    cash = Account.objects.get(tenant=tenant_a, system_key="CASH")
+    entry = JournalEntry.objects.create(tenant=tenant_a, legal_entity=entity, date="2026-01-01")
+    JournalLine.objects.create(entry=entry, account=parent, debit=Decimal("10.00"), debit_fc=Decimal("10.00"))
+    JournalLine.objects.create(entry=entry, account=cash, credit=Decimal("10.00"), credit_fc=Decimal("10.00"))
+
+    response = client_a.post(
+        "/api/accounts/",
+        {"code": "9001", "name": "Child", "type": "asset", "parent": str(parent.id)},
+        format="json",
+    )
+    assert response.status_code == 400, response.data
+    assert "parent" in response.data
+
+
+@pytest.mark.django_db
+def test_moving_an_account_under_a_posted_parent_is_rejected(tenant_a, client_a):
+    entity = LegalEntityFactory(tenant=tenant_a)
+    parent = Account.objects.create(tenant=tenant_a, code="9010", name="Parent", type=Account.Type.ASSET)
+    cash = Account.objects.get(tenant=tenant_a, system_key="CASH")
+    entry = JournalEntry.objects.create(tenant=tenant_a, legal_entity=entity, date="2026-01-01")
+    JournalLine.objects.create(entry=entry, account=parent, debit=Decimal("10.00"), debit_fc=Decimal("10.00"))
+    JournalLine.objects.create(entry=entry, account=cash, credit=Decimal("10.00"), credit_fc=Decimal("10.00"))
+    standalone = Account.objects.create(tenant=tenant_a, code="9011", name="Standalone", type=Account.Type.ASSET)
+
+    response = client_a.patch(
+        f"/api/accounts/{standalone.id}/", {"parent": str(parent.id)}, format="json"
+    )
+    assert response.status_code == 400, response.data
+    assert "parent" in response.data
+
+
+@pytest.mark.django_db
+def test_editing_an_account_that_already_has_that_parent_is_not_reblocked(tenant_a, client_a):
+    """An unrelated edit (e.g. renaming) of an account that already
+    sits under a posted-movements parent must NOT be blocked — only a
+    NEW/changed parent assignment is."""
+    entity = LegalEntityFactory(tenant=tenant_a)
+    parent = Account.objects.create(tenant=tenant_a, code="9020", name="Parent", type=Account.Type.ASSET)
+    cash = Account.objects.get(tenant=tenant_a, system_key="CASH")
+    entry = JournalEntry.objects.create(tenant=tenant_a, legal_entity=entity, date="2026-01-01")
+    JournalLine.objects.create(entry=entry, account=parent, debit=Decimal("10.00"), debit_fc=Decimal("10.00"))
+    JournalLine.objects.create(entry=entry, account=cash, credit=Decimal("10.00"), credit_fc=Decimal("10.00"))
+    # This child predates the rule (created directly via the ORM, same
+    # as how a real grandfathered tenant's tree would look).
+    child = Account.objects.create(
+        tenant=tenant_a, code="9021", name="Old Child", type=Account.Type.ASSET, parent=parent,
+    )
+
+    response = client_a.patch(f"/api/accounts/{child.id}/", {"name": "Renamed Child"}, format="json")
+    assert response.status_code == 200, response.data
+
+
+@pytest.mark.django_db
+def test_chart_check_flags_grandfathered_parent_with_movements(tenant_a, client_a):
+    entity = LegalEntityFactory(tenant=tenant_a)
+    parent = Account.objects.create(tenant=tenant_a, code="9030", name="Parent", type=Account.Type.ASSET)
+    cash = Account.objects.get(tenant=tenant_a, system_key="CASH")
+    entry = JournalEntry.objects.create(tenant=tenant_a, legal_entity=entity, date="2026-01-01")
+    JournalLine.objects.create(entry=entry, account=parent, debit=Decimal("10.00"), debit_fc=Decimal("10.00"))
+    JournalLine.objects.create(entry=entry, account=cash, credit=Decimal("10.00"), credit_fc=Decimal("10.00"))
+    Account.objects.create(tenant=tenant_a, code="9031", name="Old Child", type=Account.Type.ASSET, parent=parent)
+
+    response = client_a.get("/api/accounts/check/")
+    assert response.status_code == 200, response.data
+    flagged = {row["code"] for row in response.data["parent_accounts_with_movements"]}
+    assert "9030" in flagged
+
+
+@pytest.mark.django_db
+def test_chart_check_does_not_flag_a_clean_parent(tenant_a, client_a):
+    parent = Account.objects.create(tenant=tenant_a, code="9040", name="Clean Parent", type=Account.Type.ASSET)
+    Account.objects.create(tenant=tenant_a, code="9041", name="Child", type=Account.Type.ASSET, parent=parent)
+
+    response = client_a.get("/api/accounts/check/")
+    assert response.status_code == 200, response.data
+    flagged = {row["code"] for row in response.data["parent_accounts_with_movements"]}
+    assert "9040" not in flagged
+
+
+# ---------------------------------------------------------------------
 # دليل الحسابات screen: permissions, tenant isolation, tree
 # ---------------------------------------------------------------------
 

@@ -153,27 +153,69 @@ def seed_fiscal_year_for_tenant(tenant, start_date=None):
     )
 
 
-@transaction.atomic
-def update_fiscal_year_boundaries(year, name, start_date, end_date, period_length="monthly", custom_period_end_dates=None):
-    """Decision 1: "تعديل الحدود مسموح فقط ولا قيد POSTED بتاريخ داخل
-    السنة" — once a real POSTED/REVERSED entry exists anywhere in the
-    year's *current* range, its boundaries (and therefore its periods)
-    are frozen; the only way forward from there is closing periods
-    normally. Safe to fully discard and regenerate periods otherwise —
-    nothing has been recorded against any of them yet."""
-    from .models import JournalEntry
+def fiscal_year_emptiness_reason(year):
+    """Sprint 6.6.5 (§6.2 addition): the STRICT "completely empty" bar
+    — stricter than update_fiscal_year_boundaries's own old posted/
+    reversed-only check — used both by that function's start/end-date
+    path (unchanged: a closed-but-undocumented year can still rename
+    itself) and by FiscalYearViewSet's new soft-delete action. Returns
+    a human reason naming the exact blocker (and a count, where that's
+    the natural unit), or None if the year is genuinely untouched —
+    not even a draft document, not even a scheduled-but-ungenerated
+    installment, not even a single non-OPEN period."""
+    from apps.assets.models import AssetDisposal
+    from apps.sales.models import Invoice
+    from apps.vouchers.models import Voucher
 
-    posted_exists = JournalEntry.objects.filter(
-        tenant_id=year.tenant_id,
-        date__gte=year.start_date,
-        date__lte=year.end_date,
-        status__in=["posted", "reversed"],
-    ).exists()
-    if posted_exists:
-        raise FiscalYearBoundariesLocked(
-            str(_("This fiscal year already has posted documents — its boundaries can no longer be edited."))
+    from .models import JournalEntry, OpeningBalanceEntry, RecurringInstallment
+
+    closed_periods = year.periods.exclude(status=FiscalPeriod.Status.OPEN).count()
+    if closed_periods:
+        return str(
+            _("This fiscal year has %(count)s closed/locked period(s).") % {"count": closed_periods}
         )
 
+    scheduled_installments = RecurringInstallment.objects.filter(
+        period__fiscal_year=year, entry__deleted_at__isnull=True,
+    ).count()
+    if scheduled_installments:
+        return str(
+            _("This fiscal year has %(count)s scheduled depreciation/recurring installment(s).")
+            % {"count": scheduled_installments}
+        )
+
+    for model, date_field, label in (
+        (JournalEntry, "date", _("journal entry(ies)")),
+        (Voucher, "date", _("voucher(s)")),
+        (Invoice, "issue_date", _("invoice(s)")),
+        (OpeningBalanceEntry, "opening_date", _("opening balance document(s)")),
+        (AssetDisposal, "date", _("asset disposal document(s)")),
+    ):
+        lookup = {f"{date_field}__gte": year.start_date, f"{date_field}__lte": year.end_date}
+        count = model.objects.filter(tenant_id=year.tenant_id, deleted_at__isnull=True, **lookup).count()
+        if count:
+            return str(_("This fiscal year has %(count)s %(label)s.") % {"count": count, "label": label})
+    return None
+
+
+@transaction.atomic
+def update_fiscal_year_boundaries(year, name, start_date, end_date, period_length="monthly", custom_period_end_dates=None):
+    """Decision 1 + sprint 6.6.5 (§6.2 addition): the year's own NAME
+    is always editable; actually moving start_date/end_date (or
+    regenerating periods via period_length/custom_period_end_dates —
+    both discard-and-rebuild every FiscalPeriod row the same way)
+    requires the STRICT "completely empty" bar (fiscal_year_emptiness_
+    reason), not just "no posted/reversed entry" — a scheduled-but-
+    never-generated installment's `period` FK is PROTECT, so the old,
+    looser check could previously crash with an unhandled
+    ProtectedError on `year.periods.all().delete()` below instead of
+    this clean, documented 409. `period_length` isn't itself persisted
+    on FiscalYear, so "did the period structure actually change" is
+    decided by comparing the newly-requested ranges against the
+    EXISTING periods' own stored date ranges, not by comparing inputs
+    to defaults — a pure rename (identical resulting ranges) never
+    touches a single FiscalPeriod row, so it stays available regardless
+    of fullness."""
     if end_date <= start_date:
         raise ValidationError({"end_date": [str(_("The end date must be after the start date."))]})
 
@@ -191,15 +233,22 @@ def update_fiscal_year_boundaries(year, name, start_date, end_date, period_lengt
     ranges = _generate_period_ranges(start_date, end_date, period_length, custom_period_end_dates)
     _validate_period_sequence(start_date, end_date, ranges)
 
-    year.periods.all().delete()
+    existing_ranges = list(year.periods.order_by("seq").values_list("start_date", "end_date"))
+    structure_changing = existing_ranges != ranges
+    if structure_changing:
+        reason = fiscal_year_emptiness_reason(year)
+        if reason is not None:
+            raise FiscalYearBoundariesLocked(reason)
+        year.periods.all().delete()
+        periods = [
+            FiscalPeriod(fiscal_year=year, seq=i, start_date=s, end_date=e) for i, (s, e) in enumerate(ranges, start=1)
+        ]
+        FiscalPeriod.objects.bulk_create(periods)
+
     year.name = name
     year.start_date = start_date
     year.end_date = end_date
     year.save(update_fields=["name", "start_date", "end_date"])
-    periods = [
-        FiscalPeriod(fiscal_year=year, seq=i, start_date=s, end_date=e) for i, (s, e) in enumerate(ranges, start=1)
-    ]
-    FiscalPeriod.objects.bulk_create(periods)
     return year
 
 

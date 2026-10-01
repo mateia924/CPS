@@ -621,3 +621,123 @@ def test_tenant_isolation_on_invoice_line(tenant_a, client_a, tenant_b, client_b
         lines=[{"line_type": "invoice", "invoice": invoice_b["id"], "amount_fc": "1000.00", "allocated_invoice_fc": "1000.00"}],
     )
     assert response.status_code == 400, response.data
+
+
+@pytest.mark.django_db
+def test_delete_draft_voucher_soft_deletes(tenant_a, client_a):
+    """Sprint 6.6.5 item 5 — this is the exact mechanism that lets the
+    owner delete the old stuck payment-voucher draft on Fatma from the
+    UI: a never-posted draft has no real movement at all."""
+    cash_box = _make_cash_box(client_a, tenant_a)
+    from apps.accounting.models import Account, TaxCode
+
+    account = Account.objects.filter(tenant=tenant_a, code="5100").first()
+    tax_code = TaxCode.objects.get(tenant=tenant_a, code="Z")
+    response = _create_voucher(
+        client_a,
+        voucher_type="payment",
+        legal_entity=str(_branch(tenant_a).id),
+        date="2026-09-23",
+        treasury_kind="cash_box",
+        treasury_id=cash_box["id"],
+        payee_name="Stuck draft",
+        lines=[{"line_type": "account", "account": str(account.id), "tax_code": str(tax_code.id), "amount_fc": "100.00"}],
+    )
+    assert response.status_code == 201, response.data
+    voucher_id = response.data["id"]
+
+    deleted = client_a.delete(f"/api/vouchers/{voucher_id}/")
+    assert deleted.status_code == 204, deleted.data
+
+    from apps.vouchers.models import Voucher
+
+    voucher = Voucher.objects.get(id=voucher_id)
+    assert voucher.deleted_at is not None
+    assert client_a.get(f"/api/vouchers/{voucher_id}/").status_code == 404
+    assert voucher_id not in [v["id"] for v in client_a.get("/api/vouchers/").data["results"]]
+
+
+@pytest.mark.django_db
+def test_delete_posted_voucher_returns_409(tenant_a, client_a):
+    cash_box = _make_cash_box(client_a, tenant_a)
+    _fund_cash_box(client_a, tenant_a, cash_box)
+    from apps.accounting.models import Account, TaxCode
+
+    account = Account.objects.filter(tenant=tenant_a, code="5100").first()
+    tax_code = TaxCode.objects.get(tenant=tenant_a, code="Z")
+    response = _create_voucher(
+        client_a,
+        voucher_type="payment",
+        legal_entity=str(_branch(tenant_a).id),
+        date="2026-09-23",
+        treasury_kind="cash_box",
+        treasury_id=cash_box["id"],
+        payee_name="Posted",
+        lines=[{"line_type": "account", "account": str(account.id), "tax_code": str(tax_code.id), "amount_fc": "100.00"}],
+    )
+    voucher_id = response.data["id"]
+    posted = _post(client_a, voucher_id)
+    assert posted.status_code == 200, posted.data
+
+    deleted = client_a.delete(f"/api/vouchers/{voucher_id}/")
+    assert deleted.status_code == 409, deleted.data
+
+
+@pytest.mark.django_db
+def test_patch_lines_on_draft_voucher_replaces_them(tenant_a, client_a):
+    """Sprint 6.6.5 (§6.2 addition): generalizes OpeningBalanceViewSet.
+    lines (6.6.3d) to vouchers — a still-DRAFT voucher's own page can
+    re-save its whole line set."""
+    cash_box = _make_cash_box(client_a, tenant_a)
+    from apps.accounting.models import Account, TaxCode
+
+    account = Account.objects.filter(tenant=tenant_a, code="5100").first()
+    tax_code = TaxCode.objects.get(tenant=tenant_a, code="Z")
+    response = _create_voucher(
+        client_a,
+        voucher_type="payment",
+        legal_entity=str(_branch(tenant_a).id),
+        date="2026-09-23",
+        treasury_kind="cash_box",
+        treasury_id=cash_box["id"],
+        payee_name="Draft",
+        lines=[{"line_type": "account", "account": str(account.id), "tax_code": str(tax_code.id), "amount_fc": "100.00"}],
+    )
+    voucher_id = response.data["id"]
+
+    updated = client_a.patch(
+        f"/api/vouchers/{voucher_id}/lines/",
+        {"lines": [{"line_type": "account", "account": str(account.id), "tax_code": str(tax_code.id), "amount_fc": "250.00"}]},
+        format="json",
+    )
+    assert updated.status_code == 200, updated.data
+    assert updated.data["total_fc"] == "250.00"
+
+
+@pytest.mark.django_db
+def test_patch_lines_on_posted_voucher_is_rejected(tenant_a, client_a):
+    cash_box = _make_cash_box(client_a, tenant_a)
+    _fund_cash_box(client_a, tenant_a, cash_box)
+    from apps.accounting.models import Account, TaxCode
+
+    account = Account.objects.filter(tenant=tenant_a, code="5100").first()
+    tax_code = TaxCode.objects.get(tenant=tenant_a, code="Z")
+    response = _create_voucher(
+        client_a,
+        voucher_type="payment",
+        legal_entity=str(_branch(tenant_a).id),
+        date="2026-09-23",
+        treasury_kind="cash_box",
+        treasury_id=cash_box["id"],
+        payee_name="Posted",
+        lines=[{"line_type": "account", "account": str(account.id), "tax_code": str(tax_code.id), "amount_fc": "100.00"}],
+    )
+    voucher_id = response.data["id"]
+    assert _post(client_a, voucher_id).status_code == 200
+
+    updated = client_a.patch(
+        f"/api/vouchers/{voucher_id}/lines/",
+        {"lines": [{"line_type": "account", "account": str(account.id), "tax_code": str(tax_code.id), "amount_fc": "999.00"}]},
+        format="json",
+    )
+    assert updated.status_code == 400, updated.data
