@@ -39,16 +39,27 @@ if [ ! -f "$REPO_DIR/.env.staging" ]; then
   exit 1
 fi
 
+# Sprint 6.6.4: every backup.sh-produced file is encrypted with the
+# passphrase in .env (never .env.staging — that passphrase belongs to
+# the dev/live backup the staging refresh RESTORES FROM, not to
+# staging's own, separate environment) — sourced first, deliberately,
+# so .env.staging's own POSTGRES_* etc. below still win if the two
+# files ever share a variable name.
 set -a
+source "$REPO_DIR/.env"
 source "$REPO_DIR/.env.staging"
 set +a
 
-LATEST_BACKUP="$(find "$BACKUP_DIR" -maxdepth 1 -name 'cps-db-*.sql.gz' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
+LATEST_BACKUP="$(find "$BACKUP_DIR" -maxdepth 1 -name 'cps-db-*.sql.gz.gpg' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
 if [ -z "$LATEST_BACKUP" ]; then
-  echo "ERROR: no cps-db-*.sql.gz backup found in $BACKUP_DIR — run scripts/backup.sh first." >&2
+  echo "ERROR: no cps-db-*.sql.gz.gpg backup found in $BACKUP_DIR — run scripts/backup.sh first." >&2
   exit 1
 fi
 log "using backup: $LATEST_BACKUP"
+if [ -z "${CPS_BACKUP_ENCRYPTION_PASSPHRASE:-}" ]; then
+  echo "ERROR: CPS_BACKUP_ENCRYPTION_PASSPHRASE is not set in .env — cannot decrypt $LATEST_BACKUP." >&2
+  exit 1
+fi
 
 cd "$REPO_DIR/infra"
 
@@ -64,8 +75,9 @@ $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=
 $COMPOSE exec -T postgres dropdb -U "$POSTGRES_USER" --if-exists "$POSTGRES_DB"
 $COMPOSE exec -T postgres createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" "$POSTGRES_DB"
 
-log "step 4/7: restoring the dev backup into it"
-gunzip -c "$LATEST_BACKUP" | $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 > /dev/null
+log "step 4/7: decrypting and restoring the dev backup into it"
+gpg --batch --yes --passphrase "$CPS_BACKUP_ENCRYPTION_PASSPHRASE" --decrypt "$LATEST_BACKUP" 2>/dev/null \
+  | gunzip -c | $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 > /dev/null
 
 log "step 5/7: bringing backend/celery_worker back up and applying any pending migration"
 $COMPOSE up -d backend celery_worker

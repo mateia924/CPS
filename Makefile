@@ -1,4 +1,4 @@
-.PHONY: dev-up dev-down dev-logs dev-build dev-config prod-up prod-down prod-config test lint check smoke backup e2e migrate deploy staging-up staging-down staging-refresh staging-config
+.PHONY: dev-up dev-down dev-logs dev-build dev-config prod-up prod-down prod-config test lint check smoke backup restore-test e2e migrate deploy staging-up staging-down staging-refresh staging-config
 
 COMPOSE_DIR := infra
 ENV_FILE := .env
@@ -85,6 +85,12 @@ smoke:
 ## crontab at 03:00 daily; this target is for running it on demand.
 backup:
 	./scripts/backup.sh
+
+## Automated monthly restore health-check (sprint 6.6.4) — also runs
+## from root's crontab on the 1st of each month; this target is for
+## running it on demand. See docs/ops/BACKUP.md.
+restore-test:
+	./scripts/restore_test.sh
 
 ## Real headless-browser E2E suite (sprint 6.5.8, docs/CPS_MASTER_PLAN.md
 ## §9.3) — required for any block that touches the UI. Creates and

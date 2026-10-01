@@ -122,6 +122,13 @@ services:
       REDIS_URL: redis://redis:6379/0
     volumes:
       - static_data:/app/staticfiles:Z
+      # Sprint 6.6.4: read-only, so scripts/backup.sh's own upload step
+      # (docker compose exec backend python3 /app/scripts/
+      # upload_backup_to_s3.py) can read an already-produced encrypted
+      # backup file — `exec` cannot add an ad hoc mount to an already-
+      # running container the way `run` can, so this needs a container
+      # recreate (the next `deploy.sh`) to actually take effect.
+      - /opt/cps-backups:/opt/cps-backups:ro
     depends_on:
       postgres:
         condition: service_healthy

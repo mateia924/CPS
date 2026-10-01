@@ -8,11 +8,22 @@ set -euo pipefail
 # disaster-recovery restore, and only after deliberately dropping/
 # replacing the current database outside this script (never automatic).
 #
-# Usage: scripts/restore.sh <backup-file.sql.gz> [target-db-name]
+# For the AUTOMATED monthly health-check (own log, own pass/fail
+# verdict, finds the latest backup itself), see scripts/restore_test.sh
+# instead — this script stays the manual, ad hoc "restore THIS exact
+# file for me to look at" tool the two were never meant to duplicate.
+#
+# Sprint 6.6.4: every backup.sh-produced file is encrypted now
+# (cps-db-*.sql.gz.gpg) — a .gpg file is decrypted with
+# CPS_BACKUP_ENCRYPTION_PASSPHRASE (.env) before anything else touches
+# it; a plain .sql.gz (any backup from before this sprint) still works
+# exactly as before, unchanged.
+#
+# Usage: scripts/restore.sh <backup-file.sql.gz[.gpg]> [target-db-name]
 #   target-db-name defaults to "${POSTGRES_DB}_restore_test".
 
 if [ $# -lt 1 ]; then
-  echo "Usage: $0 <backup-file.sql.gz> [target-db-name]" >&2
+  echo "Usage: $0 <backup-file.sql.gz[.gpg]> [target-db-name]" >&2
   exit 1
 fi
 
@@ -36,7 +47,13 @@ $COMPOSE exec -T postgres dropdb -U "$POSTGRES_USER" --if-exists "$TARGET_DB"
 $COMPOSE exec -T postgres createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" "$TARGET_DB"
 
 echo "[$(date -Iseconds)] Restoring $BACKUP_FILE into $TARGET_DB"
-gunzip -c "$BACKUP_FILE" | $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$TARGET_DB" -q
+if [[ "$BACKUP_FILE" == *.gpg ]]; then
+  [ -n "${CPS_BACKUP_ENCRYPTION_PASSPHRASE:-}" ] || { echo "CPS_BACKUP_ENCRYPTION_PASSPHRASE is not set in .env" >&2; exit 1; }
+  gpg --batch --yes --passphrase "$CPS_BACKUP_ENCRYPTION_PASSPHRASE" --decrypt "$BACKUP_FILE" 2>/dev/null \
+    | gunzip -c | $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$TARGET_DB" -q
+else
+  gunzip -c "$BACKUP_FILE" | $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$TARGET_DB" -q
+fi
 
 echo "[$(date -Iseconds)] Verifying: counting restored tables"
 TABLE_COUNT=$($COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$TARGET_DB" -t -c \
