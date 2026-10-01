@@ -12,6 +12,26 @@ from apps.tenants.models import TenantFeatures
 from .factories import TenantFactory, UserFactory
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _ensure_rls_app_role(django_db_setup, django_db_blocker):
+    """Sprint 6.6.3c: tests/test_rls.py connects as the restricted
+    `cps_app` role directly — normally already created by migration
+    0016_row_level_security the first time the test database is built
+    (config.settings.POSTGRES_APP_USER/PASSWORD, TESTING-aware default,
+    requires no real secret in CI). This fixture makes that guarantee
+    explicit and independent of migration replay specifically (e.g. a
+    future `pytest --reuse-db` run skips migrations entirely on an
+    already-built test database) — configure_database_roles_and_rls
+    is idempotent by its own design, so re-running it here once per
+    session is always safe, never just "probably fine"."""
+    from django.db import connection
+
+    from apps.tenants.services import configure_database_roles_and_rls
+
+    with django_db_blocker.unblock():
+        configure_database_roles_and_rls(connection)
+
+
 @pytest.fixture(autouse=True)
 def _disable_ratelimit_by_default(settings):
     # Sprint 4.0: the suite calls /api/auth/login/ and

@@ -21,7 +21,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
-PLAYWRIGHT_IMAGE="mcr.microsoft.com/playwright:v1.49.1-noble"
+# Sprint 6.6.3c: must match frontend/package.json's own @playwright/test
+# version exactly — this image's bundled browser binaries are built
+# for that exact release; any mismatch is a silent "works on my
+# machine" risk, not just a version-number nicety.
+PLAYWRIGHT_IMAGE="mcr.microsoft.com/playwright:v1.63.0-noble"
 # Sprint 6.6.0: `make dev-up` now serves the interactive sandbox on
 # port 3002 (DEV_NEXT_PUBLIC_API_URL), not port 3000 (NEXT_PUBLIC_API_URL
 # is the local/live stack scripts/deploy.sh manages, on its own compose
@@ -41,11 +45,17 @@ echo "[e2e] archiving any leftover smoke-* tenants first"
 docker exec cps-dev-backend-1 python manage.py archive_smoke_tenants
 
 echo "[e2e] phase 1: register, approval rule, voucher, asset, clean error, start/withdraw/restart"
+# Sprint 6.6.3c: @playwright/test lives in frontend/package.json now
+# (one lockfile, one gate — no nested frontend/e2e/package.json of its
+# own) — `npm install` here runs against the ROOT package.json/
+# package-lock.json; node's own module resolution then finds
+# frontend/node_modules/@playwright/test from frontend/e2e just fine
+# (climbs parent directories, same as every other node_modules lookup).
 docker run --rm --network host \
   -e E2E_SUBDOMAIN="$SUBDOMAIN" -e E2E_BASE_URL="$BASE_URL" \
-  -v "$ROOT_DIR:/repo" -w /repo/frontend/e2e \
+  -v "$ROOT_DIR:/repo" -w /repo/frontend \
   "$PLAYWRIGHT_IMAGE" \
-  sh -c "npm install --no-audit --no-fund && npx playwright test 01-setup-and-schedule.spec.ts --reporter=list"
+  sh -c "npm install --no-audit --no-fund && cd e2e && npx playwright test 01-setup-and-schedule.spec.ts --reporter=list"
 
 echo "[e2e] seeding a second (Accountant) user for the emergency-approval scenario"
 docker exec cps-dev-backend-1 python manage.py create_test_user \

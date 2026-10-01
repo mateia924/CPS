@@ -8,10 +8,9 @@ connection per alias per thread and pytest's own fixtures already hold
 one open on "default" for the surrounding test transaction.
 """
 
-import os
-
 import psycopg
 import pytest
+from django.conf import settings
 from django.db import connection
 
 from apps.common.rls import set_local_tenant_id
@@ -34,8 +33,8 @@ def _app_role_connection():
         host=settings_dict["HOST"] or "localhost",
         port=settings_dict["PORT"] or 5432,
         dbname=settings_dict["NAME"],
-        user=os.environ["POSTGRES_APP_USER"],
-        password=os.environ["POSTGRES_APP_PASSWORD"],
+        user=settings.POSTGRES_APP_USER,
+        password=settings.POSTGRES_APP_PASSWORD,
     )
 
 
@@ -122,8 +121,8 @@ def test_registration_under_the_restricted_role_creates_a_fully_usable_tenant(se
     # rest of the suite); get_or_create recreates it if missing.
     PlanFactory(code="free")
     original = settings.DATABASES["default"].copy()
-    settings.DATABASES["default"]["USER"] = os.environ["POSTGRES_APP_USER"]
-    settings.DATABASES["default"]["PASSWORD"] = os.environ["POSTGRES_APP_PASSWORD"]
+    settings.DATABASES["default"]["USER"] = settings.POSTGRES_APP_USER
+    settings.DATABASES["default"]["PASSWORD"] = settings.POSTGRES_APP_PASSWORD
     connection.close()
     connection.settings_dict.update(settings.DATABASES["default"])
     try:
@@ -177,8 +176,8 @@ def test_login_under_the_restricted_role_for_a_pre_existing_user(settings):
     from django.test import Client as DjangoTestClient
 
     original = settings.DATABASES["default"].copy()
-    settings.DATABASES["default"]["USER"] = os.environ["POSTGRES_APP_USER"]
-    settings.DATABASES["default"]["PASSWORD"] = os.environ["POSTGRES_APP_PASSWORD"]
+    settings.DATABASES["default"]["USER"] = settings.POSTGRES_APP_USER
+    settings.DATABASES["default"]["PASSWORD"] = settings.POSTGRES_APP_PASSWORD
     connection.close()
     connection.settings_dict.update(settings.DATABASES["default"])
     try:

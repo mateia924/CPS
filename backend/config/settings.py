@@ -5,6 +5,7 @@ Environment-driven configuration — see /opt/cps/.env.example for the full
 list of variables read here.
 """
 
+import os
 from datetime import timedelta
 from pathlib import Path
 
@@ -18,6 +19,17 @@ env = environ.Env(
     DEBUG=(bool, False),
 )
 environ.Env.read_env(str(BASE_DIR / ".env"))
+
+# Sprint 6.6.3c: pytest itself sets this env var for the duration of the
+# session (pytest >= 8.0, documented — the officially recommended way
+# to detect "running under pytest" instead of a sys.argv/sys.modules
+# guess). Used below to give a handful of settings a safe, deterministic
+# default ONLY under pytest (CI's own ubuntu runner, and any other
+# clean-room checkout, never provisions real secrets or a pre-existing
+# `cps_app` Postgres role) — every real environment (dev/staging/live)
+# keeps requiring its own actual value exactly as before, since each
+# already supplies one via its own .env/.env.staging.
+TESTING = "PYTEST_VERSION" in os.environ
 
 SECRET_KEY = env("DJANGO_SECRET_KEY")
 DEBUG = env("DJANGO_DEBUG", default=False)
@@ -181,6 +193,22 @@ DATABASES = {
 # default routing) for every other request.
 DATABASE_ROUTERS = ["apps.tenants.routers.AdminBypassRouter"]
 
+# Sprint 6.6.3c: the single source of truth for the restricted `cps_app`
+# role's own login credentials — apps.tenants.services.
+# configure_database_roles_and_rls (and tests/test_rls.py's own direct
+# psycopg connections) read these from here, never os.environ directly,
+# so this TESTING-aware default is the only place that needs to exist.
+# Genuinely optional outside TESTING (empty string, same as before this
+# sprint) — docker-compose.dev.yml deliberately never sets these at all
+# (cps-dev stays on the unrestricted role, sprint 6.6.0), and that must
+# keep working exactly as today: configure_database_roles_and_rls's own
+# guard still refuses to run with an empty user/password, it just now
+# never gets called with an empty one *during a pytest run specifically*.
+POSTGRES_APP_USER = env("POSTGRES_APP_USER", default="cps_app_test" if TESTING else "")
+POSTGRES_APP_PASSWORD = env(
+    "POSTGRES_APP_PASSWORD", default="pytest-only-insecure-app-role-password" if TESTING else ""
+)
+
 # ---------------------------------------------------------------------------
 # Password validation
 # ---------------------------------------------------------------------------
@@ -261,8 +289,14 @@ SIMPLE_JWT = {
 # Platform auth (sprint 2, apps/platform/auth.py) — deliberately its own
 # signing key, never DJANGO_SECRET_KEY and never SIMPLE_JWT's key, so a
 # customer token and a platform token can never verify against each
-# other's key regardless of any application-level bug.
-PLATFORM_JWT_SIGNING_KEY = env("PLATFORM_JWT_SIGNING_KEY")
+# other's key regardless of any application-level bug. Required in
+# every real environment (no default); TESTING gets a fixed, clearly-
+# named fallback so a clean-room pytest run (CI's own runner, or any
+# other checkout with no .env at all) never needs this provisioned.
+PLATFORM_JWT_SIGNING_KEY = env(
+    "PLATFORM_JWT_SIGNING_KEY",
+    default="pytest-only-platform-jwt-signing-key-never-used-outside-tests" if TESTING else env.NOTSET,
+)
 PLATFORM_JWT_ACCESS_MINUTES = env.int("PLATFORM_JWT_ACCESS_MINUTES", default=30)
 PLATFORM_JWT_REFRESH_DAYS = env.int("PLATFORM_JWT_REFRESH_DAYS", default=7)
 

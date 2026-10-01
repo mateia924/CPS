@@ -45,3 +45,7 @@ node_modules/
 frontend/e2e/.auth/
 frontend/e2e/test-results/
 frontend/e2e/playwright-report/
+frontend/e2e/tsconfig.tsbuildinfo
+# Sprint 6.6.3c: `npx playwright test` from frontend/ (rather than
+# frontend/e2e/) resolves its default outputDir here instead.
+frontend/test-results/

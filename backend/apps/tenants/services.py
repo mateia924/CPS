@@ -1,5 +1,3 @@
-import os
-
 from django.utils.translation import gettext_lazy as _
 
 
@@ -141,13 +139,15 @@ def configure_database_roles_and_rls(connection):
     separate role needed for it: it's simply the role that already
     existed before this sprint.
     """
+    from django.conf import settings
+
     from apps.common.rls import tenant_scoped_tables
 
     if connection.vendor != "postgresql":
         return
 
-    app_user = os.environ.get("POSTGRES_APP_USER")
-    app_password = os.environ.get("POSTGRES_APP_PASSWORD")
+    app_user = settings.POSTGRES_APP_USER
+    app_password = settings.POSTGRES_APP_PASSWORD
     if not app_user or not app_password:
         raise RuntimeError(
             "POSTGRES_APP_USER/POSTGRES_APP_PASSWORD must be set to configure the "
