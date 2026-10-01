@@ -105,11 +105,35 @@ if [ "$CODE_ONLY" = "0" ]; then
   $COMPOSE up -d backend celery_worker
   $COMPOSE exec -T backend python manage.py migrate --noinput
 else
-  log "step 1/4: rebuilding and restarting backend/celery_worker/frontend/nginx from the current code (database untouched)"
-  $COMPOSE up -d --build backend celery_worker frontend nginx
+  log "step 1/6: building images from the current code (not starting backend/celery_worker yet — see next step)"
+  $COMPOSE build backend celery_worker frontend
 
-  log "step 2/4: applying any pending migration"
-  $COMPOSE exec -T backend python manage.py migrate --noinput
+  # §0 rule 1 (docs/prompts/sprint-6.6.md): a backup before any
+  # migration, full stop — the guard in apps.tenants.management.
+  # commands.migrate enforces this universally (it checks "is there a
+  # recent docs/ops/backups.log line", not which specific database
+  # that backup covers), so even a code-only staging run needs one.
+  # This backs up the LIVE/infra database (backup.sh's own, fixed
+  # target) — never staging's, which --code-only leaves untouched by
+  # design — but that's exactly what the guard itself checks for, and
+  # a fresh live backup is never wasted effort anyway.
+  log "step 2/6: scripts/backup.sh (satisfies the migrate guard below; backs up live, not staging — staging's own data is untouched either way)"
+  "$REPO_DIR/scripts/backup.sh" "staging_refresh.sh --code-only"
+
+  # Deliberately a one-off throwaway container (`run --rm`), not
+  # `exec` on the persistent "backend" service and not relying on
+  # that service's own entrypoint chain (migrate && collectstatic &&
+  # ... && gunicorn) to do it implicitly — starting the PERSISTENT
+  # container first and only satisfying the guard afterward races its
+  # own startup migrate attempt and crash-loops it (found live:
+  # "Container ... is restarting, wait until running"). This runs to
+  # completion fully independently, with the guard already satisfied,
+  # before the persistent service ever starts.
+  log "step 3/6: applying any pending migration (one-off container, independent of backend's own startup)"
+  $COMPOSE run --rm --entrypoint '' backend python manage.py migrate --noinput
+
+  log "step 4/6: restarting backend/celery_worker/frontend/nginx from the freshly built images"
+  $COMPOSE up -d backend celery_worker frontend nginx
 fi
 
 # Sprint 6.6.0 (found while validating this exact script): nginx
@@ -144,7 +168,7 @@ fi
 log "RLS verified: $POLICY_COUNT/$TABLE_COUNT tenant-scoped tables have the tenant_isolation policy."
 
 if [ "$CODE_ONLY" = "1" ]; then
-  log "step 3/4: waiting for the backend to actually accept connections"
+  log "step 5/6: waiting for the backend to actually accept connections"
   READY=0
   for _ in $(seq 1 30); do
     STATUS="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${STAGING_HTTP_PORT:-3001}/admin/login/" || true)"
@@ -156,7 +180,7 @@ if [ "$CODE_ONLY" = "1" ]; then
   done
   [ "$READY" = "1" ] || { echo "ERROR: backend never accepted a connection within 30s (last status: ${STATUS:-none})" >&2; exit 1; }
 
-  log "step 4/4: smoke test (staging's own real data — no anonymize ran, so this uses whatever the current UAT session's own Fatma Accountant credentials already are)"
+  log "step 6/6: smoke test (staging's own real data — no anonymize ran, so this uses whatever the current UAT session's own Fatma Accountant credentials already are)"
   cd "$REPO_DIR"
   if ! SMOKE_BASE_URL="http://localhost:${STAGING_HTTP_PORT:-3001}/api" \
      SMOKE_SUBDOMAIN="${CODE_ONLY_SMOKE_SUBDOMAIN:-fatma}" \
