@@ -33,6 +33,7 @@ from .opening_balances import (
     replace_opening_balance_lines,
 )
 from .opening_balances import approve_opening_balance as _approve_opening_balance
+from .opening_balances import delete_opening_balance_entry as _delete_opening_balance_entry
 from .opening_balances import reject_opening_balance as _reject_opening_balance
 from .opening_balances import submit_opening_balance as _submit_opening_balance
 from .opening_balances import withdraw_opening_balance as _withdraw_opening_balance
@@ -754,12 +755,21 @@ class FiscalPeriodViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
 
 
 class OpeningBalanceViewSet(
-    EntityScopedMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
+    EntityScopedMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
 ):
     """Sprint 6.3 (decisions 5-8) — "الأرصدة الافتتاحية". Same split as
     JournalEntryViewSet: create()/lines build a DRAFT document from
     resolved account/party objects; readiness/submit/withdraw/approve/
-    reject are separate actions, each a state transition."""
+    reject are separate actions, each a state transition.
+
+    Sprint 6.6.3d: `destroy` is a SOFT delete (see opening_balances.
+    delete_opening_balance_entry) — DestroyModelMixin's own default
+    behavior (a real DB DELETE) is overridden below entirely, never
+    called."""
 
     queryset = OpeningBalanceEntry.objects.select_related("legal_entity").prefetch_related(
         "lines", "lines__account", "lines__party"
@@ -776,17 +786,29 @@ class OpeningBalanceViewSet(
         "withdraw": "accounting.manage",
         "approve": "accounting.manage",
         "reject": "accounting.manage",
+        "destroy": "accounting.manage",
         "status_by_entity": "accounting.view",
     }
 
     def get_queryset(self):
-        queryset = super().get_queryset().filter(tenant=self.request.user.tenant)
+        # Sprint 6.6.3d: a soft-deleted entry never appears anywhere
+        # through this ViewSet again — list, retrieve, or any detail
+        # action resolved via get_object() (lines/readiness/submit/...).
+        queryset = super().get_queryset().filter(tenant=self.request.user.tenant, deleted_at__isnull=True)
         # Sprint 6.6.1 (item 4): same optional, non-default-narrowing
         # entity filter as every other list — see JournalEntryViewSet.
         legal_entity_id = self.request.query_params.get("legal_entity")
         if legal_entity_id:
             queryset = queryset.filter(legal_entity_id=legal_entity_id)
         return queryset
+
+    def destroy(self, request, *args, **kwargs):
+        entry = self.get_object()
+        try:
+            _delete_opening_balance_entry(entry, request.user, request=request)
+        except OpeningBalanceLocked as exc:
+            return Response({"detail": str(exc)}, status=409)
+        return Response(status=204)
 
     def create(self, request, *args, **kwargs):
         serializer = OpeningBalanceCreateSerializer(data=request.data, context={"request": request})

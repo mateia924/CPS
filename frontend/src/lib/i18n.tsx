@@ -413,6 +413,12 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     approvedAt: "تاريخ الاعتماد",
     notApprovedYet: "غير معتمد بعد",
 
+    // --- Sprint 6.6.3d: editable/deletable opening-balance draft ---
+    editLines: "تعديل البنود",
+    saveLines: "حفظ البنود",
+    deleteOpeningBalance: "حذف",
+    deleteOpeningBalanceConfirm: "حذف هذا المستند؟ لا يمكن التراجع عن هذا الإجراء.",
+
     // --- Sprint 6.4: recurring entries ---
     recurringEntriesNav: "القيود الدورية",
     recurringEntries: "القيود الدورية",
@@ -1155,6 +1161,12 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     statusByEntity: "Opening status by entity",
     approvedAt: "Approved at",
     notApprovedYet: "Not approved yet",
+
+    // --- Sprint 6.6.3d: editable/deletable opening-balance draft ---
+    editLines: "Edit lines",
+    saveLines: "Save lines",
+    deleteOpeningBalance: "Delete",
+    deleteOpeningBalanceConfirm: "Delete this document? This cannot be undone.",
 
     // --- Sprint 6.4: recurring entries ---
     recurringEntriesNav: "Recurring entries",

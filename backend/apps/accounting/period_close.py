@@ -43,6 +43,7 @@ def _unposted_documents(tenant_id, start_date, end_date):
     for entry in OpeningBalanceEntry.objects.filter(
         tenant_id=tenant_id, opening_date__gte=start_date, opening_date__lte=end_date,
         status__in=[OpeningBalanceEntry.Status.DRAFT, OpeningBalanceEntry.Status.PENDING_APPROVAL],
+        deleted_at__isnull=True,
     ):
         unposted.append({"type": "opening_balance", "id": str(entry.id), "reference": str(entry)})
     return unposted

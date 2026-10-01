@@ -73,7 +73,8 @@ def _resolve_opening_date(tenant, legal_entity, kind):
 
     initial = (
         OpeningBalanceEntry.objects.filter(
-            tenant=tenant, legal_entity=legal_entity, kind=OpeningBalanceEntry.Kind.INITIAL
+            tenant=tenant, legal_entity=legal_entity, kind=OpeningBalanceEntry.Kind.INITIAL,
+            deleted_at__isnull=True,
         )
         .exclude(status=OpeningBalanceEntry.Status.REJECTED)
         .first()
@@ -176,9 +177,14 @@ def _build_opening_line(tenant, base_currency, opening_date, spec, warnings):
 @transaction.atomic
 def create_opening_balance_entry(tenant, user, legal_entity, kind, line_specs, request=None):
     if kind == OpeningBalanceEntry.Kind.INITIAL:
+        # Sprint 6.6.3d: a deleted (DRAFT/REJECTED, soft-deleted) INITIAL
+        # must never keep blocking a fresh one — that was exactly UAT
+        # 6's finding (an unbalanced draft locked the entity forever,
+        # since this guard didn't know how to let go of it).
         exists = (
             OpeningBalanceEntry.objects.filter(
-                tenant=tenant, legal_entity=legal_entity, kind=OpeningBalanceEntry.Kind.INITIAL
+                tenant=tenant, legal_entity=legal_entity, kind=OpeningBalanceEntry.Kind.INITIAL,
+                deleted_at__isnull=True,
             )
             .exclude(status=OpeningBalanceEntry.Status.REJECTED)
             .exists()
@@ -388,6 +394,32 @@ def withdraw_opening_balance(entry, user, request=None):
     from apps.approvals.services import withdraw as approvals_withdraw
 
     return approvals_withdraw(entry, user, DOC_TYPE, request=request)
+
+
+@transaction.atomic
+def delete_opening_balance_entry(entry, user, request=None):
+    """Sprint 6.6.3d (pulled forward from 6.6.5's unified delete rule):
+    soft delete only — DRAFT or REJECTED, the two statuses with no
+    posted ledger movement at all (REJECTED never got one; DRAFT never
+    reached submit). PENDING_APPROVAL/APPROVED raise OpeningBalance
+    Locked (409, same mapping the view already uses for the lines/
+    approve-lock cases) — withdraw back to DRAFT first, same as every
+    other edit-after-submit rule here."""
+    locked = OpeningBalanceEntry.objects.select_for_update().get(pk=entry.pk)
+    if locked.status not in (OpeningBalanceEntry.Status.DRAFT, OpeningBalanceEntry.Status.REJECTED):
+        raise OpeningBalanceLocked(
+            str(_("لا يمكن حذف مستند إلا وهو مسودة أو مرفوضًا — اطلب سحبه للمسودة أولًا إن لزم."))
+        )
+
+    entry.deleted_at = timezone.now()
+    entry.deleted_by = user
+    entry.save(update_fields=["deleted_at", "deleted_by"])
+    log_action(
+        actor_type=AuditLog.ActorType.TENANT_USER, actor_id=user.id, action="opening_balance.deleted",
+        target_type="opening_balance", target_id=entry.id, tenant_id=entry.tenant_id,
+        before={"status": locked.status}, request=request,
+    )
+    return entry
 
 
 @transaction.atomic

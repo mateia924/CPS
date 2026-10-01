@@ -25,8 +25,25 @@ set -euo pipefail
 # UAT session runs with RLS quietly OFF on some table instead of
 # exercising the same isolation production will have.
 #
-# Usage: scripts/staging_refresh.sh
+# Sprint 6.6.3d: `--code-only` ships a CODE change (a bug fix found
+# mid-UAT, say) to staging WITHOUT ever touching its database — no
+# drop/recreate, no restore, no anonymize. A real UAT session's own
+# in-progress data (tenants created, forms half-filled, whatever state
+# the human tester built up) must survive this exactly like a live
+# `deploy.sh` run leaves port 3000's own data untouched — the only
+# thing this mode changes is which code is running. Still re-runs
+# `manage.py setup_rls` (idempotent either way, and cheap insurance if
+# a migration in this same code change touched a tenant-scoped table)
+# and still runs a real smoke test before declaring success.
+#
+# Usage: scripts/staging_refresh.sh               (full restore, as always)
+#        scripts/staging_refresh.sh --code-only    (code only, data untouched)
 #        make staging-refresh
+
+CODE_ONLY=0
+if [ "${1:-}" = "--code-only" ]; then
+  CODE_ONLY=1
+fi
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKUP_DIR="/opt/cps-backups"
@@ -50,38 +67,50 @@ source "$REPO_DIR/.env"
 source "$REPO_DIR/.env.staging"
 set +a
 
-LATEST_BACKUP="$(find "$BACKUP_DIR" -maxdepth 1 -name 'cps-db-*.sql.gz.gpg' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
-if [ -z "$LATEST_BACKUP" ]; then
-  echo "ERROR: no cps-db-*.sql.gz.gpg backup found in $BACKUP_DIR — run scripts/backup.sh first." >&2
-  exit 1
-fi
-log "using backup: $LATEST_BACKUP"
-if [ -z "${CPS_BACKUP_ENCRYPTION_PASSPHRASE:-}" ]; then
-  echo "ERROR: CPS_BACKUP_ENCRYPTION_PASSPHRASE is not set in .env — cannot decrypt $LATEST_BACKUP." >&2
-  exit 1
+if [ "$CODE_ONLY" = "0" ]; then
+  LATEST_BACKUP="$(find "$BACKUP_DIR" -maxdepth 1 -name 'cps-db-*.sql.gz.gpg' -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
+  if [ -z "$LATEST_BACKUP" ]; then
+    echo "ERROR: no cps-db-*.sql.gz.gpg backup found in $BACKUP_DIR — run scripts/backup.sh first." >&2
+    exit 1
+  fi
+  log "using backup: $LATEST_BACKUP"
+  if [ -z "${CPS_BACKUP_ENCRYPTION_PASSPHRASE:-}" ]; then
+    echo "ERROR: CPS_BACKUP_ENCRYPTION_PASSPHRASE is not set in .env — cannot decrypt $LATEST_BACKUP." >&2
+    exit 1
+  fi
+else
+  log "--code-only: staging's database is left exactly as it is — no drop, no restore, no anonymize."
 fi
 
 cd "$REPO_DIR/infra"
 
-log "step 1/7: bringing up staging's own independent stack (project cps-staging)"
-$COMPOSE up -d --build
+if [ "$CODE_ONLY" = "0" ]; then
+  log "step 1/7: bringing up staging's own independent stack (project cps-staging)"
+  $COMPOSE up -d --build
 
-log "step 2/7: stopping backend/celery_worker to release their DB connections"
-$COMPOSE stop backend celery_worker
+  log "step 2/7: stopping backend/celery_worker to release their DB connections"
+  $COMPOSE stop backend celery_worker
 
-log "step 3/7: dropping and recreating the staging database"
-$COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -c \
-  "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$POSTGRES_DB' AND pid <> pg_backend_pid();"
-$COMPOSE exec -T postgres dropdb -U "$POSTGRES_USER" --if-exists "$POSTGRES_DB"
-$COMPOSE exec -T postgres createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" "$POSTGRES_DB"
+  log "step 3/7: dropping and recreating the staging database"
+  $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -c \
+    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$POSTGRES_DB' AND pid <> pg_backend_pid();"
+  $COMPOSE exec -T postgres dropdb -U "$POSTGRES_USER" --if-exists "$POSTGRES_DB"
+  $COMPOSE exec -T postgres createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" "$POSTGRES_DB"
 
-log "step 4/7: decrypting and restoring the dev backup into it"
-gpg --batch --yes --passphrase "$CPS_BACKUP_ENCRYPTION_PASSPHRASE" --decrypt "$LATEST_BACKUP" 2>/dev/null \
-  | gunzip -c | $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 > /dev/null
+  log "step 4/7: decrypting and restoring the dev backup into it"
+  gpg --batch --yes --passphrase "$CPS_BACKUP_ENCRYPTION_PASSPHRASE" --decrypt "$LATEST_BACKUP" 2>/dev/null \
+    | gunzip -c | $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 > /dev/null
 
-log "step 5/7: bringing backend/celery_worker back up and applying any pending migration"
-$COMPOSE up -d backend celery_worker
-$COMPOSE exec -T backend python manage.py migrate --noinput
+  log "step 5/7: bringing backend/celery_worker back up and applying any pending migration"
+  $COMPOSE up -d backend celery_worker
+  $COMPOSE exec -T backend python manage.py migrate --noinput
+else
+  log "step 1/4: rebuilding and restarting backend/celery_worker/frontend/nginx from the current code (database untouched)"
+  $COMPOSE up -d --build backend celery_worker frontend nginx
+
+  log "step 2/4: applying any pending migration"
+  $COMPOSE exec -T backend python manage.py migrate --noinput
+fi
 
 # Sprint 6.6.0 (found while validating this exact script): nginx
 # resolves its "backend" upstream once and keeps that connection/IP —
@@ -91,7 +120,7 @@ $COMPOSE exec -T backend python manage.py migrate --noinput
 log "restarting nginx so it re-resolves backend's new address"
 $COMPOSE restart nginx
 
-log "step 6/7: re-applying RLS roles/grants/policies, then verifying the policy count"
+log "re-applying RLS roles/grants/policies, then verifying the policy count"
 $COMPOSE exec -T backend python manage.py setup_rls
 RLS_CHECK="$($COMPOSE exec -T backend python manage.py shell -c "
 from django.db import connection
@@ -109,10 +138,37 @@ print(f'{len(tables)} {policy_count}')
 TABLE_COUNT="$(echo "$RLS_CHECK" | cut -d' ' -f1)"
 POLICY_COUNT="$(echo "$RLS_CHECK" | cut -d' ' -f2)"
 if [ "$TABLE_COUNT" != "$POLICY_COUNT" ]; then
-  echo "ERROR: $TABLE_COUNT tenant-scoped table(s) but only $POLICY_COUNT tenant_isolation polic(y/ies) — RLS is not fully applied. Aborting before anonymizing/serving staging." >&2
+  echo "ERROR: $TABLE_COUNT tenant-scoped table(s) but only $POLICY_COUNT tenant_isolation polic(y/ies) — RLS is not fully applied. Aborting before serving staging." >&2
   exit 1
 fi
 log "RLS verified: $POLICY_COUNT/$TABLE_COUNT tenant-scoped tables have the tenant_isolation policy."
+
+if [ "$CODE_ONLY" = "1" ]; then
+  log "step 3/4: waiting for the backend to actually accept connections"
+  READY=0
+  for _ in $(seq 1 30); do
+    STATUS="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${STAGING_HTTP_PORT:-3001}/admin/login/" || true)"
+    if [ "$STATUS" != "502" ] && [ "$STATUS" != "503" ] && [ "$STATUS" != "000" ]; then
+      READY=1
+      break
+    fi
+    sleep 1
+  done
+  [ "$READY" = "1" ] || { echo "ERROR: backend never accepted a connection within 30s (last status: ${STATUS:-none})" >&2; exit 1; }
+
+  log "step 4/4: smoke test (staging's own real data — no anonymize ran, so this uses whatever the current UAT session's own Fatma Accountant credentials already are)"
+  cd "$REPO_DIR"
+  if ! SMOKE_BASE_URL="http://localhost:${STAGING_HTTP_PORT:-3001}/api" \
+     SMOKE_SUBDOMAIN="${CODE_ONLY_SMOKE_SUBDOMAIN:-fatma}" \
+     SMOKE_EMAIL="${CODE_ONLY_SMOKE_EMAIL:-accountant@fatma.staging.test}" \
+     SMOKE_PASSWORD="${CODE_ONLY_SMOKE_PASSWORD:-$STAGING_UAT_PASSWORD}" \
+     ./scripts/smoke.sh; then
+    echo "ERROR: smoke test failed against staging after the code-only deploy — investigate before trusting this session." >&2
+    exit 1
+  fi
+  log "done — staging is now running the current code, UAT session data untouched."
+  exit 0
+fi
 
 log "step 7/7: anonymizing every user's email domain and rewriting their password, re-arming 2FA, and invalidating sessions"
 $COMPOSE exec -T backend python manage.py anonymize_staging_users --password "$STAGING_UAT_PASSWORD"

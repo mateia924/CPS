@@ -24,6 +24,7 @@
 6. `git push origin main` بعد كل commit؛ `gh auth logout` بعد أي استخدام لـ gh.
 7. بعد آخر commit في كل كتلة: البوابة كاملة (`ruff`، `manage.py check`، `makemigrations --check`، `tsc`، `next build`، `check-brand`، `check-money`، `check-forms`، `check-entity-default`، الفحوص الجديدة في 6.6.6، `make e2e`) ثم النشر عبر `scripts/deploy.sh` (من 6.6.0) ثم `make smoke`.
 8. الملخص `docs/sprints/6.6-summary.md` يذكر لكل كتلة: ما نُفِّذ، ما لم يكتمل ولماذا، تقرير كل هجرة، والانحرافات عن هذه الوثيقة صراحةً.
+9. **`.env` الحي لا يُلمس أبدًا لأي تجربة أو إعادة إنتاج** (حادثة 2026-10-01، `docs/SYSTEM_ANALYSIS.md` §11) — أي محاكاة لبيئة أخرى (CI، اختبار سيناريو) تتم في نسخة معزولة (`git worktree` في `/opt/cps-ci`، بملف env خاص بها دومًا من `.env.example`/`.env.staging.example`، ومشروع compose مستقل البادئة `cps-ci-*`)؛ `scripts/deploy.sh` يرفض صريحًا لو حمل `.env` الحي أي قيمة `change-me` الوهمية قبل أي خطوة.
 
 ---
 

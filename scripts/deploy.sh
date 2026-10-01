@@ -35,6 +35,30 @@ set +a
 
 log() { echo "[deploy $(date -Iseconds)] $1"; }
 
+# Incident, 2026-10-01 (docs/SYSTEM_ANALYSIS.md §11): the real .env got
+# mistakenly overwritten with .env.example's own placeholder values
+# during CI-reproduction testing and not fully reverted — nothing broke
+# immediately (already-running containers keep their own baked-in
+# environment), but the NEXT deploy would have rebuilt against
+# "change-me" secrets and silently broken auth against the real,
+# already-initialized Postgres/MinIO. §0 rule 9 (docs/prompts/
+# sprint-6.6.md): the live .env is never touched for any experiment or
+# reproduction — environment simulation happens in an isolated git
+# worktree (/opt/cps-ci) with its own env file instead. This check is
+# the structural backstop for that rule: refuse outright if any
+# required secret still holds the literal "change-me..." placeholder
+# every single one of them uses in .env.example.
+REQUIRED_SECRET_VARS="DJANGO_SECRET_KEY PLATFORM_JWT_SIGNING_KEY POSTGRES_PASSWORD POSTGRES_APP_PASSWORD MINIO_ACCESS_KEY MINIO_SECRET_KEY ATTACHMENT_LINK_SIGNING_KEY CPS_BACKUP_ENCRYPTION_PASSPHRASE"
+for VAR in $REQUIRED_SECRET_VARS; do
+  VALUE="$(grep -m1 "^${VAR}=" "$REPO_DIR/.env" | cut -d= -f2-)"
+  case "$VALUE" in
+    change-me*)
+      echo "ERROR: .env still holds .env.example's own placeholder for $VAR (\"$VALUE\") — refusing to deploy. Never copy .env.example over the real .env; use an isolated git worktree (/opt/cps-ci, its own env file) for any environment simulation instead. See docs/SYSTEM_ANALYSIS.md §11 (2026-10-01 incident) and docs/ops/DEPLOY.md." >&2
+      exit 1
+      ;;
+  esac
+done
+
 fail() {
   log "FAILED: $1"
   mkdir -p "$(dirname "$DEPLOYS_LOG")"

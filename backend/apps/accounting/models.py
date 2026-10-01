@@ -530,6 +530,18 @@ class OpeningBalanceEntry(TenantScopedModel):
         JournalEntry, null=True, blank=True, on_delete=models.PROTECT, related_name="opening_balance_entry"
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    # Sprint 6.6.3d (pulled forward from 6.6.5's unified delete rule,
+    # UAT 6 finding A: an unbalanced draft had no way to be edited or
+    # removed, and the one-INITIAL-per-entity guard then locked the
+    # entity out permanently). Soft delete, never a real DB row
+    # removal — only ever set from DRAFT/REJECTED (never APPROVED, see
+    # OpeningBalanceLocked), so there is always an audit trail of what
+    # existed and was removed, same spirit as every other "no real
+    # DELETE on a financial document" rule in this project.
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
 
     class Meta:
         ordering = ["-created_at"]

@@ -119,6 +119,31 @@ RLS.md`. **القاعدة التي تهمّ هذا المستند بالتحدي
 > كسرات حية متتالية في المصادقة، كل واحدة أمسكها `make smoke` على الحي
 > نفسه بعد النشر) هي السبب المباشر لهذه القاعدة.
 
+## `.env` الحي لا يُلمس أبدًا للتجربة — نسخة معزولة لمحاكاة أي بيئة (سبرنت 6.6.3d)
+
+**حادثة 2026-10-01** (`docs/SYSTEM_ANALYSIS.md` §11، الدرس الكامل):
+استبدال `.env` الحي بقيم `.env.example` الوهمية مؤقتًا (لمحاكاة بيئة
+CI) ونسيان استرداده بعدها أدّى لاحقًا إلى تهيئة دور `postgres` الداخلي
+على صندوق `cps-dev` بكلمة سر وهمية — استعادة `.env` وحدها لا تُصلح
+ذلك (postgres لا يُعيد ضبط كلمة سره إلا عند تهيئة أولى لـvolume فارغ
+فعليًا). الحي نفسه لم يُلمَس، لكن القاعدة الآن صريحة:
+
+> **`.env` الحي (`/opt/cps/.env`) لا يُلمس أبدًا لأي تجربة أو إعادة
+> إنتاج بيئة أخرى** — أي محاكاة (CI، اختبار سيناريو لا يحتاج القاعدة
+> الحقيقية) تتم في `/opt/cps-ci`، نسخة `git worktree` معزولة كليًا
+> بملفات `env` خاصة بها (نسخ من `.env.example`/`.env.staging.example`
+> دومًا — لا سرّ حقيقي فيها إطلاقًا) ومشاريع compose بادئتها
+> `cps-ci-*`، لا تتقاطع مع `infra`/`cps-dev`/`cps-staging` أبدًا.
+> التفاصيل والاستخدام: `/opt/cps-ci/README-CI-WORKTREE.md`.
+
+**الحارس البنيوي:** `scripts/deploy.sh` يفحص الآن، قبل أي خطوة، أن كل
+سرّ مطلوب في `.env` (`DJANGO_SECRET_KEY`، `PLATFORM_JWT_SIGNING_KEY`،
+`POSTGRES_PASSWORD`، `POSTGRES_APP_PASSWORD`، `MINIO_ACCESS_KEY`،
+`MINIO_SECRET_KEY`، `ATTACHMENT_LINK_SIGNING_KEY`،
+`CPS_BACKUP_ENCRYPTION_PASSPHRASE`) لا يحمل القيمة الوهمية الحرفية
+(`change-me...`) التي يستخدمها `.env.example` لكل واحد منها — يرفض
+النشر صريحًا بدل الاستمرار بأسرار وهمية لو حدث هذا مرة أخرى.
+
 ## ملاحظة فنية: `env_file: !override`
 
 `infra/docker-compose.staging.yml` يستخدم `env_file: !override

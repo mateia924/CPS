@@ -439,3 +439,140 @@ def test_empty_initial_is_created_submitted_and_approved_without_a_journal_entry
     summary = owner_client.get("/api/dashboard/summary/")
     assert summary.status_code == 200, summary.data
     assert entity.name not in summary.data["opening_not_approved"]
+
+
+# ---------------------------------------------------------------------
+# Sprint 6.6.3d (UAT 6 finding A, pulled forward from 6.6.5's unified
+# delete rule): an unbalanced draft can be edited back into balance,
+# and a draft/rejected entry can be soft-deleted — the exact gap that
+# locked a legal entity out permanently on staging (the one-INITIAL-
+# per-entity guard never let go of an unbalanced, unfixable draft).
+# ---------------------------------------------------------------------
+
+
+def test_unbalanced_draft_edited_to_balanced_then_submit_succeeds(tenant_a, owner_client):
+    entity = _entity(tenant_a)
+    created = owner_client.post(
+        "/api/opening-balances/",
+        {
+            "legal_entity": str(entity.id), "kind": "initial",
+            "lines": [_line(account=str(_acc(tenant_a, "1900").id), debit_fc="1000")],
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.data
+    entry_id = created.data["id"]
+
+    patched = owner_client.patch(
+        f"/api/opening-balances/{entry_id}/lines/",
+        {
+            "lines": [
+                _line(account=str(_acc(tenant_a, "1900").id), debit_fc="1000"),
+                _line(account=str(_acc(tenant_a, "3100").id), credit_fc="1000"),
+            ]
+        },
+        format="json",
+    )
+    assert patched.status_code == 200, patched.data
+    assert len(patched.data["lines"]) == 2
+
+    submitted = owner_client.post(f"/api/opening-balances/{entry_id}/submit/")
+    assert submitted.status_code == 200, submitted.data
+
+
+def test_delete_draft_then_create_new_initial_for_same_entity_succeeds(tenant_a, owner_client):
+    entity = _entity(tenant_a)
+    created = owner_client.post(
+        "/api/opening-balances/",
+        {
+            "legal_entity": str(entity.id), "kind": "initial",
+            "lines": [_line(account=str(_acc(tenant_a, "1900").id), debit_fc="1000")],
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.data
+    entry_id = created.data["id"]
+
+    # Before the fix, this second create would 400 ("يوجد بالفعل مستند
+    # افتتاح أولي") with no way out at all — the exact lockout UAT 6
+    # found on staging.
+    blocked = owner_client.post(
+        "/api/opening-balances/",
+        {"legal_entity": str(entity.id), "kind": "initial", "lines": []},
+        format="json",
+    )
+    assert blocked.status_code == 400, blocked.data
+
+    deleted = owner_client.delete(f"/api/opening-balances/{entry_id}/")
+    assert deleted.status_code == 204, deleted.data
+
+    recreated = owner_client.post(
+        "/api/opening-balances/",
+        {
+            "legal_entity": str(entity.id), "kind": "initial",
+            "lines": [
+                _line(account=str(_acc(tenant_a, "1900").id), debit_fc="1000"),
+                _line(account=str(_acc(tenant_a, "3100").id), credit_fc="1000"),
+            ],
+        },
+        format="json",
+    )
+    assert recreated.status_code == 201, recreated.data
+
+    # The deleted draft is gone from the UI entirely — list and direct
+    # retrieve both treat it as not found.
+    assert owner_client.get(f"/api/opening-balances/{entry_id}/").status_code == 404
+    list_ids = [row["id"] for row in owner_client.get("/api/opening-balances/").data["results"]]
+    assert entry_id not in list_ids
+
+
+def test_delete_rejected_entry_succeeds(tenant_a, user_a):
+    """reject() itself needs no second-user exemption (unlike approve)
+    — the same owner who submitted it can reject it."""
+    _seed_opening_balance_rule(tenant_a)
+    client = _client(user_a)
+    entity = _entity(tenant_a)
+    entry_id = _balanced_initial(client, tenant_a, entity)
+    client.post(f"/api/opening-balances/{entry_id}/submit/")
+    rejected = client.post(f"/api/opening-balances/{entry_id}/reject/", {"reason": "بيانات خاطئة"}, format="json")
+    assert rejected.status_code == 200, rejected.data
+
+    deleted = client.delete(f"/api/opening-balances/{entry_id}/")
+    assert deleted.status_code == 204, deleted.data
+
+
+def test_delete_approved_entry_rejected_409(tenant_a, owner_client, user_a):
+    entity = _entity(tenant_a)
+    entry_id = _balanced_initial(owner_client, tenant_a, entity)
+    owner_client.post(f"/api/opening-balances/{entry_id}/submit/")
+    owner_client.post(
+        f"/api/opening-balances/{entry_id}/approve/",
+        {"attestation_text": "أقر بصحة هذه الأرصدة الافتتاحية وفق السجلات المتاحة لديّ"},
+        format="json",
+    )
+    response = owner_client.delete(f"/api/opening-balances/{entry_id}/")
+    assert response.status_code == 409, response.data
+    assert OpeningBalanceEntry.objects.get(id=entry_id).deleted_at is None
+
+
+def test_delete_pending_approval_entry_rejected_409(tenant_a, owner_client):
+    entity = _entity(tenant_a)
+    entry_id = _balanced_initial(owner_client, tenant_a, entity)
+    owner_client.post(f"/api/opening-balances/{entry_id}/submit/")
+    response = owner_client.delete(f"/api/opening-balances/{entry_id}/")
+    assert response.status_code == 409, response.data
+
+
+def test_delete_logs_audit_entry(tenant_a, owner_client, user_a):
+    entity = _entity(tenant_a)
+    created = owner_client.post(
+        "/api/opening-balances/",
+        {"legal_entity": str(entity.id), "kind": "initial", "lines": []},
+        format="json",
+    )
+    entry_id = created.data["id"]
+    owner_client.delete(f"/api/opening-balances/{entry_id}/")
+
+    assert AuditLog.objects.filter(
+        tenant_id=tenant_a.id, action="opening_balance.deleted", target_id=entry_id,
+    ).exists()
