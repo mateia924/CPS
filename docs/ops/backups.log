@@ -46,3 +46,5 @@
 2026-10-01T21:59:41+03:00	93c8623	cps-db-20261001-215940.sql.gz.gpg	staging_refresh.sh --code-only
 2026-10-01T22:04:05+03:00	93c8623	cps-db-20261001-220404.sql.gz.gpg	staging_refresh.sh --code-only
 2026-10-01T22:04:37+03:00	93c8623	cps-db-20261001-220436.sql.gz.gpg	deploy.sh 93c862335c86ef99c45a74178cf7e97b7e117054
+2026-10-01T22:09:34+03:00	ca466e8	cps-db-20261001-220932.sql.gz.gpg	test MinIO interim upload (6.6.4 Option 1)
+2026-10-01T22:10:37+03:00	ca466e8	cps-db-20261001-221036.sql.gz.gpg	retest MinIO upload after manual bucket creation
