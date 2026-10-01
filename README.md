@@ -630,11 +630,26 @@ customers_to_parties.py`): تحققت يدويًا ضد بيانات Acme Tradin
   `apps.attachments.tasks.scan_attachment` (فحص فيروسات عند الرفع) و
   `apps.tenants.tasks.auto_suspend_past_due_tenants` (يومية). **الباقي**:
   توليد PDF والإشعارات وإرسال الفوترة الإلكترونية لا يزال مخطَّطًا لاحقًا.
+- **Celery تحت الدور المقيَّد بسياق لكل مستأجر** (سبرنت 6.6.3/6.6.3b):
+  منذ تفعيل RLS، قناة `"default"` على الحي/staging مقيَّدة بالدور
+  `cps_app` لعملية gunicorn فقط — `celery_worker` بقي عمدًا على الدور
+  الأصلي `cps` غير المقيَّد (يتجاوز RLS بلا قيد)، لأن مهمة Celery لا
+  تملك طلب HTTP تضبط منه `apps.tenants.middleware.RLSTenantMiddleware`
+  السياق (`cps.tenant_id`) تلقائيًا كما يحدث لكل طلب مستأجر؛ ربط Celery
+  بـ`cps_app` فعليًا يحتاج تمرير `tenant_id` صريحًا لكل مهمة وضبط `SET
+  LOCAL` يدويًا حول كل تنفيذ. **ديْن مُسجَّل صراحةً هنا لمراجعة #3** —
+  غير مُدرَج كبوابة لهذا السبرنت.
 - ~~`frontend` container يرث كل متغيرات `.env` عبر `env_file`~~ ✅
   **حُلّت في سبرنت 6.0.1-B**: `infra/docker-compose.yml` خدمة `frontend`
   الآن `environment: NEXT_PUBLIC_API_URL` صريحة بدل `env_file: ../.env`
   الكامل — تحقُّق فعلي بـ `docker compose config` يؤكد أن أسرار
   DJANGO_SECRET_KEY/Postgres/MinIO لم تعد في بيئة الحاوية.
+- **`/admin/` سطح عابر للمستأجرات بلا قيد شبكي** (سبرنت 6.6.3b): لوحة
+  Django الإدارية تُراها كل نماذج كل مستأجر (`AdminBypassRouter`) ولا
+  تمر بـ`RLSTenantMiddleware` مطلقًا — مقصورة اليوم على `is_superuser=
+  True` فقط (طبقة تطبيق)، بلا أي قيد على مستوى nginx. **ملاحظة لكتلة
+  6.6.8**: تُقصر على IP الفريق في إعداد nginx الإنتاجي النهائي حين
+  يُبنى.
 - **إصدار الشهادة الأولى في الإنتاج**: `infra/nginx/nginx.prod.conf.template`
   يفترض وجود شهادة Let's Encrypt مسبقًا (`ssl_certificate` يشير لمسار
   `/etc/letsencrypt/live/${DOMAIN_NAME}/...`) — nginx لن يُقلع بدونها. خطوة

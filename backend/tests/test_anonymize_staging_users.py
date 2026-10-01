@@ -9,6 +9,11 @@ crashing. Real Postgres throughout (§11)."""
 
 import pytest
 from django.core.management import CommandError, call_command
+from django.utils import timezone
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+from rest_framework_simplejwt.tokens import RefreshToken
+
+from apps.accounts.models import BackupCode, UserSession
 
 from .factories import TenantFactory, UserFactory
 
@@ -71,6 +76,46 @@ def test_local_part_collision_within_a_tenant_gets_disambiguated(monkeypatch):
     user_b.refresh_from_db()
     emails = {user_a.email, user_b.email}
     assert emails == {"owner@fatma.staging.test", "owner-2@fatma.staging.test"}
+
+
+@pytest.mark.django_db
+def test_clears_2fa_and_must_change_password_when_staging(monkeypatch):
+    monkeypatch.setenv("CPS_ENVIRONMENT", "staging")
+    tenant = TenantFactory(subdomain="fatma")
+    user = UserFactory(
+        tenant=tenant,
+        email="owner@gmail.com",
+        must_change_password=True,
+        totp_secret="JBSWY3DPEHPK3PXP",
+        totp_confirmed=True,
+    )
+    BackupCode.objects.create(user=user, code_hash="irrelevant-hash")
+
+    call_command("anonymize_staging_users", "--password", "Staging@2026!")
+
+    user.refresh_from_db()
+    assert user.must_change_password is False
+    assert user.totp_secret == ""
+    assert user.totp_confirmed is False
+    assert not BackupCode.objects.filter(user=user).exists()
+
+
+@pytest.mark.django_db
+def test_invalidates_outstanding_tokens_and_sessions_when_staging(monkeypatch):
+    monkeypatch.setenv("CPS_ENVIRONMENT", "staging")
+    tenant = TenantFactory(subdomain="fatma")
+    user = UserFactory(tenant=tenant, email="owner@gmail.com")
+    refresh = RefreshToken.for_user(user)
+    outstanding = OutstandingToken.objects.get(jti=refresh["jti"])
+    session = UserSession.objects.create(
+        user=user, jti=str(refresh["jti"]), expires_at=timezone.now() + timezone.timedelta(days=1)
+    )
+
+    call_command("anonymize_staging_users", "--password", "Staging@2026!")
+
+    assert BlacklistedToken.objects.filter(token=outstanding).exists()
+    session.refresh_from_db()
+    assert session.revoked_at is not None
 
 
 @pytest.mark.django_db

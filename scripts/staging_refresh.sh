@@ -16,6 +16,15 @@ set -euo pipefail
 # code change — it already just matches whatever email is stored.
 # Never hand-edit data on staging directly — re-run this instead.
 #
+# Sprint 6.6.3b (item b, docs/ops/RLS.md): `pg_dump --no-privileges`
+# (scripts/backup.sh) strips every GRANT and RLS policy from the dump,
+# so every restore onto staging must re-run `manage.py setup_rls`
+# (apps.tenants.services.configure_database_roles_and_rls, idempotent)
+# and then verify pg_policies' row count actually matches the
+# tenant-scoped-table count — a silent policy gap would mean staging's
+# UAT session runs with RLS quietly OFF on some table instead of
+# exercising the same isolation production will have.
+#
 # Usage: scripts/staging_refresh.sh
 #        make staging-refresh
 
@@ -43,22 +52,22 @@ log "using backup: $LATEST_BACKUP"
 
 cd "$REPO_DIR/infra"
 
-log "step 1/6: bringing up staging's own independent stack (project cps-staging)"
+log "step 1/7: bringing up staging's own independent stack (project cps-staging)"
 $COMPOSE up -d --build
 
-log "step 2/6: stopping backend/celery_worker to release their DB connections"
+log "step 2/7: stopping backend/celery_worker to release their DB connections"
 $COMPOSE stop backend celery_worker
 
-log "step 3/6: dropping and recreating the staging database"
+log "step 3/7: dropping and recreating the staging database"
 $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -c \
   "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$POSTGRES_DB' AND pid <> pg_backend_pid();"
 $COMPOSE exec -T postgres dropdb -U "$POSTGRES_USER" --if-exists "$POSTGRES_DB"
 $COMPOSE exec -T postgres createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" "$POSTGRES_DB"
 
-log "step 4/6: restoring the dev backup into it"
+log "step 4/7: restoring the dev backup into it"
 gunzip -c "$LATEST_BACKUP" | $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 > /dev/null
 
-log "step 5/6: bringing backend/celery_worker back up and applying any pending migration"
+log "step 5/7: bringing backend/celery_worker back up and applying any pending migration"
 $COMPOSE up -d backend celery_worker
 $COMPOSE exec -T backend python manage.py migrate --noinput
 
@@ -70,13 +79,31 @@ $COMPOSE exec -T backend python manage.py migrate --noinput
 log "restarting nginx so it re-resolves backend's new address"
 $COMPOSE restart nginx
 
-log "step 6/6: anonymizing every user's email domain and rewriting their password"
+log "step 6/7: re-applying RLS roles/grants/policies, then verifying the policy count"
+$COMPOSE exec -T backend python manage.py setup_rls
+RLS_CHECK="$($COMPOSE exec -T backend python manage.py shell -c "
+from django.db import connection
+from apps.common.rls import tenant_scoped_tables
+tables = [name for name, _model in tenant_scoped_tables()]
+with connection.cursor() as cursor:
+    cursor.execute(
+        \"SELECT count(*) FROM pg_policies WHERE schemaname = 'public' \"
+        \"AND policyname = 'tenant_isolation' AND tablename = ANY(%s)\",
+        [tables],
+    )
+    policy_count = cursor.fetchone()[0]
+print(f'{len(tables)} {policy_count}')
+" | tail -1 | tr -d '\r')"
+TABLE_COUNT="$(echo "$RLS_CHECK" | cut -d' ' -f1)"
+POLICY_COUNT="$(echo "$RLS_CHECK" | cut -d' ' -f2)"
+if [ "$TABLE_COUNT" != "$POLICY_COUNT" ]; then
+  echo "ERROR: $TABLE_COUNT tenant-scoped table(s) but only $POLICY_COUNT tenant_isolation polic(y/ies) — RLS is not fully applied. Aborting before anonymizing/serving staging." >&2
+  exit 1
+fi
+log "RLS verified: $POLICY_COUNT/$TABLE_COUNT tenant-scoped tables have the tenant_isolation policy."
+
+log "step 7/7: anonymizing every user's email domain and rewriting their password, re-arming 2FA, and invalidating sessions"
 $COMPOSE exec -T backend python manage.py anonymize_staging_users --password "$STAGING_UAT_PASSWORD"
-# Sprint 6.6.2 (not built yet): once tenant 2FA / must_change_password /
-# session invalidation exist, this step should also re-arm 2FA setup,
-# clear must_change_password, and revoke every outstanding refresh
-# token for every user on every refresh — a stale staging session
-# should never survive past a restore. Add those calls here then.
 
 TENANT_COUNT="$($COMPOSE exec -T backend python manage.py shell -c \
   "from apps.tenants.models import Tenant; print(Tenant.objects.count())" | tail -1 | tr -d '\r')"

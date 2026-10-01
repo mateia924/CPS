@@ -1,8 +1,9 @@
+import os
 import time
 import uuid
 from datetime import date, timedelta
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
 
 from apps.accounting.models import Account, JournalEntry, JournalLine
@@ -18,21 +19,41 @@ class Command(BaseCommand):
     """Sprint 6.6.3 (item 3): repeatable performance baseline — not a
     gate test (no pass/fail threshold enforced here), just a fixture +
     timings the sprint summary records and every future review re-runs
-    by hand: `manage.py seed_perf --tenant smoke-perf --lines 100000`.
+    by hand: `manage.py seed_perf --tenant perf-baseline --lines
+    100000`.
 
     Bypasses the normal posting workflow entirely (bulk_create straight
     to POSTED) — this is about query performance on realistic *volume*,
     not re-testing posting correctness, which the rest of the suite
-    already covers."""
+    already covers.
+
+    Sprint 6.6.3b: the tenant name deliberately does NOT start with
+    "smoke-" (the original "smoke-perf" was auto-archived by `make
+    e2e`'s own cleanup step, which treats any "smoke-*" subdomain as
+    its own disposable fixture — found live, the hard way, right after
+    seeding 100k lines). Also refuses outright on staging/production —
+    this is a dev-only fixture, never real UAT/customer data."""
 
     help = "Seed a tenant with N JournalLine rows and time the four report queries."
 
     def add_arguments(self, parser):
-        parser.add_argument("--tenant", default="smoke-perf")
+        parser.add_argument("--tenant", default="perf-baseline")
         parser.add_argument("--lines", type=int, default=100_000)
 
     def handle(self, *args, **options):
+        if os.environ.get("CPS_ENVIRONMENT") in ("staging", "production"):
+            raise CommandError(
+                "seed_perf refuses to run on staging/production — this is a dev-only "
+                "performance fixture, never real UAT/customer data."
+            )
+
         subdomain = options["tenant"]
+        if subdomain.startswith("smoke-"):
+            raise CommandError(
+                "A 'smoke-*' subdomain is auto-archived by make e2e's own cleanup "
+                "(apps.tenants.management.commands.archive_smoke_tenants) — pick a "
+                "different name, e.g. the default 'perf-baseline'."
+            )
         total_lines = options["lines"]
         if total_lines % 2 != 0:
             total_lines += 1

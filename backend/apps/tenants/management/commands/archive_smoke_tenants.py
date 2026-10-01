@@ -13,7 +13,13 @@ class Command(BaseCommand):
     there is no option to pass a different one, so this can never be
     pointed at a real tenant by a typo'd flag or argument. Soft-archive
     only (Tenant.Status.ARCHIVED), same as any other tenant lifecycle
-    transition in this project — no row is ever deleted."""
+    transition in this project — no row is ever deleted.
+
+    Sprint 6.6.3b: `manage.py seed_perf`'s own perf-baseline tenant
+    deliberately does NOT start with "smoke-" (the original
+    "smoke-perf" was auto-archived by this exact command, the hard
+    way, right after a 100k-line seed) — it's excluded from this
+    command's reach by name, not by a special case here."""
 
     help = "Archive (soft) every tenant whose subdomain starts with 'smoke-'. Touches no other tenant."
 

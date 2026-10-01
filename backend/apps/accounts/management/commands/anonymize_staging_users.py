@@ -20,17 +20,31 @@ is the only place that's ever set) — this command is destructive by
 design, and the one thing it must never do is run against a real
 tenant's real email/password on the local/live stack or a future
 production host.
+
+Sprint 6.6.3b: pays down the debt this file's own docstring (and
+scripts/staging_refresh.sh's own comment) documented since 6.6.0, now
+that 2FA/must_change_password/session-invalidation actually exist
+(sprint 6.6.2) — a user restored from a dev backup could otherwise
+carry over a real TOTP secret nobody on a UAT session has the
+authenticator app for (permanently locking that login out), a pending
+forced-password-change screen, or a still-valid dev-session refresh
+token. Every restore now also: wipes TOTP/backup codes entirely (2FA
+must be re-enrolled fresh on staging, by design — it was never the
+point of this command to preserve it), clears must_change_password,
+and blacklists every outstanding refresh token for every user.
 """
 
 import os
 
 from django.core.management.base import BaseCommand, CommandError
+from django.utils import timezone
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 
-from apps.accounts.models import User
+from apps.accounts.models import BackupCode, User, UserSession
 
 
 class Command(BaseCommand):
-    help = "Rewrites every tenant User's password and email for a staging UAT session. Staging only."
+    help = "Rewrites every tenant User's password/email and clears 2FA/sessions for a staging UAT session. Staging only."
 
     def add_arguments(self, parser):
         parser.add_argument("--password", required=True, help="The known UAT password to set for every user.")
@@ -58,9 +72,24 @@ class Command(BaseCommand):
             used.add(candidate)
             user.email = candidate
             user.set_password(password)
+            user.must_change_password = False
+            user.totp_secret = ""
+            user.totp_confirmed = False
 
-        User.objects.bulk_update(users, ["email", "password"])
+        User.objects.bulk_update(
+            users, ["email", "password", "must_change_password", "totp_secret", "totp_confirmed"]
+        )
+        BackupCode.objects.all().delete()
+
+        outstanding = OutstandingToken.objects.all()
+        BlacklistedToken.objects.bulk_create(
+            [BlacklistedToken(token=token) for token in outstanding], ignore_conflicts=True
+        )
+        UserSession.objects.filter(revoked_at__isnull=True).update(revoked_at=timezone.now())
 
         self.stdout.write(
-            self.style.SUCCESS(f"Anonymized {len(users)} user(s) (email domain + password) for staging.")
+            self.style.SUCCESS(
+                f"Anonymized {len(users)} user(s) (email/password), cleared 2FA/must_change_password, "
+                "and invalidated every session."
+            )
         )

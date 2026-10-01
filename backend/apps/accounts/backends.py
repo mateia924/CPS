@@ -34,11 +34,17 @@ class TenantEmailBackend(BaseBackend):
         else:
             # Sprint 6.6.3 (item 1): deliberately cross-tenant (Django
             # /admin/ superuser access, no subdomain) — no tenant
-            # session exists at all for this lookup, so it uses the
-            # "platform" DB alias (config.settings.DATABASES, the
-            # original unrestricted role) rather than "default", same
-            # as every other pre-auth/cross-tenant caller.
-            candidates = list(User.objects.using("platform").filter(email__iexact=email, is_superuser=True))
+            # session exists at all for this lookup. Reaches "default"
+            # normally (no explicit `.using(...)` needed here): this
+            # branch is only ever exercised from an /admin/* request
+            # (the only caller passing no `subdomain` at all), where
+            # apps.tenants.middleware.AdminDatabaseRoutingMiddleware +
+            # apps.tenants.routers.AdminBypassRouter already redirect
+            # every query to the "platform" alias automatically —
+            # sprint 6.6.3b's own structural test (tests/
+            # test_platform_db_structural.py) is what keeps this
+            # reasoning honest instead of silently rotting.
+            candidates = list(User.objects.filter(email__iexact=email, is_superuser=True))
             if len(candidates) != 1:
                 return None
             user = candidates[0]
@@ -55,11 +61,12 @@ class TenantEmailBackend(BaseBackend):
         # session-based auth (/admin/) — apps.tenants.middleware.
         # RLSTenantMiddleware only runs for /api/* paths at all, so
         # there is no `cps.tenant_id` set on this connection for /admin/
-        # requests regardless. "platform" alias, same as the
-        # subdomain-less superuser lookup above this reloads a session
-        # for.
+        # requests regardless. No explicit `.using(...)` needed — same
+        # reasoning as the subdomain-less branch above: Admin
+        # DatabaseRoutingMiddleware/AdminBypassRouter already route
+        # this to "platform" for any /admin/* request.
         User = get_user_model()
         try:
-            return User.objects.using("platform").get(pk=user_id)
+            return User.objects.get(pk=user_id)
         except User.DoesNotExist:
             return None
