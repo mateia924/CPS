@@ -38,10 +38,24 @@ jobs:
         run: cp .env.example .env
 
       - name: Bring up the dev stack (same project make dev-up/test/lint use)
-        run: make dev-up
+        run: |
+          set -o pipefail
+          make dev-up 2>&1 | tee dev-up.log
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            tail -n 40 dev-up.log | while IFS= read -r l; do echo "::error::$l"; done
+            exit "$status"
+          fi
 
       - name: Lint (ruff) — same gate as `make lint`
-        run: make lint
+        run: |
+          set -o pipefail
+          make lint 2>&1 | tee lint.log
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            tail -n 40 lint.log | while IFS= read -r l; do echo "::error::$l"; done
+            exit "$status"
+          fi
 
       # First boot downloads ClamAV's virus DB (several hundred MB) —
       # see infra/docker-compose.yml's own healthcheck start_period.
@@ -58,8 +72,21 @@ jobs:
           echo "clamav never became healthy within 600s" >&2
           exit 1
 
+      # Sprint 6.6.5 (CI #46 investigation): a `make` failure's own
+      # last lines, re-printed as `::error::` annotations — readable
+      # straight off the run's summary page, no login/log-scrolling
+      # needed. `set -o pipefail` is required — without it, `$?` right
+      # after a `| tee` pipeline is `tee`'s own exit code (always 0),
+      # not `make`'s, and this would never trigger.
       - name: Tests (pytest) — same gate as `make test`
-        run: make test
+        run: |
+          set -o pipefail
+          make test 2>&1 | tee test.log
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            tail -n 40 test.log | while IFS= read -r l; do echo "::error::$l"; done
+            exit "$status"
+          fi
 
   frontend:
     runs-on: ubuntu-24.04
@@ -103,7 +130,14 @@ jobs:
           sed -i 's#^DEV_NEXT_PUBLIC_API_URL=.*#DEV_NEXT_PUBLIC_API_URL=http://localhost:3002/api#' .env
 
       - name: Bring up the dev stack
-        run: make dev-up
+        run: |
+          set -o pipefail
+          make dev-up 2>&1 | tee dev-up.log
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            tail -n 40 dev-up.log | while IFS= read -r l; do echo "::error::$l"; done
+            exit "$status"
+          fi
 
       - name: Wait for the backend to actually accept connections
         # Sprint 6.6.0's own scripts/deploy.sh polls the exact same way
@@ -124,4 +158,11 @@ jobs:
           exit 1
 
       - name: E2E (Playwright) — same gate as `make e2e`
-        run: make e2e
+        run: |
+          set -o pipefail
+          make e2e 2>&1 | tee e2e.log
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            tail -n 40 e2e.log | while IFS= read -r l; do echo "::error::$l"; done
+            exit "$status"
+          fi
