@@ -43,8 +43,20 @@ dev-config:
 ## entrypoint.sh's non-root privilege-drop (--entrypoint '') since it's
 ## a one-off run, not a persistent service; dev deps aren't baked into
 ## the image, so each run installs them fresh.
+##
+## `--create-db`: found (and reproduced, in a concurrent/overlapping-
+## runs scenario — NOT confirmed as CI run #43's own actual cause,
+## which a faithful from-scratch `dev-up` -> `lint` -> `test` sequence
+## never reproduced) that a `make test` interrupted before pytest-
+## django's own teardown (timeout, cancelled job, Ctrl-C) leaves
+## test_<db> behind; the NEXT run against the same Postgres then hits
+## `psycopg.errors.DuplicateDatabase` immediately, which pytest-django
+## turns into a bare `SystemExit(2)`. `--create-db` forces a fresh
+## DROP + CREATE every run regardless of what a prior run left behind
+## — a real, harmless hardening either way, whether or not it turns
+## out to be what CI #43 actually hit.
 test:
-	$(DC) $(DEV) run --rm --entrypoint '' backend sh -c "pip install -q -r requirements-dev.txt && pytest -v"
+	$(DC) $(DEV) run --rm --entrypoint '' backend sh -c "pip install -q -r requirements-dev.txt && pytest -v --create-db"
 
 lint:
 	$(DC) $(DEV) run --rm --entrypoint '' backend sh -c "pip install -q -r requirements-dev.txt && ruff check ."
