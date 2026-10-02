@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { Money } from "@/components/Money";
+import { formatDateTime } from "@/lib/date";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import type { IncomeStatementReport, LegalEntity, Paginated } from "@/lib/types";
@@ -46,7 +47,7 @@ function IncomeStatementPrint() {
             <h2>{t("incomeStatementNav")}</h2>
             {(dateFrom || dateTo) && <p>{t("dateFrom")}: {dateFrom || "—"} — {t("dateTo")}: {dateTo || "—"}</p>}
             <p>{t("preparedBy")}: {report.prepared_by}</p>
-            <p>{new Date(report.generated_at).toLocaleString()}</p>
+            <p>{formatDateTime(report.generated_at, "form")}</p>
           </div>
         </div>
 

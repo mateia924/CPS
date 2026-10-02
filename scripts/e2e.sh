@@ -119,6 +119,20 @@ docker run --rm --network host \
   "$PLAYWRIGHT_IMAGE" \
   sh -c "npx playwright test 07-voucher-insufficient-balance-message.spec.ts --reporter=list"
 
+echo "[e2e] phase 8: approval inbox hides Approve for a document the user created themselves"
+docker run --rm --network host \
+  -e E2E_BASE_URL="$BASE_URL" \
+  -v "$ROOT_DIR:/repo" -w /repo/frontend/e2e \
+  "$PLAYWRIGHT_IMAGE" \
+  sh -c "npx playwright test 08-approval-inbox-own-document-hidden.spec.ts --reporter=list"
+
+echo "[e2e] phase 9: asset transfer log shows an ISO date, never a US-locale one"
+docker run --rm --network host \
+  -e E2E_BASE_URL="$BASE_URL" \
+  -v "$ROOT_DIR:/repo" -w /repo/frontend/e2e \
+  "$PLAYWRIGHT_IMAGE" \
+  sh -c "npx playwright test 09-asset-transfer-log-date-format.spec.ts --reporter=list"
+
 echo "[e2e] archiving the smoke-* tenant this run created"
 docker exec cps-dev-backend-1 python manage.py archive_smoke_tenants
 

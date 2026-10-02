@@ -227,6 +227,53 @@ def test_submit_unbalanced_rejected(tenant_a, owner_client):
     assert response.status_code == 400, response.data
 
 
+def test_submit_unbalanced_error_message_has_thousands_separator(tenant_a, owner_client):
+    """Sprint 6.6.6 (§6.3): the live bug was literally "الفرق
+    10000.00" (no thousands separator) in this exact message —
+    apps.common.formatting.format_money fixes it project-wide."""
+    entity = _entity(tenant_a)
+    created = owner_client.post(
+        "/api/opening-balances/",
+        {
+            "legal_entity": str(entity.id), "kind": "initial",
+            "lines": [_line(account=str(_acc(tenant_a, "1900").id), debit_fc="10000")],
+        },
+        format="json",
+    )
+    response = owner_client.post(f"/api/opening-balances/{created.data['id']}/submit/")
+    assert response.status_code == 400, response.data
+    detail = str(response.data.get("detail") or response.data)
+    assert "10,000.00" in detail
+    assert "10000.00" not in detail
+
+
+def test_status_by_entity_links_to_the_current_document(tenant_a, owner_client):
+    """Sprint 6.6.6 (§6.3 addition): the per-entity status list used to
+    say only approved/not-yet-approved with no way to reach the
+    document — now carries its id + real status (draft/pending_
+    approval/approved) so the screen can link straight to it."""
+    entity = _entity(tenant_a)
+    before = owner_client.get("/api/opening-balances/status/")
+    row_before = next(r for r in before.data if r["legal_entity"] == str(entity.id))
+    assert row_before["current_entry_id"] is None
+    assert row_before["current_entry_status"] is None
+
+    created = owner_client.post(
+        "/api/opening-balances/",
+        {
+            "legal_entity": str(entity.id), "kind": "initial",
+            "lines": [_line(account=str(_acc(tenant_a, "1900").id), debit_fc="1000", credit_fc="0")],
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.data
+
+    after = owner_client.get("/api/opening-balances/status/")
+    row_after = next(r for r in after.data if r["legal_entity"] == str(entity.id))
+    assert row_after["current_entry_id"] == created.data["id"]
+    assert row_after["current_entry_status"] == "draft"
+
+
 def test_opening_in_closed_period_blocks_readiness(tenant_a, owner_client):
     from apps.accounting.models import FiscalPeriod
 

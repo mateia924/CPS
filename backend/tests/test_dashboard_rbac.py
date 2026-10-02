@@ -75,7 +75,7 @@ def test_pending_approvals_empty_for_user_without_approval_role(tenant_a, user_a
 
     response = accountant_client.get("/api/approvals/pending/")
     assert response.status_code == 200
-    assert response.data == []
+    assert response.data["results"] == []
 
 
 @pytest.mark.django_db
@@ -103,8 +103,8 @@ def test_pending_approvals_single_active_user_tenant_sees_own_document(tenant_b,
 
     response = client_b.get("/api/approvals/pending/")
     assert response.status_code == 200
-    assert len(response.data) == 1
-    assert response.data[0]["id"] == str(entry.id)
+    assert len(response.data["results"]) == 1
+    assert response.data["results"][0]["id"] == str(entry.id)
 
 
 class _StubRequest:
@@ -150,4 +150,4 @@ def test_tenant_isolation(tenant_a, tenant_b, client_a, client_b):
     assert response_a.status_code == 200
     response_b = client_b.get("/api/approvals/pending/")
     assert response_b.status_code == 200
-    assert response_b.data == []
+    assert response_b.data["results"] == []

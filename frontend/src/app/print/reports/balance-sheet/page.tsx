@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { Money } from "@/components/Money";
+import { formatDateTime } from "@/lib/date";
 import { useLocale } from "@/lib/i18n";
 import type { BalanceSheetReport, LegalEntity, Paginated } from "@/lib/types";
 
@@ -59,7 +60,7 @@ function BalanceSheetPrint() {
             <h2>{t("balanceSheetNav")}</h2>
             <p>{t("asOf")}: {report.as_of}</p>
             <p>{t("preparedBy")}: {report.prepared_by}</p>
-            <p>{new Date(report.generated_at).toLocaleString()}</p>
+            <p>{formatDateTime(report.generated_at, "form")}</p>
           </div>
         </div>
 

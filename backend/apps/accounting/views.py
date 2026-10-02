@@ -1007,6 +1007,19 @@ class OpeningBalanceViewSet(
         entities = LegalEntity.objects.filter(
             tenant=request.user.tenant, id__in=accessible_ids, is_active=True
         )
+        # Sprint 6.6.6 (§6.3 addition): the list used to say only
+        # approved/not-yet-approved, with no way to reach the document
+        # itself — same "ignore soft-deleted/rejected" eligibility as
+        # the INITIAL-per-entity uniqueness guard (opening_balances.py)
+        # this mirrors, so a rejected/deleted draft never shows up as
+        # "the" current document for its entity.
+        current_entries = {
+            entry.legal_entity_id: entry
+            for entry in OpeningBalanceEntry.objects.filter(
+                tenant=request.user.tenant, legal_entity_id__in=accessible_ids, kind=OpeningBalanceEntry.Kind.INITIAL,
+                deleted_at__isnull=True,
+            ).exclude(status=OpeningBalanceEntry.Status.REJECTED)
+        }
         return Response(
             [
                 {
@@ -1014,6 +1027,12 @@ class OpeningBalanceViewSet(
                     "legal_entity_name": entity.name,
                     "approved": entity.opening_approved_at is not None,
                     "approved_at": entity.opening_approved_at,
+                    "current_entry_id": (
+                        str(current_entries[entity.id].id) if entity.id in current_entries else None
+                    ),
+                    "current_entry_status": (
+                        current_entries[entity.id].status if entity.id in current_entries else None
+                    ),
                 }
                 for entity in entities
             ]

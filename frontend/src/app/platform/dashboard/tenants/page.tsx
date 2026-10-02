@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useLocale } from "@/lib/i18n";
+import { formatDate, formatDateTime } from "@/lib/date";
 import { DataTable } from "@/components/DataTable";
 import { platformApi } from "@/lib/api";
 import type { Paginated, Plan, PlatformTenant, TenantStatus } from "@/lib/types";
@@ -65,12 +66,12 @@ export default function PlatformTenantsPage() {
           {
             key: "last_activity",
             label: t("lastActivity"),
-            render: (row) => (row.last_activity ? new Date(row.last_activity).toLocaleString() : "—"),
+            render: (row) => formatDateTime(row.last_activity),
           },
           {
             key: "created_at",
             label: t("createdAt"),
-            render: (row) => new Date(row.created_at).toLocaleDateString(),
+            render: (row) => formatDate(row.created_at),
           },
         ]}
       />

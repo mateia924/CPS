@@ -73,7 +73,8 @@ class PendingApprovalsView(APIView):
     def get(self, request):
         from .services import list_pending_approvals
 
-        return Response(list_pending_approvals(request.user))
+        results, blocked = list_pending_approvals(request.user, return_blocked=True)
+        return Response({"results": results, "blocked": blocked})
 
 
 def _describe_emergency_document(doc_type, target_id):

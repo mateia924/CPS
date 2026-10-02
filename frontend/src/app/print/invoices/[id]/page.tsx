@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { Money } from "@/components/Money";
+import { formatDate } from "@/lib/date";
 import { amountInWordsAr } from "@/lib/numberToWordsAr";
 import type { Invoice, LegalEntity, TaxCode, Paginated } from "@/lib/types";
 
@@ -72,7 +73,7 @@ export default function InvoicePrintPage() {
           <div style={{ textAlign: "end" }}>
             <h2>{t(isSimplified ? "simplifiedTaxInvoiceTitle" : "taxInvoiceTitle")}</h2>
             <p>{t("number")}: {invoice.number}</p>
-            <p>{t("issueDate")}: {invoice.issue_date}</p>
+            <p>{t("issueDate")}: {formatDate(invoice.issue_date, "form")}</p>
           </div>
         </div>
 

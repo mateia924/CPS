@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { Money } from "@/components/Money";
 import { useLocale } from "@/lib/i18n";
 import type { LedgerStatement, TreasuryKind } from "@/lib/types";
 
@@ -46,9 +47,9 @@ export function TreasuryMovementsCard({ kind, id }: { kind: TreasuryKind; id: st
               <tr key={`${line.entry_id}-${line.date}`}>
                 <td>{line.date}</td>
                 <td>{line.description}</td>
-                <td>{line.debit_fc !== "0.00" ? line.debit_fc : ""}</td>
-                <td>{line.credit_fc !== "0.00" ? line.credit_fc : ""}</td>
-                <td>{line.running_balance_fc}</td>
+                <td>{line.debit_fc !== "0.00" ? <Money amount={line.debit_fc} /> : ""}</td>
+                <td>{line.credit_fc !== "0.00" ? <Money amount={line.credit_fc} /> : ""}</td>
+                <td><Money amount={line.running_balance_fc} /></td>
               </tr>
             ))}
           </tbody>

@@ -2,6 +2,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 
+from apps.common.formatting import format_money
 from apps.platform.models import AuditLog
 from apps.platform.services import log_action
 
@@ -29,7 +30,7 @@ def get_matching_rule(tenant, doc_type, amount_base):
     )
 
 
-def list_pending_approvals(user):
+def list_pending_approvals(user, return_blocked=False):
     """صندوق الاعتماد (3.15.1/3.18): every PENDING_APPROVAL document
     across doc types this `user` is eligible to act on — extracted from
     apps.approvals.views.PendingApprovalsView (sprint 6.0.1-B) so the
@@ -53,11 +54,32 @@ def list_pending_approvals(user):
     # since none matched their own role.
     exempted = _is_single_active_user_tenant(tenant)
     results = []
+    # Sprint 6.6.6 (§6.3 addition): a document whose own matching
+    # rule exists but needs a role this user doesn't hold is silently
+    # DROPPED from `results` above (always has been — this user
+    # genuinely can't act on it) — tracked here too so the inbox
+    # screen can say "N document(s) pending a higher role" instead of
+    # the misleading "no documents pending your approval" when that's
+    # not actually true, without revealing which document or its
+    # details (`return_blocked=False`, the default, keeps every
+    # existing caller's plain-list contract unchanged).
+    blocked_role_ids: set = set()
+    blocked_count = 0
+
+    def _eligible(rule):
+        nonlocal blocked_count
+        if rule is None:
+            return False
+        if exempted or rule.required_role_id in user_role_ids:
+            return True
+        blocked_role_ids.add(rule.required_role_id)
+        blocked_count += 1
+        return False
 
     for entry in JournalEntry.objects.filter(tenant=tenant, status="pending_approval"):
         amount = entry.lines.aggregate(total=Sum("debit"))["total"] or Decimal("0")
         rule = get_matching_rule(tenant, "journal_entry", amount)
-        if rule is not None and (exempted or rule.required_role_id in user_role_ids):
+        if _eligible(rule):
             results.append(
                 {
                     "doc_type": "journal_entry",
@@ -67,12 +89,21 @@ def list_pending_approvals(user):
                     "description": entry.memo,
                     "amount_base": str(amount),
                     "created_by": str(entry.created_by_id) if entry.created_by_id else None,
+                    # Sprint 6.6.6 (B-list item 11): a row only ever
+                    # reaches `results` because `_eligible` already
+                    # confirmed this user's role matches (or the
+                    # tenant is exempted) — so the ONLY way `approve()`
+                    # could still 403 this exact row is the creator-
+                    # check, which `exempted` also waives. Lets the
+                    # inbox hide/disable its own Approve button
+                    # instead of a user clicking it only to get a 403.
+                    "can_approve": exempted or entry.created_by_id != user.id,
                 }
             )
 
     for invoice in Invoice.objects.filter(tenant=tenant, status="pending_approval"):
         rule = get_matching_rule(tenant, "invoice", invoice.base_total)
-        if rule is not None and (exempted or rule.required_role_id in user_role_ids):
+        if _eligible(rule):
             results.append(
                 {
                     "doc_type": "invoice",
@@ -82,6 +113,7 @@ def list_pending_approvals(user):
                     "description": invoice.party.name,
                     "amount_base": str(invoice.base_total),
                     "created_by": str(invoice.created_by_id) if invoice.created_by_id else None,
+                    "can_approve": exempted or invoice.created_by_id != user.id,
                 }
             )
 
@@ -91,7 +123,7 @@ def list_pending_approvals(user):
     for voucher in Voucher.objects.filter(tenant=tenant, status="pending_approval"):
         doc_type = f"voucher_{voucher.voucher_type}"
         rule = get_matching_rule(tenant, doc_type, voucher.total_base)
-        if rule is not None and (exempted or rule.required_role_id in user_role_ids):
+        if _eligible(rule):
             results.append(
                 {
                     "doc_type": doc_type,
@@ -101,6 +133,7 @@ def list_pending_approvals(user):
                     "description": voucher.party.name if voucher.party_id else voucher.payee_name,
                     "amount_base": str(voucher.total_base),
                     "created_by": str(voucher.created_by_id) if voucher.created_by_id else None,
+                    "can_approve": exempted or voucher.created_by_id != user.id,
                 }
             )
 
@@ -111,7 +144,7 @@ def list_pending_approvals(user):
         tenant=tenant, status="pending_approval"
     ).select_related("content_type"):
         rule = get_matching_rule(tenant, "iban_change", Decimal("0"))
-        if rule is not None and (exempted or rule.required_role_id in user_role_ids):
+        if _eligible(rule):
             results.append(
                 {
                     "doc_type": "iban_change",
@@ -121,6 +154,7 @@ def list_pending_approvals(user):
                     "description": f"{iban_request.old_iban or '—'} -> {iban_request.new_iban}",
                     "amount_base": "0",
                     "created_by": str(iban_request.created_by_id),
+                    "can_approve": exempted or iban_request.created_by_id != user.id,
                 }
             )
 
@@ -135,7 +169,7 @@ def list_pending_approvals(user):
     ):
         amount = entry.lines.aggregate(total=Sum("debit_base"))["total"] or Decimal("0")
         rule = get_matching_rule(tenant, "opening_balance", amount)
-        if rule is not None and (exempted or rule.required_role_id in user_role_ids):
+        if _eligible(rule):
             results.append(
                 {
                     "doc_type": "opening_balance",
@@ -145,6 +179,7 @@ def list_pending_approvals(user):
                     "description": entry.legal_entity.name,
                     "amount_base": str(amount),
                     "created_by": str(entry.created_by_id) if entry.created_by_id else None,
+                    "can_approve": exempted or entry.created_by_id != user.id,
                 }
             )
 
@@ -160,7 +195,7 @@ def list_pending_approvals(user):
         else:
             doc_type = "recurring_entry"
         rule = get_matching_rule(tenant, doc_type, schedule.total_amount_base)
-        if rule is not None and (exempted or rule.required_role_id in user_role_ids):
+        if _eligible(rule):
             results.append(
                 {
                     "doc_type": doc_type,
@@ -170,6 +205,7 @@ def list_pending_approvals(user):
                     "description": schedule.description,
                     "amount_base": str(schedule.total_amount_base),
                     "created_by": str(schedule.created_by_id) if schedule.created_by_id else None,
+                    "can_approve": exempted or schedule.created_by_id != user.id,
                 }
             )
 
@@ -177,7 +213,7 @@ def list_pending_approvals(user):
 
     for disposal in AssetDisposal.objects.filter(tenant=tenant, status="pending_approval").select_related("asset"):
         rule = get_matching_rule(tenant, "asset_disposal", disposal.cost_share)
-        if rule is not None and (exempted or rule.required_role_id in user_role_ids):
+        if _eligible(rule):
             results.append(
                 {
                     "doc_type": "asset_disposal",
@@ -187,9 +223,17 @@ def list_pending_approvals(user):
                     "description": f"{disposal.asset.code} — {disposal.asset.name}",
                     "amount_base": str(disposal.cost_share),
                     "created_by": str(disposal.created_by_id) if disposal.created_by_id else None,
+                    "can_approve": exempted or disposal.created_by_id != user.id,
                 }
             )
 
+    if return_blocked:
+        from apps.access.models import Role
+
+        blocked_role_names = list(
+            Role.objects.filter(id__in=blocked_role_ids).values_list("name", flat=True)
+        )
+        return results, {"count": blocked_count, "role_names": blocked_role_names}
     return results
 
 
@@ -247,7 +291,7 @@ def _check_mandatory_attachments(document, doc_type, amount_base):
         if not has_attachment:
             raise ValidationError(
                 _("المستند يتطلب مرفق «%(category)s» لأنه يتجاوز %(amount)s.")
-                % {"category": rule.get_required_category_display(), "amount": rule.min_amount_base}
+                % {"category": rule.get_required_category_display(), "amount": format_money(rule.min_amount_base)}
             )
 
 

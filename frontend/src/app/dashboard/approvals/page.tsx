@@ -9,7 +9,8 @@ import { FormField } from "@/components/FormField";
 import { Money } from "@/components/Money";
 import { WarningsBanner } from "@/components/WarningsBanner";
 import { useLocale } from "@/lib/i18n";
-import type { EmergencyApproval, PendingApproval } from "@/lib/types";
+import { formatDateTime } from "@/lib/date";
+import type { EmergencyApproval, PendingApproval, PendingApprovalsResponse } from "@/lib/types";
 
 // Sprint 6.3 (decision 8): opening_balance's approve requires a written
 // attestation (>= 20 chars) the generic one-click flow below has no
@@ -79,6 +80,7 @@ export default function ApprovalInboxPage() {
   const { me } = useAuth();
   const [tab, setTab] = useState<"inbox" | "emergency">("inbox");
   const [rows, setRows] = useState<PendingApproval[]>([]);
+  const [blocked, setBlocked] = useState<{ count: number; role_names: string[] }>({ count: 0, role_names: [] });
   const [emergencyRows, setEmergencyRows] = useState<EmergencyApproval[] | null>(null);
   // Sprint 6.5.15 (UAT item 7): "رفض بسبب" inline in the row, matching
   // the spec's own inbox mock — no separate screen needed for the
@@ -92,8 +94,9 @@ export default function ApprovalInboxPage() {
   const showEmergencyTab = !!me && me.roles.includes("Owner");
 
   const load = async () => {
-    const data = await api.get<PendingApproval[]>("/approvals/pending/");
-    setRows(data);
+    const data = await api.get<PendingApprovalsResponse>("/approvals/pending/");
+    setRows(data.results);
+    setBlocked(data.blocked);
   };
 
   const loadEmergency = async () => {
@@ -148,7 +151,11 @@ export default function ApprovalInboxPage() {
 
       {tab === "inbox" &&
         (rows.length === 0 ? (
-          <p style={{ color: "var(--muted)" }}>{t("noPendingApprovals")}</p>
+          <p style={{ color: "var(--muted)" }}>
+            {blocked.count > 0
+              ? `${t("pendingApprovalsBlockedByHigherRole")}: ${blocked.count} (${blocked.role_names.join("، ")})`
+              : t("noPendingApprovals")}
+          </p>
         ) : (
           <table>
             <thead>
@@ -163,17 +170,28 @@ export default function ApprovalInboxPage() {
             </thead>
             <tbody>
               {rows.map((row) => (
-                <Fragment key={`${row.doc_type}-${row.id}`}>
+                <Fragment key={`${row.doc_type}-${row.id}`}> {/* arabic-ok: React key, not displayed */}
                   <tr>
                     <td>{t(DOC_TYPE_LABEL[row.doc_type])}</td>
-                    <td>{row.number}</td>
+                    <td>
+                      {row.number && EMERGENCY_DOC_TYPE_PATH[row.doc_type] ? (
+                        <Link href={`/dashboard/${EMERGENCY_DOC_TYPE_PATH[row.doc_type]}/${row.id}`}>{row.number}</Link>
+                      ) : (
+                        row.number // links-ok: no own detail page to link to for this doc_type (iban_change/opening_balance/asset_disposal — see REQUIRES_DETAIL_SCREEN for the one that has one)
+                      )}
+                    </td>
                     <td>{row.date}</td>
                     <td>{row.description}</td>
                     <td><Money amount={row.amount_base} /></td>
                     <td style={{ display: "flex", gap: "0.5rem" }}>
-                      <button className="secondary" onClick={() => approve(row)}>
-                        {REQUIRES_DETAIL_SCREEN.has(row.doc_type) ? t("viewDetails") : t("approve")}
-                      </button>
+                      {(row.can_approve || REQUIRES_DETAIL_SCREEN.has(row.doc_type)) && (
+                        <button className="secondary" onClick={() => approve(row)}>
+                          {REQUIRES_DETAIL_SCREEN.has(row.doc_type) ? t("viewDetails") : t("approve")}
+                        </button>
+                      )}
+                      {!row.can_approve && !REQUIRES_DETAIL_SCREEN.has(row.doc_type) && (
+                        <span style={{ color: "var(--muted)", fontSize: "0.85rem" }}>{t("cannotApproveOwnDocument")}</span>
+                      )}
                       {!REQUIRES_DETAIL_SCREEN.has(row.doc_type) && (
                         <button
                           className="secondary"
@@ -246,7 +264,7 @@ export default function ApprovalInboxPage() {
                     <td>{row.amount_base !== null ? <Money amount={row.amount_base} /> : "—"}</td>
                     <td>{row.approved_by_name || "—"}</td>
                     <td>{row.emergency_reason}</td>
-                    <td>{new Date(row.created_at).toLocaleString()}</td>
+                    <td>{formatDateTime(row.created_at)}</td>
                   </tr>
                 );
               })}

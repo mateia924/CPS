@@ -16,6 +16,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from apps.accounting.models import JournalEntry, JournalLine
+from apps.common.formatting import format_money
 from apps.platform.models import AuditLog
 from apps.platform.services import log_action
 
@@ -134,7 +135,7 @@ def manual_match(statement_line, journal_line_ids, user, request=None):
                 "journal_line_ids": [
                     str(
                         _("Selected lines sum to %(total)s, which does not equal the statement line's amount (%(amount)s).")
-                        % {"total": total, "amount": statement_line.amount}
+                        % {"total": format_money(total), "amount": format_money(statement_line.amount)}
                     )
                 ]
             }

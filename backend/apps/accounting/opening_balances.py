@@ -19,6 +19,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from apps.common.formatting import format_money
 from apps.numbering.services import next_document_number
 from apps.platform.models import AuditLog
 from apps.platform.services import log_action
@@ -155,7 +156,7 @@ def _build_opening_line(tenant, base_currency, opening_date, spec, warnings):
         if items_total != line_amount:
             raise ValidationError(
                 _("مجموع البنود المفتوحة (%(items)s) لا يساوي مبلغ السطر (%(amount)s).")
-                % {"items": items_total, "amount": line_amount}
+                % {"items": format_money(items_total), "amount": format_money(line_amount)}
             )
 
     return OpeningBalanceLine(
@@ -251,7 +252,7 @@ def readiness_report(entry):
                 "code": "unbalanced",
                 "message": str(
                     _("غير متوازن: إجمالي المدين %(debit)s لا يساوي إجمالي الدائن %(credit)s.")
-                    % {"debit": debit_total, "credit": credit_total}
+                    % {"debit": format_money(debit_total), "credit": format_money(credit_total)}
                 ),
             }
         )
@@ -372,7 +373,8 @@ def submit_opening_balance(entry, user, request=None):
     credit_total = sum((line.credit_base for line in lines), Decimal("0"))
     if debit_total != credit_total:
         raise ValidationError(
-            _("لا يمكن إرسال مستند افتتاح غير متوازن — الفرق %(diff)s.") % {"diff": abs(debit_total - credit_total)}
+            _("لا يمكن إرسال مستند افتتاح غير متوازن — الفرق %(diff)s.")
+            % {"diff": format_money(abs(debit_total - credit_total))}
         )
 
     entry.readiness_snapshot = readiness_report(entry)

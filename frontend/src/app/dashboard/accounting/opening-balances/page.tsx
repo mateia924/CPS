@@ -123,7 +123,15 @@ function OpeningBalancesContent() {
             {statusRows.map((row) => (
               <tr key={row.legal_entity}>
                 <td>{row.legal_entity_name}</td>
-                <td>{row.approved ? t("approved") : t("notApprovedYet")}</td>
+                <td>
+                  {row.current_entry_id ? (
+                    <Link href={`/dashboard/accounting/opening-balances/${row.current_entry_id}`}>
+                      <StatusBadge status={row.current_entry_status ?? "draft"} />
+                    </Link>
+                  ) : (
+                    t("notApprovedYet")
+                  )}
+                </td>
                 <td>{row.approved_at ?? "—"}</td>
               </tr>
             ))}

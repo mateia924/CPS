@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useLocale } from "@/lib/i18n";
+import { formatDateTime } from "@/lib/date";
 import { DataTable } from "@/components/DataTable";
 import { platformApi } from "@/lib/api";
 import type { AuditLogEntry } from "@/lib/types";
@@ -93,7 +94,7 @@ export default function PlatformAuditLogPage() {
             key: "created_at",
             label: t("createdAt"),
             sortable: true,
-            render: (row) => new Date(row.created_at).toLocaleString(),
+            render: (row) => formatDateTime(row.created_at),
           },
           { key: "actor_type", label: t("actorType") },
           { key: "action", label: t("action") },

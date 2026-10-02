@@ -10,6 +10,7 @@ from django.db.models import Sum
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from apps.common.formatting import format_money
 from apps.numbering.services import next_document_number
 from apps.platform.models import AuditLog
 from apps.platform.services import log_action
@@ -716,7 +717,7 @@ def _require_fc_balance_if_single_currency(entry, lines):
     if debit_fc_total != credit_fc_total:
         raise ValidationError(
             _("القيد غير متوازن بعملة المعاملة: إجمالي المدين %(debit)s لا يساوي إجمالي الدائن %(credit)s.")
-            % {"debit": debit_fc_total, "credit": credit_fc_total}
+            % {"debit": format_money(debit_fc_total), "credit": format_money(credit_fc_total)}
         )
 
 

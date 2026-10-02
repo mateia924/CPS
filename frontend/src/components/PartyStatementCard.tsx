@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 import { Money } from "@/components/Money";
 import { useLocale } from "@/lib/i18n";
@@ -69,7 +70,7 @@ export function PartyStatementCard({ partyId, role }: { partyId: string; role: P
             <tbody>
               {statement.open_invoices.map((inv) => (
                 <tr key={inv.id}>
-                  <td>{inv.number}</td>
+                  <td><Link href={`/dashboard/invoices/${inv.id}`}>{inv.number}</Link></td>
                   <td>{inv.due_date || "—"}</td>
                   <td><Money amount={inv.total} currency={inv.currency} /></td>
                   <td><Money amount={inv.balance_fc} currency={inv.currency} /></td>

@@ -19,6 +19,19 @@ import type {
  * auditor-form reconciliation report. One component (not split across
  * three) since the three pieces share the same selected-statement
  * state. */
+
+// Sprint 6.6.6 (check-arabic-ui): `line.status`/`line.matched_by` are
+// raw backend enums (unmatched/matched/ignored, auto/manual) — never
+// rendered directly, only through these key-to-translation-key maps.
+const STATEMENT_LINE_STATUS_KEY: Record<string, "statementLineStatusUnmatched" | "statementLineStatusMatched" | "statementLineStatusIgnored"> = {
+  unmatched: "statementLineStatusUnmatched",
+  matched: "statementLineStatusMatched",
+  ignored: "statementLineStatusIgnored",
+};
+const MATCHED_BY_KEY: Record<string, "matchedByAuto" | "matchedByManual"> = {
+  auto: "matchedByAuto",
+  manual: "matchedByManual",
+};
 export function BankReconciliationCard({ bankId }: { bankId: string }) {
   const { t } = useLocale();
   const [statements, setStatements] = useState<BankStatement[]>([]);
@@ -283,7 +296,7 @@ function StatementLinesPanel({
                 <td>{line.date}</td>
                 <td>{line.description}</td>
                 <td><Money amount={line.amount} /></td>
-                <td>{line.status} {line.matched_by ? `(${line.matched_by})` : ""}</td>
+                <td>{t(STATEMENT_LINE_STATUS_KEY[line.status])} {line.matched_by ? `(${t(MATCHED_BY_KEY[line.matched_by])})` : ""}</td>
                 <td>
                   {line.status === "unmatched" && (
                     <>
@@ -318,7 +331,7 @@ function StatementLinesPanel({
                                 )
                               }
                             />
-                            {c.date} — {c.entry_number} — {c.description} — <Money amount={c.debit_fc} />/<Money amount={c.credit_fc} />
+                            {c.date} — {c.entry_number} — {c.description} — <Money amount={c.debit_fc} />/<Money amount={c.credit_fc} /> {/* links-ok: a candidate-selection label/checkbox row, not a navigation list */}
                           </label>
                         </li>
                       ))}

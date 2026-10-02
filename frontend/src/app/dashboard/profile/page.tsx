@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { api, fieldErrors, generalError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
+import { formatDateTime } from "@/lib/date";
 import { FormField } from "@/components/FormField";
 import { WarningsBanner } from "@/components/WarningsBanner";
 import type { MeResponse } from "@/lib/types";
@@ -243,7 +244,7 @@ export default function ProfilePage() {
               <tbody>
                 {sessions.map((s) => (
                   <tr key={s.id}>
-                    <td>{s.created_at}</td>
+                    <td>{formatDateTime(s.created_at)}</td>
                     <td>{s.ip_address ?? "—"}</td>
                   </tr>
                 ))}

@@ -173,7 +173,7 @@ function StatementReport() {
                     <td>{line.date}</td>
                     <td>
                       <Link href={`/dashboard/accounting/journal-entries/${line.entry_id}`}>
-                        {line.entry_number}
+                        {line.entry_number} {/* links-ok: <Link> wraps this on the line above */}
                       </Link>
                     </td>
                     <td>{line.description}</td>
@@ -208,7 +208,7 @@ function StatementReport() {
                 <tbody>
                   {statement.open_invoices.map((inv) => (
                     <tr key={inv.id}>
-                      <td>{inv.number}</td>
+                      <td><Link href={`/dashboard/invoices/${inv.id}`}>{inv.number}</Link></td>
                       <td>{inv.due_date || "—"}</td>
                       <td>
                         <Money amount={inv.total} currency={inv.currency} />

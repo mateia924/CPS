@@ -7,6 +7,7 @@ import { useLocale } from "@/lib/i18n";
 import { FormField } from "@/components/FormField";
 import { Money } from "@/components/Money";
 import { WarningsBanner } from "@/components/WarningsBanner";
+import { formatDate } from "@/lib/date";
 import type { FiscalPeriod, FiscalPeriodicStatus, FiscalYear, Paginated, PeriodChecklistItem } from "@/lib/types";
 
 const STATUS_LABEL_KEY: Record<FiscalPeriodicStatus, string> = {
@@ -216,7 +217,7 @@ export default function FiscalYearsPage() {
         <div key={year.id} className="card">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
-              <strong>{year.name}</strong> ({year.start_date} — {year.end_date}) —{" "}
+              <strong>{year.name}</strong> ({formatDate(year.start_date, "form")} — {formatDate(year.end_date, "form")}) —{" "}
               {t(STATUS_LABEL_KEY[year.status])}
               {year.is_auto_created && (
                 <span style={{ marginInlineStart: "0.5rem", color: "var(--muted)", fontSize: "0.8rem" }}>
@@ -275,7 +276,7 @@ export default function FiscalYearsPage() {
       {checklistFor && (
         <div className="card" ref={checklistPanelRef} tabIndex={-1}>
           <h3>
-            {t("closeChecklist")} — #{checklistFor.seq} ({checklistFor.start_date} — {checklistFor.end_date})
+            {t("closeChecklist")} — #{checklistFor.seq} ({formatDate(checklistFor.start_date, "form")} — {formatDate(checklistFor.end_date, "form")})
           </h3>
           {checklistItems === null ? (
             <p>…</p>

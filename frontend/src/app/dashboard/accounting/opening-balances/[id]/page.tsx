@@ -8,6 +8,7 @@ import { AttachmentPanel } from "@/components/AttachmentPanel";
 import { FormField } from "@/components/FormField";
 import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
+import { formatDate } from "@/lib/date";
 import { WarningsBanner } from "@/components/WarningsBanner";
 import {
   EMPTY_LINE,
@@ -50,6 +51,15 @@ const LEVEL_COLOR: Record<ReadinessItem["level"], string> = {
   block: "var(--status-void)",
   warn: "var(--status-pending)",
   info: "var(--muted)",
+};
+
+// Sprint 6.6.6 (check-arabic-ui): `item.level` is a raw backend enum
+// (block/warn/info) — never rendered directly, only through this
+// key-to-translation-key map.
+const LEVEL_LABEL_KEY: Record<ReadinessItem["level"], "levelBlock" | "levelWarn" | "levelInfo"> = {
+  block: "levelBlock",
+  warn: "levelWarn",
+  info: "levelInfo",
 };
 
 export default function OpeningBalanceDetailPage() {
@@ -174,7 +184,7 @@ export default function OpeningBalanceDetailPage() {
       </h1>
 
       <div className="card">
-        <p>{t("openingDate")}: {entry.opening_date}</p>
+        <p>{t("openingDate")}: {formatDate(entry.opening_date, "form")}</p>
         {entry.attestation_text && <p>{t("attestationText")}: {entry.attestation_text}</p>}
         {entry.journal_entry && (
           <p>
@@ -195,6 +205,7 @@ export default function OpeningBalanceDetailPage() {
             showCostCenterUI={showCostCenterUI}
           />
           <p>
+            {t("totalDebit")}: <Money amount={String(editDebitTotal)} /> · {t("totalCredit")}: <Money amount={String(editCreditTotal)} /> ·{" "}
             {t("difference")}: <Money amount={String(editDebitTotal - editCreditTotal)} /> (
             {t("balanced")}: {editDebitTotal === editCreditTotal ? "✓" : "✗"})
           </p>
@@ -224,9 +235,13 @@ export default function OpeningBalanceDetailPage() {
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={2}>{t("difference")}</td>
+                <td colSpan={2}>{t("totalDebit")} / {t("totalCredit")}</td>
                 <td><Money amount={String(debitTotal)} /></td>
                 <td><Money amount={String(creditTotal)} /></td>
+              </tr>
+              <tr>
+                <td colSpan={2}>{t("difference")}</td>
+                <td colSpan={2}><Money amount={String(debitTotal - creditTotal)} /></td>
               </tr>
             </tfoot>
           </table>
@@ -239,7 +254,7 @@ export default function OpeningBalanceDetailPage() {
           <ul style={{ marginTop: "0.75rem" }}>
             {readiness.map((item, i) => (
               <li key={i} style={{ color: LEVEL_COLOR[item.level] }}>
-                [{item.level.toUpperCase()}] {item.message}
+                [{t(LEVEL_LABEL_KEY[item.level])}] {item.message}
               </li>
             ))}
             {readiness.length === 0 && <li>{t("balanced")} ✓</li>}

@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { Money } from "@/components/Money";
+import { formatDate } from "@/lib/date";
 import { amountInWordsAr } from "@/lib/numberToWordsAr";
 import type { LegalEntity, Voucher } from "@/lib/types";
 
@@ -54,7 +55,7 @@ export default function VoucherPrintPage() {
           <div style={{ textAlign: "end" }}>
             <h2>{t(DOC_TYPE_LABEL[voucher.voucher_type])}</h2>
             <p>{t("number")}: {voucher.number}</p>
-            <p>{t("voucherDate")}: {voucher.date}</p>
+            <p>{t("voucherDate")}: {formatDate(voucher.date, "form")}</p>
           </div>
         </div>
 

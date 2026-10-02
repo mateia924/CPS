@@ -317,13 +317,23 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
           )}
 
           <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.5rem" }}>
-            <FormField name="party_role" label={t("partyRole")}>
-              <select value={partyRole} onChange={(e) => setPartyRole(e.target.value as PartyRoleType)}>
-                {ROLE_OPTIONS.map((role) => (
-                  <option key={role} value={role}>{t(ROLE_LABEL_KEY[role])}</option>
-                ))}
-              </select>
-            </FormField>
+            {/* Sprint 6.6.6 (B-list item 8): "دور الطرف" يختفي عند
+               "صرفنا إلى = بدون" — once the user has actually typed a
+               free-text payee name (payment, no party) instead of
+               picking a party, a party ROLE selector is meaningless.
+               Keyed on `payeeName` having text, not just `!partyId`
+               (the default/not-yet-decided state for a brand-new
+               voucher) — otherwise the role filter a user needs to
+               find a party in the first place would never show. */}
+            {!(!isReceipt && !partyId && payeeName) && (
+              <FormField name="party_role" label={t("partyRole")}>
+                <select value={partyRole} onChange={(e) => setPartyRole(e.target.value as PartyRoleType)}>
+                  {ROLE_OPTIONS.map((role) => (
+                    <option key={role} value={role}>{t(ROLE_LABEL_KEY[role])}</option>
+                  ))}
+                </select>
+              </FormField>
+            )}
             <FormField
               name="party" label={t(isReceipt ? "receivedFrom" : "paidTo")} error={fieldErr.party}
               style={{ flex: 1, minWidth: "220px" }}
@@ -372,6 +382,7 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
                   <select value={line.invoice} onChange={(e) => updateLine(i, "invoice", e.target.value)} required>
                     <option value="" disabled>—</option>
                     {partyInvoices.map((inv) => (
+                      // links-ok: a select option can't contain a Link
                       <option key={inv.id} value={inv.id}>{inv.number} ({t("balanceDue")}: {formatMoney(inv.balance_fc, inv.currency)})</option>
                     ))}
                   </select>

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useLocale } from "@/lib/i18n";
 import { ApiError, fieldErrors, generalError, platformApi } from "@/lib/api";
+import { formatDate, formatDateTime } from "@/lib/date";
 import { FormField } from "@/components/FormField";
 import { WarningsBanner } from "@/components/WarningsBanner";
 import type { Paginated, Plan, PlatformTenant, TenantStatus } from "@/lib/types";
@@ -156,7 +157,7 @@ export default function PlatformTenantDetailPage() {
       <div className="card">
         <h3>{t("extendTrial")}</h3>
         <p style={{ color: "var(--muted)", fontSize: "0.9rem" }}>
-          {t("trialEndsAt")}: {tenant.trial_ends_at ? new Date(tenant.trial_ends_at).toLocaleString() : "—"}
+          {t("trialEndsAt")}: {formatDateTime(tenant.trial_ends_at, "form")}
         </p>
         <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
           <FormField name="trial_ends_at" error={fieldErr.trial_ends_at}>
@@ -200,9 +201,9 @@ export default function PlatformTenantDetailPage() {
         <p>{t("invoices")}: {tenant.invoice_count}</p>
         <p>
           {t("lastActivity")}:{" "}
-          {tenant.last_activity ? new Date(tenant.last_activity).toLocaleString() : "—"}
+          {formatDateTime(tenant.last_activity, "form")}
         </p>
-        <p>{t("createdAt")}: {new Date(tenant.created_at).toLocaleDateString()}</p>
+        <p>{t("createdAt")}: {formatDate(tenant.created_at, "form")}</p>
       </div>
     </div>
   );

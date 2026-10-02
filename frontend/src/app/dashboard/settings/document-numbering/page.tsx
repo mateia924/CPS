@@ -5,6 +5,23 @@ import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import type { DocumentNumberingSetting, Paginated } from "@/lib/types";
 
+// Sprint 6.6.6 (check-arabic-ui): `row.doc_type` is a raw backend enum
+// (apps.numbering.services.DEFAULT_PREFIXES's own key set) — never
+// rendered directly, only through this key-to-translation-key map.
+const DOC_TYPE_LABEL_KEY: Record<string, string> = {
+  invoice: "invoiceDocType",
+  journal_entry: "journalEntryDocType",
+  voucher_receipt: "voucherReceiptDocType",
+  voucher_payment: "voucherPaymentDocType",
+  voucher_settlement: "voucherSettlementDocType",
+  recurring_entry: "recurringEntries",
+  cash_count: "cashCountDocType",
+  party_customer: "partyCustomerDocType",
+  party_supplier: "partySupplierDocType",
+  party_employee: "partyEmployeeDocType",
+  party_affiliate: "partyAffiliateDocType",
+};
+
 export default function DocumentNumberingPage() {
   const { t } = useLocale();
   const [rows, setRows] = useState<DocumentNumberingSetting[]>([]);
@@ -33,7 +50,7 @@ export default function DocumentNumberingPage() {
       });
       load();
     } catch {
-      setError("Could not save this numbering setting.");
+      setError(t("couldNotSaveNumberingSetting"));
     }
   };
 
@@ -54,7 +71,7 @@ export default function DocumentNumberingPage() {
         <tbody>
           {rows.map((row) => (
             <tr key={row.id}>
-              <td>{row.doc_type}</td>
+              <td>{t(DOC_TYPE_LABEL_KEY[row.doc_type] ?? row.doc_type)}</td>
               <td>
                 <input
                   value={row.prefix}

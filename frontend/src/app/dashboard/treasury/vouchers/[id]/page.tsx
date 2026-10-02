@@ -10,6 +10,7 @@ import { FormField } from "@/components/FormField";
 import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
 import { WarningsBanner } from "@/components/WarningsBanner";
+import { formatDate } from "@/lib/date";
 import { useLocale } from "@/lib/i18n";
 import type { Voucher } from "@/lib/types";
 
@@ -83,7 +84,7 @@ export default function VoucherDetailPage() {
       <p><StatusBadge status={voucher.status} /></p>
 
       <div className="card">
-        <p>{t("voucherDate")}: {voucher.date}</p>
+        <p>{t("voucherDate")}: {formatDate(voucher.date, "form")}</p>
         <p>{t("treasuryAccount")}: {voucher.treasury_name}</p>
         {voucher.counter_treasury_name && <p>{t("destinationAccount")}: {voucher.counter_treasury_name}</p>}
         <p>{t(voucher.voucher_type === "receipt" ? "receivedFrom" : "paidTo")}: {voucher.party_name || voucher.payee_name || "—"}</p>

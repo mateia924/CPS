@@ -7,6 +7,7 @@ import { AttachmentPanel } from "@/components/AttachmentPanel";
 import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useLocale } from "@/lib/i18n";
+import { formatDate } from "@/lib/date";
 import type { JournalEntry } from "@/lib/types";
 
 /** Sprint 6 (block 6.0, item 2): a real detail screen for one journal
@@ -35,7 +36,7 @@ export default function JournalEntryDetailPage() {
       </h1>
 
       <div className="card">
-        <p>{t("date")}: {entry.date}</p>
+        <p>{t("date")}: {formatDate(entry.date, "form")}</p>
         <p>{t("legalEntity")}: {entry.legal_entity_name}</p>
         <p>{t("description")}: {entry.memo}</p>
         {entry.reference && <p>{t("reference")}: {entry.reference}</p>}

@@ -4,14 +4,17 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "sh scripts/check-brand.sh && sh scripts/check-money.sh && sh scripts/check-forms.sh && sh scripts/check-entity-default.sh",
+    "prebuild": "sh scripts/check-brand.sh && sh scripts/check-money.sh && sh scripts/check-forms.sh && sh scripts/check-entity-default.sh && sh scripts/check-dates.sh && sh scripts/check-arabic-ui.sh && sh scripts/check-links.sh",
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
     "check-brand": "sh scripts/check-brand.sh",
     "check-money": "sh scripts/check-money.sh",
     "check-forms": "sh scripts/check-forms.sh",
-    "check-entity-default": "sh scripts/check-entity-default.sh"
+    "check-entity-default": "sh scripts/check-entity-default.sh",
+    "check-dates": "sh scripts/check-dates.sh",
+    "check-arabic-ui": "sh scripts/check-arabic-ui.sh",
+    "check-links": "sh scripts/check-links.sh"
   },
   "dependencies": {
     "next": "16.3.5",

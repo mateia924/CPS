@@ -741,3 +741,34 @@ def test_patch_lines_on_posted_voucher_is_rejected(tenant_a, client_a):
         format="json",
     )
     assert updated.status_code == 400, updated.data
+
+
+@pytest.mark.django_db
+def test_posted_voucher_journal_entry_memo_has_number_and_description(tenant_a, client_a):
+    """Sprint 6.6.6 (B-list item 6): the live bug was the posted
+    entry's own memo always missing the voucher NUMBER (assigned
+    after the memo was already built) and dropping the description
+    entirely once one existed — "بيان قيد السند برقم السند وبيانه"."""
+    cash_box = _make_cash_box(client_a, tenant_a)
+    _fund_cash_box(client_a, tenant_a, cash_box)
+    from apps.accounting.models import Account, JournalEntry, TaxCode
+
+    account = Account.objects.filter(tenant=tenant_a, code="5100").first()
+    tax_code = TaxCode.objects.get(tenant=tenant_a, code="Z")
+    response = _create_voucher(
+        client_a,
+        voucher_type="payment",
+        legal_entity=str(_branch(tenant_a).id),
+        date="2026-09-23",
+        treasury_kind="cash_box",
+        treasury_id=cash_box["id"],
+        payee_name="Test",
+        description="إيجار سبتمبر",
+        lines=[{"line_type": "account", "account": str(account.id), "tax_code": str(tax_code.id), "amount_fc": "100.00"}],
+    )
+    posted = _post(client_a, response.data["id"])
+    assert posted.status_code == 200, posted.data
+
+    entry = JournalEntry.objects.get(id=posted.data["journal_entry_id"])
+    assert posted.data["number"] in entry.memo
+    assert "إيجار سبتمبر" in entry.memo

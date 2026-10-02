@@ -97,6 +97,9 @@ check:
 	$(DC) $(DEV) exec frontend npm run check-money
 	$(DC) $(DEV) exec frontend npm run check-forms
 	$(DC) $(DEV) exec frontend npm run check-entity-default
+	$(DC) $(DEV) exec frontend npm run check-dates
+	$(DC) $(DEV) exec frontend npm run check-arabic-ui
+	$(DC) $(DEV) exec frontend npm run check-links
 
 ## Live-environment smoke test (sprint 5.0, CFO_REVIEW_1 O8) — run this
 ## after every deploy/restart, before trusting an environment for UAT

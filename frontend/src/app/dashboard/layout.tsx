@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DialogHost } from "@/components/Dialog";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
-import type { PendingApproval } from "@/lib/types";
+import type { PendingApprovalsResponse } from "@/lib/types";
 
 // BRAND.md §4 "الشريط الجانبي": the active item gets a filled background
 // plus a --sidebar-active-bar stripe on the leading edge.
@@ -50,8 +50,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     if (!user) return;
     api
-      .get<PendingApproval[]>("/approvals/pending/")
-      .then((rows) => setPendingCount(rows.length))
+      .get<PendingApprovalsResponse>("/approvals/pending/")
+      .then((data) => setPendingCount(data.results.length))
       .catch(() => undefined);
   }, [user]);
 

@@ -54,3 +54,6 @@
 2026-10-01T22:54:34+03:00	9cc09ab	cps-db-20261001-225433.sql.gz.gpg	make migrate
 2026-10-01T23:04:32+03:00	9cc09ab	cps-db-20261001-230431.sql.gz.gpg	make migrate
 2026-10-01T23:49:59+03:00	9cc09ab	cps-db-20261001-234958.sql.gz.gpg	make migrate
+2026-10-02T03:00:02+03:00	687fb51	cps-db-20261002-030001.sql.gz.gpg	
+2026-10-02T20:27:48+03:00	d5bd59c	cps-db-20261002-202747.sql.gz.gpg	staging_refresh.sh --code-only
+2026-10-02T20:29:44+03:00	d5bd59c	cps-db-20261002-202944.sql.gz.gpg	deploy.sh d5bd59cbfa426cc38db0792a04c35a0e62da7960

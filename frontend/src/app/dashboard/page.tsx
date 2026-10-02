@@ -39,7 +39,7 @@ export default function DashboardHome() {
     <div>
       <div className="card">
         <h1>
-          {t("welcome")}, {user?.first_name || user?.email}
+          {t("welcome")}, {user ? `${user.first_name} ${user.last_name}`.trim() || user.email : ""}
         </h1>
         <p>{tenant?.name}</p>
       </div>

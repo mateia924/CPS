@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
+import { formatDateTime } from "@/lib/date";
 import type { AuditLogEntry, Paginated } from "@/lib/types";
 
 /** Sprint 5.7 (CFO_REVIEW_1 F10): "سجل التغييرات" tab — GET /api/
@@ -47,7 +48,7 @@ export function ChangeHistoryTab({ targetType, targetId }: { targetType: string;
             <tbody>
               {entries.map((entry) => (
                 <tr key={entry.id}>
-                  <td>{new Date(entry.created_at).toLocaleString()}</td>
+                  <td>{formatDateTime(entry.created_at)}</td>
                   <td>{entry.actor_id || "—"}</td>
                   <td>{entry.action}</td>
                 </tr>

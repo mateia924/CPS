@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
@@ -74,7 +75,7 @@ export default function CustomerDetailPage() {
             <tbody>
               {invoices.map((invoice) => (
                 <tr key={invoice.id}>
-                  <td>{invoice.number}</td>
+                  <td><Link href={`/dashboard/invoices/${invoice.id}`}>{invoice.number}</Link></td>
                   <td>{t(invoice.status)}</td>
                   <td>{invoice.issue_date}</td>
                   <td><Money amount={invoice.total} currency={invoice.currency} /></td>
@@ -102,7 +103,11 @@ export default function CustomerDetailPage() {
             <tbody>
               {vouchers.map((voucher) => (
                 <tr key={voucher.id}>
-                  <td>{voucher.number || `(${t("draft")})`}</td>
+                  <td>
+                    <Link href={`/dashboard/treasury/vouchers/${voucher.id}`}>
+                      {voucher.number || `(${t("draft")})`}
+                    </Link>
+                  </td>
                   <td>{voucher.date}</td>
                   <td><Money amount={voucher.total_fc} currency={voucher.currency} /></td>
                   <td><StatusBadge status={voucher.status} /></td>

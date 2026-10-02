@@ -9,6 +9,7 @@ import { ChangeHistoryTab } from "@/components/ChangeHistoryTab";
 import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useLocale } from "@/lib/i18n";
+import { formatDate } from "@/lib/date";
 import type { Invoice } from "@/lib/types";
 
 // Sprint 5.6 (block 5.6): "تفاصيل الفاتورة: قسم 'السدادات' (التخصيصات)
@@ -49,8 +50,8 @@ export default function InvoiceDetailPage() {
       <div className="card">
         <p>{t("customer")}: {invoice.customer_name}</p>
         <p>{t("legalEntity")}: {invoice.legal_entity_name}</p>
-        <p>{t("issueDate")}: {invoice.issue_date}</p>
-        {invoice.due_date && <p>{t("dueDate")}: {invoice.due_date}</p>}
+        <p>{t("issueDate")}: {formatDate(invoice.issue_date, "form")}</p>
+        {invoice.due_date && <p>{t("dueDate")}: {formatDate(invoice.due_date, "form")}</p>}
         <p>{t("total")}: <Money amount={invoice.total} currency={invoice.currency} /></p>
         {invoice.journal_entry_id && (
           <p>

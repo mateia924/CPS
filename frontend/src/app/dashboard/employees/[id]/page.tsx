@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
@@ -122,7 +123,11 @@ export default function EmployeeDetailPage() {
             <tbody>
               {vouchers.map((voucher) => (
                 <tr key={voucher.id}>
-                  <td>{voucher.number || `(${t("draft")})`}</td>
+                  <td>
+                    <Link href={`/dashboard/treasury/vouchers/${voucher.id}`}>
+                      {voucher.number || `(${t("draft")})`}
+                    </Link>
+                  </td>
                   <td>{voucher.date}</td>
                   <td><Money amount={voucher.total_fc} currency={voucher.currency} /></td>
                   <td><StatusBadge status={voucher.status} /></td>

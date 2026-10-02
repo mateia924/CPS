@@ -45,6 +45,26 @@ else
   echo "PASS: every money field access is wrapped in <Money> or formatMoney("
 fi
 
+echo ""
+echo "== check-money: a non-zero/blank ternary repeating the raw field (e.g. {x.debit_fc !== \"0.00\" ? x.debit_fc : \"\"}) =="
+# Sprint 6.6.6 (item 4): the previous check above only catches
+# "{...field}" immediately followed by a closing brace — this exact
+# "show it raw if non-zero, else blank" ternary (found live in
+# TreasuryMovementsCard.tsx) has a comparison in between, so it slips
+# through that one unnoticed while still rendering an unformatted
+# number.
+PATTERN='!== "0\.00" \?'
+MATCHES=$(find src -name '*.tsx' -type f \
+  ! -path 'src/components/Money.tsx' \
+  -exec grep -nE "$PATTERN" {} + | grep -v '<Money' | grep -v 'formatMoney(' | grep -v 'money-ok' | grep -v 'style={' || true)
+if [ -n "$MATCHES" ]; then
+  echo "$MATCHES"
+  echo "FAIL: a non-zero ternary renders its truthy branch without <Money>/formatMoney("
+  FAIL=1
+else
+  echo "PASS: every non-zero/blank ternary's truthy branch goes through <Money>/formatMoney("
+fi
+
 if [ "$FAIL" -ne 0 ]; then
   echo ""
   echo "check-money: FAILED"

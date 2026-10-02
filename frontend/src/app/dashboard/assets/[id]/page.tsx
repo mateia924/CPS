@@ -9,6 +9,7 @@ import { promptDialog } from "@/components/Dialog";
 import { FormField } from "@/components/FormField";
 import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
+import { formatDate } from "@/lib/date";
 import { WarningsBanner } from "@/components/WarningsBanner";
 import { useLocale } from "@/lib/i18n";
 import type {
@@ -328,7 +329,7 @@ export default function AssetDetailPage() {
 
       <div className="card">
         <p>{t("category")}: {t(asset.category)}</p>
-        <p>{t("purchaseDate")}: {asset.purchase_date}</p>
+        <p>{t("purchaseDate")}: {formatDate(asset.purchase_date, "form")}</p>
         <p>{t("purchaseCost")}: <Money amount={asset.purchase_cost} currency={asset.currency} /></p>
         <p>{t("usefulLifeMonths")}: {asset.useful_life_months ?? "—"}</p>
         <p>{t("salvageValue")}: <Money amount={asset.salvage_value} currency={asset.currency} /></p>
@@ -758,7 +759,7 @@ export default function AssetDetailPage() {
                       : "—"}
                   </td>
                   <td>{transfer.reason}</td>
-                  <td>{new Date(transfer.created_at).toLocaleDateString()}</td>
+                  <td>{formatDate(transfer.created_at)}</td>
                 </tr>
               ))}
             </tbody>

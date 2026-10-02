@@ -961,6 +961,11 @@ export interface OpeningBalanceStatusRow {
   legal_entity_name: string;
   approved: boolean;
   approved_at: string | null;
+  // Sprint 6.6.6 (§6.3 addition): the entity's own current INITIAL
+  // document (draft/pending_approval/approved), if any — null means
+  // no document has ever been created for this entity yet.
+  current_entry_id: string | null;
+  current_entry_status: "draft" | "pending_approval" | "approved" | null;
 }
 
 // Sprint 6.4 (3.15.4): recurring entries (prepaid/deferred/accrual).
@@ -1195,6 +1200,22 @@ export interface PendingApproval {
   description: string;
   amount_base: string;
   created_by: string | null;
+  // Sprint 6.6.6 (B-list item 11): false means this specific user
+  // would get a 403 if they clicked approve on this exact row (they
+  // created it themselves, and no single-active-user exemption
+  // applies) — the inbox disables its own button instead of letting
+  // them find out by clicking it.
+  can_approve: boolean;
+}
+
+// Sprint 6.6.6 (§6.3 addition): `blocked` never reveals which
+// document(s) — just how many are pending approval and which role
+// name(s) they need that the current user doesn't hold, so the inbox
+// can say "N document(s) pending a higher role (Owner)" instead of
+// the misleading "no documents pending your approval".
+export interface PendingApprovalsResponse {
+  results: PendingApproval[];
+  blocked: { count: number; role_names: string[] };
 }
 
 // Sprint 6.8 (decision 18, D4) + 6.9.1 (item C, display fields).

@@ -313,13 +313,62 @@ def test_pending_approvals_inbox_shows_matching_role_only(db):
     owner_client.force_authenticate(user=owner)
     owner_inbox = owner_client.get("/api/approvals/pending/")
     assert owner_inbox.status_code == 200
-    assert len(owner_inbox.data) == 1
-    assert owner_inbox.data[0]["doc_type"] == "journal_entry"
+    assert len(owner_inbox.data["results"]) == 1
+    assert owner_inbox.data["results"][0]["doc_type"] == "journal_entry"
 
     viewer_client = APIClient()
     viewer_client.force_authenticate(user=viewer)
     viewer_inbox = viewer_client.get("/api/approvals/pending/")
-    assert viewer_inbox.data == []
+    assert viewer_inbox.data["results"] == []
+    # Sprint 6.6.6 (§6.3): the viewer's own empty inbox isn't actually
+    # "nothing pending anywhere" — one real document is, just for a
+    # role the viewer doesn't hold — surfaced as a count + role name,
+    # never the document itself.
+    assert viewer_inbox.data["blocked"]["count"] == 1
+    assert viewer_inbox.data["blocked"]["role_names"] == ["Owner"]
+    assert owner_inbox.data["blocked"] == {"count": 0, "role_names": []}
+    assert owner_inbox.data["results"][0]["can_approve"] is True
+
+
+@pytest.mark.django_db
+def test_can_approve_is_false_for_a_document_the_creator_also_holds_the_role_for(db):
+    """Sprint 6.6.6 (B-list item 11): a second Owner on the same multi-
+    user tenant creates a JV requiring Owner approval — it still
+    reaches their own inbox (their role matches), but `can_approve`
+    must be False since approving it would 403 (segregation of
+    duties, no single-active-user exemption here — two Owners exist)."""
+    tenant = TenantFactory()
+    seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
+    entity = LegalEntityFactory(tenant=tenant)
+    roles = seed_default_roles(tenant)
+    ApprovalRule.objects.create(
+        tenant=tenant, doc_type=ApprovalRule.DocType.JOURNAL_ENTRY, min_amount=0, required_role=roles["Owner"],
+    )
+    creator_owner = UserFactory(tenant=tenant, email="creator-owner@inbox.test")
+    creator_owner.roles.add(roles["Owner"])
+    other_owner = UserFactory(tenant=tenant, email="other-owner@inbox.test")
+    other_owner.roles.add(roles["Owner"])
+    cash, sales = _leaf_pair(tenant)
+
+    entry = create_manual_journal_entry(
+        tenant=tenant, user=creator_owner, legal_entity=entity, date=date(2026, 1, 1),
+        line_specs=[
+            {"account": cash, "debit_fc": Decimal("5.00"), "credit_fc": Decimal("0")},
+            {"account": sales, "debit_fc": Decimal("0"), "credit_fc": Decimal("5.00")},
+        ],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+    submit_journal_entry_for_approval(entry, creator_owner)
+
+    creator_client = APIClient()
+    creator_client.force_authenticate(user=creator_owner)
+    inbox = creator_client.get("/api/approvals/pending/")
+    assert len(inbox.data["results"]) == 1
+    assert inbox.data["results"][0]["can_approve"] is False
+
+    attempt = creator_client.post(f"/api/journal-entries/{entry.id}/approve/")
+    assert attempt.status_code == 403
 
 
 @pytest.mark.django_db
@@ -349,7 +398,7 @@ def test_pending_approvals_inbox_is_tenant_isolated(tenant_a, tenant_b, client_a
 
     response = client_a.get("/api/approvals/pending/")
     assert response.status_code == 200
-    assert response.data == []
+    assert response.data["results"] == []
 
 
 # ---------------------------------------------------------------------
@@ -529,13 +578,13 @@ def test_voucher_blocked_by_rule_appears_in_inbox_and_creator_cannot_self_approv
     owner_client.force_authenticate(user=owner)
     inbox = owner_client.get("/api/approvals/pending/")
     assert inbox.status_code == 200
-    assert len(inbox.data) == 1
-    assert inbox.data[0]["doc_type"] == "voucher_payment"
-    assert inbox.data[0]["id"] == voucher.data["id"]
+    assert len(inbox.data["results"]) == 1
+    assert inbox.data["results"][0]["doc_type"] == "voucher_payment"
+    assert inbox.data["results"][0]["id"] == voucher.data["id"]
 
     approved = owner_client.post(f"/api/vouchers/{voucher.data['id']}/approve/")
     assert approved.status_code == 200, approved.data
     assert approved.data["status"] == "posted"
 
     empty_inbox = owner_client.get("/api/approvals/pending/")
-    assert empty_inbox.data == []
+    assert empty_inbox.data["results"] == []

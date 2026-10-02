@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { API_BASE, ApiError, api, fieldErrors, generalError } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
+import { formatDate } from "@/lib/date";
 import { FormField } from "@/components/FormField";
 import { WarningsBanner } from "@/components/WarningsBanner";
 import type { Attachment, AttachmentCategory, AttachmentTargetType, Paginated } from "@/lib/types";
@@ -152,7 +153,7 @@ export function AttachmentPanel({
         </span>
       </td>
       <td style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
-        {attachment.uploaded_by_email} · {new Date(attachment.uploaded_at).toLocaleDateString()}
+        {attachment.uploaded_by_email} · {formatDate(attachment.uploaded_at)}
       </td>
       <td style={{ whiteSpace: "nowrap" }}>
         <button className="secondary" onClick={() => download(attachment)}>

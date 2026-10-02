@@ -12,6 +12,7 @@ from apps.accounting.services import (
     get_or_create_treasury_account,
     get_system_account,
 )
+from apps.common.formatting import format_money
 from apps.common.validators import future_date_warning as _future_date_warning
 from apps.numbering.services import next_document_number
 from apps.platform.models import AuditLog
@@ -557,16 +558,16 @@ def _transfer_balance_warnings_and_checks(tenant, voucher):
                 "detail": [
                     str(
                         _(
-                            "Insufficient balance in the source treasury account for this transfer: "
-                            "balance %(balance)s, shortfall %(shortfall)s."
+                            "رصيد الخزينة المصدر لا يكفي لهذا التحويل: "
+                            "الرصيد %(balance)s، العجز %(shortfall)s."
                         )
-                        % {"balance": source_current, "shortfall": -projected_source}
+                        % {"balance": format_money(source_current), "shortfall": format_money(-projected_source)}
                     )
                 ]
             }
         )
     if voucher.treasury_kind == "bank" and projected_source < 0:
-        warnings.append(str(_("This will make the source bank account balance negative.")))
+        warnings.append(str(_("سيؤدي هذا إلى جعل رصيد الحساب البنكي المصدر سالبًا.")))
 
     dest_instance = getattr(voucher, f"counter_{voucher.counter_treasury_kind}")
     counter_amount = voucher.counter_amount_fc if voucher.counter_amount_fc is not None else voucher.total_fc
@@ -576,11 +577,11 @@ def _transfer_balance_warnings_and_checks(tenant, voucher):
     projected_dest = dest_current + counter_amount
     if voucher.counter_treasury_kind == "cash_box" and dest_instance.max_balance is not None:
         if projected_dest > dest_instance.max_balance:
-            warnings.append(str(_("This will exceed the destination cash box's configured maximum balance.")))
+            warnings.append(str(_("سيتجاوز هذا الحد الأقصى المضبوط لصندوق النقدية الوجهة.")))
     if voucher.counter_treasury_kind == "custody" and dest_instance.limit_amount is not None:
         if projected_dest > dest_instance.limit_amount:
             raise VoucherValidationError(
-                {"detail": [_("This would exceed the destination custody's configured limit.")]}
+                {"detail": [_("سيتجاوز هذا حد العهدة الوجهة المضبوط.")]}
             )
     return warnings
 
@@ -607,25 +608,25 @@ def _balance_warnings_and_checks(tenant, voucher):
                     "detail": [
                         str(
                             _(
-                                "Insufficient balance in this treasury account for this voucher: "
-                                "balance %(balance)s, shortfall %(shortfall)s."
+                                "رصيد هذه الخزينة لا يكفي لهذا السند: "
+                                "الرصيد %(balance)s، العجز %(shortfall)s."
                             )
-                            % {"balance": current, "shortfall": -projected}
+                            % {"balance": format_money(current), "shortfall": format_money(-projected)}
                         )
                     ]
                 }
             )
         if voucher.treasury_kind == "bank" and projected < 0:
-            warnings.append(str(_("This will make the bank account balance negative.")))
+            warnings.append(str(_("سيؤدي هذا إلى جعل رصيد الحساب البنكي سالبًا.")))
     else:
         projected = current + voucher.total_fc
         if voucher.treasury_kind == "cash_box" and treasury_instance.max_balance is not None:
             if projected > treasury_instance.max_balance:
-                warnings.append(str(_("This will exceed the cash box's configured maximum balance.")))
+                warnings.append(str(_("سيتجاوز هذا الحد الأقصى المضبوط لصندوق النقدية.")))
         if voucher.treasury_kind == "custody" and treasury_instance.limit_amount is not None:
             if projected > treasury_instance.limit_amount:
                 raise VoucherValidationError(
-                    {"detail": [_("This would exceed the custody's configured limit.")]}
+                    {"detail": [_("سيتجاوز هذا حد العهدة المضبوط.")]}
                 )
 
     return warnings
@@ -708,12 +709,28 @@ def _actually_post(voucher, user, request=None):
 
     assert_open_period(voucher.tenant, voucher.date)
 
+    # Sprint 6.6.6 (B-list item 6): the voucher's own number must be
+    # assigned BEFORE building the posted entry's memo below — it used
+    # to happen after (see the bottom of this function), so every
+    # voucher's own first-ever posted entry had its memo built from an
+    # always-still-blank voucher.number, silently dropping the number
+    # from "بيان قيد السند" entirely (and the description too, once a
+    # description existed — the old code showed at most one of the
+    # two, never both).
+    if not voucher.number:
+        voucher.number = next_document_number(
+            voucher.tenant, f"voucher_{voucher.voucher_type}", voucher.legal_entity, voucher.date
+        )
+    memo = f"{voucher.get_voucher_type_display()} {voucher.number}"
+    if voucher.description:
+        memo = f"{memo} — {voucher.description}"
+
     specs, allocation_specs = _build_posting_specs(voucher.tenant, voucher)
     entry = JournalEntry.objects.create(
         tenant=voucher.tenant,
         legal_entity=voucher.legal_entity,
         date=voucher.date,
-        memo=voucher.description or f"{voucher.get_voucher_type_display()} {voucher.number or ''}".strip(),
+        memo=memo,
         reference=voucher.reference,
         number=next_document_number(voucher.tenant, "journal_entry", voucher.legal_entity, voucher.date),
         status=JournalEntry.Status.POSTED,
@@ -734,10 +751,6 @@ def _actually_post(voucher, user, request=None):
 
     JournalLine.objects.bulk_create(lines)
 
-    if not voucher.number:
-        voucher.number = next_document_number(
-            voucher.tenant, f"voucher_{voucher.voucher_type}", voucher.legal_entity, voucher.date
-        )
     voucher.status = Voucher.Status.POSTED
     voucher.journal_entry = entry
     voucher.posted_at = timezone.now()

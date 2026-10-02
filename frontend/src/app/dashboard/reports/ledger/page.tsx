@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { Money } from "@/components/Money";
@@ -88,7 +89,7 @@ function LedgerReport() {
                 {result.lines.map((line) => (
                   <tr key={`${line.entry_id}-${line.date}`}>
                     <td>{line.date}</td>
-                    <td>{line.entry_number}</td>
+                    <td><Link href={`/dashboard/accounting/journal-entries/${line.entry_id}`}>{line.entry_number}</Link></td>
                     <td>{line.description}</td>
                     <td>{line.debit !== "0.00" ? <Money amount={line.debit} /> : ""}</td>
                     <td>{line.credit !== "0.00" ? <Money amount={line.credit} /> : ""}</td>
