@@ -1098,6 +1098,7 @@ export interface FixedAssetRegisterRow {
   book_value: string;
   remaining_months: number;
   status: AssetStatus;
+  legal_entity_name: string;
 }
 
 export interface FixedAssetRegisterReport {

@@ -70,6 +70,7 @@ export default function FixedAssetsReportPage() {
               <tr>
                 <th>{t("code")}</th>
                 <th>{t("name")}</th>
+                <th>{t("entityColumn")}</th>
                 <th>{t("category")}</th>
                 <th>{t("depreciationMethod")}</th>
                 <th>{t("purchaseCost")}</th>
@@ -86,6 +87,7 @@ export default function FixedAssetsReportPage() {
                 <tr key={row.asset_id}>
                   <td>{row.code}</td>
                   <td>{row.name}</td>
+                  <td>{row.legal_entity_name}</td>
                   <td>{t(row.category)}</td>
                   <td>{t(row.depreciation_method === "declining_balance" ? "decliningBalance" : "straightLine")}</td>
                   <td><Money amount={row.cost} /></td>
@@ -100,7 +102,7 @@ export default function FixedAssetsReportPage() {
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={4}><strong>{t("total")}</strong></td>
+                <td colSpan={5}><strong>{t("total")}</strong></td>
                 <td><strong><Money amount={result.totals.cost} /></strong></td>
                 <td><strong><Money amount={result.totals.additions} /></strong></td>
                 <td><strong><Money amount={result.totals.disposals} /></strong></td>

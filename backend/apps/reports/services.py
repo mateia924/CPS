@@ -281,7 +281,7 @@ def fixed_assets_register(tenant, as_of=None, legal_entity=None, include_childre
     assets = (
         Asset.objects.filter(tenant=tenant, is_active=True, purchase_date__lte=as_of)
         .exclude(status=Asset.Status.DISPOSED)
-        .select_related("depreciation_entry")
+        .select_related("depreciation_entry", "legal_entity")
     )
     if legal_entity is not None:
         assets = assets.filter(legal_entity__in=_entities_in_scope(legal_entity, include_children))
@@ -312,6 +312,7 @@ def fixed_assets_register(tenant, as_of=None, legal_entity=None, include_childre
                 "cost": asset.purchase_cost, "additions": additions_total, "disposals": disposals_total,
                 "accumulated_depreciation": accumulated, "book_value": book_value,
                 "remaining_months": remaining_months, "status": asset.status,
+                "legal_entity_name": asset.legal_entity.name,
             }
         )
         total_cost += asset.purchase_cost
@@ -337,7 +338,7 @@ def fixed_assets_register(tenant, as_of=None, legal_entity=None, include_childre
     if fiscal_year is not None:
         disposed_assets = Asset.objects.filter(
             tenant=tenant, is_active=True, status=Asset.Status.DISPOSED, purchase_date__lte=as_of,
-        )
+        ).select_related("legal_entity")
         if legal_entity is not None:
             disposed_assets = disposed_assets.filter(
                 legal_entity__in=_entities_in_scope(legal_entity, include_children)
@@ -361,6 +362,7 @@ def fixed_assets_register(tenant, as_of=None, legal_entity=None, include_childre
                     "cost": asset.purchase_cost, "additions": additions_total, "disposals": disposals_total,
                     "accumulated_depreciation": accumulated, "book_value": Decimal("0.00"),
                     "remaining_months": 0, "status": asset.status,
+                    "legal_entity_name": asset.legal_entity.name,
                 }
             )
 

@@ -103,20 +103,30 @@ class PartyViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         account = Account.objects.filter(tenant=request.user.tenant, party=party, party__roles__role=role).first()
         if account is None:
             return Response({"opening_balance": "0", "opening_balance_fc": "0", "lines": [], "closing_balance": "0", "closing_balance_fc": "0", "open_invoices": []})
+        legal_entity = None
+        legal_entity_id = request.query_params.get("legal_entity")
+        if legal_entity_id:
+            from apps.organization.models import LegalEntity
+
+            legal_entity = LegalEntity.objects.filter(tenant=request.user.tenant, id=legal_entity_id).first()
+        include_children = request.query_params.get("include_children", "true") != "false"
         date_from = request.query_params.get("from")
         date_to = request.query_params.get("to")
         result = ledger_lines(
-            request.user.tenant, account,
+            request.user.tenant, account, legal_entity=legal_entity, include_children=include_children,
             date_from=datetime.date.fromisoformat(date_from) if date_from else None,
             date_to=datetime.date.fromisoformat(date_to) if date_to else None,
         )
         if role == PartyRole.Role.CUSTOMER:
             from apps.sales.models import Invoice
 
+            invoices_qs = Invoice.objects.filter(tenant=request.user.tenant, party=party, status=Invoice.Status.ISSUED)
+            if legal_entity is not None:
+                from apps.reports.services import _entities_in_scope
+
+                invoices_qs = invoices_qs.filter(legal_entity__in=_entities_in_scope(legal_entity, include_children))
             open_invoices = list(
-                Invoice.objects.filter(
-                    tenant=request.user.tenant, party=party, status=Invoice.Status.ISSUED
-                ).values("id", "number", "issue_date", "due_date", "currency", "total", "balance_fc")
+                invoices_qs.values("id", "number", "issue_date", "due_date", "currency", "total", "balance_fc")
             )
             result["open_invoices"] = open_invoices
         else:

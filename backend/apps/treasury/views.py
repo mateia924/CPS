@@ -94,10 +94,17 @@ class _TreasuryMovementsMixin:
         instance = self.get_object()
         if instance.gl_account_id is None:
             return Response({"opening_balance": "0", "opening_balance_fc": "0", "lines": [], "closing_balance": "0", "closing_balance_fc": "0"})
+        legal_entity = None
+        legal_entity_id = request.query_params.get("legal_entity")
+        if legal_entity_id:
+            from apps.organization.models import LegalEntity
+
+            legal_entity = LegalEntity.objects.filter(tenant=request.user.tenant, id=legal_entity_id).first()
+        include_children = request.query_params.get("include_children", "true") != "false"
         date_from = request.query_params.get("from")
         date_to = request.query_params.get("to")
         result = ledger_lines(
-            request.user.tenant, instance.gl_account,
+            request.user.tenant, instance.gl_account, legal_entity=legal_entity, include_children=include_children,
             date_from=datetime.date.fromisoformat(date_from) if date_from else None,
             date_to=datetime.date.fromisoformat(date_to) if date_to else None,
         )

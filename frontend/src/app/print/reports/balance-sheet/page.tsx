@@ -16,10 +16,16 @@ function BalanceSheetPrint() {
   const asOf = searchParams.get("as_of") || "";
 
   const [entity, setEntity] = useState<LegalEntity | null>(null);
+  const [scopeEntity, setScopeEntity] = useState<LegalEntity | null>(null);
   const [report, setReport] = useState<BalanceSheetReport | null>(null);
 
   useEffect(() => {
     api.get<Paginated<LegalEntity>>("/legal-entities/").then((data) => setEntity(data.results[0] || null));
+    if (legalEntityId) {
+      api.get<LegalEntity>(`/legal-entities/${legalEntityId}/`).then(setScopeEntity);
+    } else {
+      setScopeEntity(null);
+    }
     const params = new URLSearchParams({ include_children: String(includeChildren) });
     if (legalEntityId) params.set("legal_entity", legalEntityId);
     if (asOf) params.set("as_of", asOf);
@@ -58,6 +64,13 @@ function BalanceSheetPrint() {
           </div>
           <div style={{ textAlign: "end" }}>
             <h2>{t("balanceSheetNav")}</h2>
+            <p>
+              {scopeEntity ? (
+                <>{scopeEntity.code} — {scopeEntity.name} {includeChildren ? t("entityScopeWithBranches") : t("entityScopeOnly")}</>
+              ) : (
+                t("entityScopeAllEntities")
+              )}
+            </p>
             <p>{t("asOf")}: {report.as_of}</p>
             <p>{t("preparedBy")}: {report.prepared_by}</p>
             <p>{formatDateTime(report.generated_at, "form")}</p>

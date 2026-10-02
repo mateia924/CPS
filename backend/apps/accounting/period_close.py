@@ -15,41 +15,55 @@ from .models import FiscalPeriod
 from .periods import _lock_year_if_all_periods_locked, _log_period_action, _previous_period
 
 
-def _unposted_documents(tenant_id, start_date, end_date):
+def _unposted_documents(tenant_id, start_date, end_date, entity_ids=None):
     """Decision 13's BLOCK #2 — every DRAFT/PENDING_APPROVAL/APPROVED
     document dated inside the period, with its own reference, across
     every document type this project has (invoices, vouchers, manual
-    journal entries, opening balances)."""
+    journal entries, opening balances).
+
+    Sprint 6.6.7 (§2 item 2): `entity_ids` (already resolved to a
+    subtree via `_entities_in_scope` by `period_checklist`) narrows
+    every doc type when given; `None` keeps the tenant-wide default."""
     from apps.accounting.models import JournalEntry, OpeningBalanceEntry
     from apps.sales.models import Invoice
     from apps.vouchers.models import Voucher
 
-    unposted = []
-    for invoice in Invoice.objects.filter(
+    invoices = Invoice.objects.filter(
         tenant_id=tenant_id, issue_date__gte=start_date, issue_date__lte=end_date,
         status__in=[Invoice.Status.DRAFT, Invoice.Status.PENDING_APPROVAL, Invoice.Status.APPROVED],
-    ):
-        unposted.append({"type": "invoice", "id": str(invoice.id), "reference": invoice.number or str(_("(draft)"))})
-    for voucher in Voucher.objects.filter(
+    )
+    vouchers = Voucher.objects.filter(
         tenant_id=tenant_id, date__gte=start_date, date__lte=end_date,
         status__in=["draft", "pending_approval", "approved"],
-    ):
-        unposted.append({"type": "voucher", "id": str(voucher.id), "reference": voucher.number or str(_("(draft)"))})
-    for entry in JournalEntry.objects.filter(
+    )
+    entries = JournalEntry.objects.filter(
         tenant_id=tenant_id, date__gte=start_date, date__lte=end_date,
         status__in=["draft", "pending_approval", "approved"],
-    ):
-        unposted.append({"type": "journal_entry", "id": str(entry.id), "reference": entry.number or str(_("(draft)"))})
-    for entry in OpeningBalanceEntry.objects.filter(
+    )
+    openings = OpeningBalanceEntry.objects.filter(
         tenant_id=tenant_id, opening_date__gte=start_date, opening_date__lte=end_date,
         status__in=[OpeningBalanceEntry.Status.DRAFT, OpeningBalanceEntry.Status.PENDING_APPROVAL],
         deleted_at__isnull=True,
-    ):
+    )
+    if entity_ids is not None:
+        invoices = invoices.filter(legal_entity_id__in=entity_ids)
+        vouchers = vouchers.filter(legal_entity_id__in=entity_ids)
+        entries = entries.filter(legal_entity_id__in=entity_ids)
+        openings = openings.filter(legal_entity_id__in=entity_ids)
+
+    unposted = []
+    for invoice in invoices:
+        unposted.append({"type": "invoice", "id": str(invoice.id), "reference": invoice.number or str(_("(draft)"))})
+    for voucher in vouchers:
+        unposted.append({"type": "voucher", "id": str(voucher.id), "reference": voucher.number or str(_("(draft)"))})
+    for entry in entries:
+        unposted.append({"type": "journal_entry", "id": str(entry.id), "reference": entry.number or str(_("(draft)"))})
+    for entry in openings:
         unposted.append({"type": "opening_balance", "id": str(entry.id), "reference": str(entry)})
     return unposted
 
 
-def _depreciable_assets_without_schedule(tenant_id):
+def _depreciable_assets_without_schedule(tenant_id, entity_ids=None):
     """Decision 10: replaces the dead INFO placeholder — every active,
     depreciable asset with no depreciation schedule at all yet."""
     from apps.assets.models import Asset
@@ -58,13 +72,17 @@ def _depreciable_assets_without_schedule(tenant_id):
         tenant_id=tenant_id, is_active=True, is_depreciable=True,
         status=Asset.Status.ACTIVE, depreciation_entry__isnull=True,
     )
+    if entity_ids is not None:
+        assets = assets.filter(legal_entity_id__in=entity_ids)
     return [{"type": "asset", "id": str(a.id), "reference": f"{a.code} {a.name}"} for a in assets]
 
 
-def _due_installments_not_generated(tenant_id, period):
+def _due_installments_not_generated(tenant_id, period, entity_ids=None):
     from .models import RecurringInstallment
 
     installments = RecurringInstallment.objects.filter(entry__tenant_id=tenant_id, period=period, status=RecurringInstallment.Status.DUE)
+    if entity_ids is not None:
+        installments = installments.filter(entry__legal_entity_id__in=entity_ids)
     # Sprint 6.5.18 (UAT item 8): a single installment has no detail
     # page of its own — its parent RecurringEntry does (the same
     # "recurring_entry" type/route the frontend already resolves for
@@ -75,12 +93,15 @@ def _due_installments_not_generated(tenant_id, period):
     ]
 
 
-def _bank_reconciliation_warnings(tenant, period):
+def _bank_reconciliation_warnings(tenant, period, entity_ids=None):
     from apps.treasury.models import Bank
     from apps.treasury.reconciliation import reconciliation_report
 
+    banks = Bank.objects.filter(tenant=tenant, is_active=True)
+    if entity_ids is not None:
+        banks = banks.filter(legal_entity_id__in=entity_ids)
     warnings = []
-    for bank in Bank.objects.filter(tenant=tenant, is_active=True):
+    for bank in banks:
         report = reconciliation_report(tenant, bank, as_of=period.end_date)
         if report["difference"] != Decimal("0"):
             warnings.append(
@@ -99,36 +120,58 @@ def _bank_reconciliation_warnings(tenant, period):
     return warnings
 
 
-def _posted_documents_without_attachment(tenant, period):
-    from apps.accounting.models import JournalEntry
+def _missing_attachment_rows(tenant, app_label, model_name, doc_type, queryset):
+    """Sprint 6.6.7 (§6.4 performance debt): one batched "which of these
+    already have an attachment" query per document type, instead of a
+    separate `.exists()` round-trip per document (an N+1 that alone cost
+    ~6.2s of `period_checklist`'s ~6.2s total on the 100k-line perf
+    baseline). The set-difference itself runs in Python, but against at
+    most two id lists already fetched via plain (RLS-respecting) ORM
+    querysets — no raw SQL."""
     from apps.attachments.models import Attachment
+
+    docs = list(queryset.values_list("id", "number"))
+    if not docs:
+        return []
+    content_type = _content_type(app_label, model_name)
+    doc_ids = [doc_id for doc_id, _number in docs]
+    attached_ids = set(
+        Attachment.objects.filter(
+            tenant=tenant, content_type=content_type, object_id__in=doc_ids, status=Attachment.Status.ACTIVE
+        ).values_list("object_id", flat=True)
+    )
+    return [
+        {"type": doc_type, "id": str(doc_id), "reference": number}
+        for doc_id, number in docs
+        if doc_id not in attached_ids
+    ]
+
+
+def _posted_documents_without_attachment(tenant, period, entity_ids=None):
+    from apps.accounting.models import JournalEntry
     from apps.sales.models import Invoice
     from apps.vouchers.models import Voucher
 
-    def _has_attachment(app_label, model_name, object_id):
-        content_type = _content_type(app_label, model_name)
-        return Attachment.objects.filter(
-            tenant=tenant, content_type=content_type, object_id=object_id, status=Attachment.Status.ACTIVE
-        ).exists()
-
-    missing = []
-    for entry in JournalEntry.objects.filter(
+    journal_entries = JournalEntry.objects.filter(
         tenant=tenant, date__gte=period.start_date, date__lte=period.end_date,
         status__in=["posted", "reversed"],
-    ):
-        if not _has_attachment("accounting", "journalentry", entry.id):
-            missing.append({"type": "journal_entry", "id": str(entry.id), "reference": entry.number})
-    for invoice in Invoice.objects.filter(
+    )
+    invoices = Invoice.objects.filter(
         tenant=tenant, issue_date__gte=period.start_date, issue_date__lte=period.end_date,
         status__in=[Invoice.Status.ISSUED, Invoice.Status.PAID, Invoice.Status.CANCELLED],
-    ):
-        if not _has_attachment("sales", "invoice", invoice.id):
-            missing.append({"type": "invoice", "id": str(invoice.id), "reference": invoice.number})
-    for voucher in Voucher.objects.filter(
+    )
+    vouchers = Voucher.objects.filter(
         tenant=tenant, date__gte=period.start_date, date__lte=period.end_date, status="posted",
-    ):
-        if not _has_attachment("vouchers", "voucher", voucher.id):
-            missing.append({"type": "voucher", "id": str(voucher.id), "reference": voucher.number})
+    )
+    if entity_ids is not None:
+        journal_entries = journal_entries.filter(legal_entity_id__in=entity_ids)
+        invoices = invoices.filter(legal_entity_id__in=entity_ids)
+        vouchers = vouchers.filter(legal_entity_id__in=entity_ids)
+
+    missing = []
+    missing += _missing_attachment_rows(tenant, "accounting", "journalentry", "journal_entry", journal_entries)
+    missing += _missing_attachment_rows(tenant, "sales", "invoice", "invoice", invoices)
+    missing += _missing_attachment_rows(tenant, "vouchers", "voucher", "voucher", vouchers)
     return missing
 
 
@@ -159,12 +202,23 @@ def _content_type(app_label, model_name):
     return _CONTENT_TYPE_CACHE[key]
 
 
-def period_checklist(period):
+def period_checklist(period, legal_entity=None, include_children=True):
     """Decision 13: the full BLOCK/WARN/INFO list for one fiscal
     period, computed fresh every time — snapshotted by close_period
-    only at the moment it actually closes."""
+    only at the moment it actually closes.
+
+    Sprint 6.6.7 (§2 item 2): an optional `legal_entity` (company → its
+    own sub-tree, via the same `_entities_in_scope` every report
+    already reuses) for a multi-branch tenant; the default
+    (`legal_entity=None`) stays tenant-wide, unchanged from before."""
     tenant = period.fiscal_year.tenant
     items = []
+
+    entity_ids = None
+    if legal_entity is not None:
+        from apps.reports.services import _entities_in_scope
+
+        entity_ids = [entity.id for entity in _entities_in_scope(legal_entity, include_children)]
 
     previous = _previous_period(period)
     if previous is not None and previous.status == FiscalPeriod.Status.OPEN:
@@ -175,7 +229,7 @@ def period_checklist(period):
             }
         )
 
-    unposted = _unposted_documents(tenant.id, period.start_date, period.end_date)
+    unposted = _unposted_documents(tenant.id, period.start_date, period.end_date, entity_ids)
     if unposted:
         items.append(
             {
@@ -185,7 +239,7 @@ def period_checklist(period):
             }
         )
 
-    due_installments = _due_installments_not_generated(tenant.id, period)
+    due_installments = _due_installments_not_generated(tenant.id, period, entity_ids)
     if due_installments:
         items.append(
             {
@@ -197,9 +251,9 @@ def period_checklist(period):
             }
         )
 
-    items.extend(_bank_reconciliation_warnings(tenant, period))
+    items.extend(_bank_reconciliation_warnings(tenant, period, entity_ids))
 
-    missing_attachments = _posted_documents_without_attachment(tenant, period)
+    missing_attachments = _posted_documents_without_attachment(tenant, period, entity_ids)
     if missing_attachments:
         items.append(
             {
@@ -213,7 +267,10 @@ def period_checklist(period):
 
     from apps.accounting.models import TaxPeriod
 
-    tax_period = TaxPeriod.objects.filter(tenant=tenant, start__lte=period.end_date, end__gte=period.end_date).first()
+    tax_periods_qs = TaxPeriod.objects.filter(tenant=tenant, start__lte=period.end_date, end__gte=period.end_date)
+    if entity_ids is not None:
+        tax_periods_qs = tax_periods_qs.filter(legal_entity_id__in=entity_ids)
+    tax_period = tax_periods_qs.first()
     if tax_period is None or tax_period.status == TaxPeriod.Status.OPEN:
         items.append(
             {
@@ -224,9 +281,10 @@ def period_checklist(period):
 
     from apps.organization.models import LegalEntity
 
-    unapproved_entities = list(
-        LegalEntity.objects.filter(tenant=tenant, is_active=True, opening_approved_at__isnull=True).values_list("name", flat=True)
-    )
+    unapproved_entities_qs = LegalEntity.objects.filter(tenant=tenant, is_active=True, opening_approved_at__isnull=True)
+    if entity_ids is not None:
+        unapproved_entities_qs = unapproved_entities_qs.filter(id__in=entity_ids)
+    unapproved_entities = list(unapproved_entities_qs.values_list("name", flat=True))
     if unapproved_entities:
         items.append(
             {
@@ -239,7 +297,10 @@ def period_checklist(period):
 
     from .services import compute_trial_balance
 
-    trial_balance = compute_trial_balance(tenant, date_from=period.start_date, date_to=period.end_date)
+    trial_balance = compute_trial_balance(
+        tenant, legal_entity=legal_entity, include_children=include_children,
+        date_from=period.start_date, date_to=period.end_date,
+    )
     items.append(
         {
             "level": "info", "code": "trial_balance_balanced",
@@ -247,7 +308,7 @@ def period_checklist(period):
             "amounts": {"debit": str(trial_balance["total_debit"]), "credit": str(trial_balance["total_credit"])},
         }
     )
-    depreciable_without_schedule = _depreciable_assets_without_schedule(tenant.id)
+    depreciable_without_schedule = _depreciable_assets_without_schedule(tenant.id, entity_ids)
     if depreciable_without_schedule:
         items.append(
             {
@@ -262,7 +323,7 @@ def period_checklist(period):
 
     from apps.assets.reconciliation import register_vs_ledger
 
-    reconciliation = register_vs_ledger(tenant, as_of=period.end_date)
+    reconciliation = register_vs_ledger(tenant, as_of=period.end_date, legal_entity=legal_entity, include_children=include_children)
     if reconciliation["cost_diff"] != 0 or reconciliation["accum_diff"] != 0:
         items.append(
             {

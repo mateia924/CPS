@@ -6,7 +6,7 @@ from pathlib import Path
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import F, Sum, Window
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -896,17 +896,29 @@ def reverse_journal_entry(entry, user, reason, date=None):
     return reversal
 
 
-def compute_trial_balance(tenant, legal_entity_id=None, date_from=None, date_to=None):
+def compute_trial_balance(tenant, legal_entity_id=None, date_from=None, date_to=None, legal_entity=None, include_children=True):
     """Sprint 4.4 (3.15.1): "ميزان مراجعة أولي" — a UAT verification
     tool, not the full drill-down report (sprint 10). Per leaf account:
     movement debit/credit and balance in base currency. Only POSTED/
     REVERSED entries ever contribute (see REPORTABLE_STATUSES) — total
     debit always equals total credit by construction, since it's
-    summing only already-balanced entries."""
+    summing only already-balanced entries.
+
+    Sprint 6.6.7 (§2 item 2): `period_checklist`'s own trial-balance
+    line passes a `LegalEntity` instance via `legal_entity` (subtree-
+    scoped through `_entities_in_scope`, same as the four reports) —
+    kept separate from the pre-existing `legal_entity_id` (a single id,
+    no subtree) so the UAT trial-balance screen's own call shape never
+    changes.
+    """
     from django.db.models import Sum
 
     lines = JournalLine.objects.filter(entry__tenant=tenant, entry__status__in=REPORTABLE_STATUSES)
-    if legal_entity_id:
+    if legal_entity is not None:
+        from apps.reports.services import _entities_in_scope
+
+        lines = lines.filter(entry__legal_entity__in=_entities_in_scope(legal_entity, include_children))
+    elif legal_entity_id:
         lines = lines.filter(entry__legal_entity_id=legal_entity_id)
     if date_from:
         lines = lines.filter(entry__date__gte=date_from)
@@ -943,7 +955,7 @@ def compute_trial_balance(tenant, legal_entity_id=None, date_from=None, date_to=
     return {"rows": rows, "total_debit": total_debit, "total_credit": total_credit}
 
 
-def ledger_lines(tenant, account, legal_entity=None, date_from=None, date_to=None, unreconciled=False):
+def ledger_lines(tenant, account, legal_entity=None, include_children=True, date_from=None, date_to=None, unreconciled=False):
     """Sprint 5.4 (docs/prompts/sprint-5.md block 5.4): the one query
     behind treasury movements (`apps.treasury.views`), party statements
     (`apps.parties.views.PartyViewSet.statement`) and, in 5.7 (C5), the
@@ -957,12 +969,24 @@ def ledger_lines(tenant, account, legal_entity=None, date_from=None, date_to=Non
     normal (asset/expense) balances grow on debit, credit-normal
     (liability/equity/revenue) balances grow on credit — so a caller
     never has to know or guess which one `account` is.
+
+    Sprint 6.6.7 (§2 item 1 + §6.4): `legal_entity` scopes to that
+    entity's own sub-tree by default (`include_children=True`, reusing
+    `apps.reports.services._entities_in_scope` — a company-level report
+    is the sum of its branches' own lines plus its own direct ones),
+    and the running balance is computed by Postgres itself via a window
+    function (one pass, no Python accumulation loop) to hit the <2s
+    budget on 100k lines — purely through the ORM (`Window`/`F`/`Sum`),
+    so it stays subject to the same RLS policies as every other query
+    here, never a raw-SQL bypass of `cps.tenant_id`.
     """
     sign = 1 if account.normal_balance == Account.NormalBalance.DEBIT else -1
 
     base_qs = account.journal_lines.filter(entry__tenant=tenant, entry__status__in=REPORTABLE_STATUSES)
     if legal_entity is not None:
-        base_qs = base_qs.filter(entry__legal_entity=legal_entity)
+        from apps.reports.services import _entities_in_scope
+
+        base_qs = base_qs.filter(entry__legal_entity__in=_entities_in_scope(legal_entity, include_children))
 
     opening_qs = base_qs
     if date_from is not None:
@@ -972,9 +996,8 @@ def ledger_lines(tenant, account, legal_entity=None, date_from=None, date_to=Non
     opening_totals = opening_qs.aggregate(
         debit=Sum("debit"), credit=Sum("credit"), debit_fc=Sum("debit_fc"), credit_fc=Sum("credit_fc")
     )
-    running_base = sign * ((opening_totals["debit"] or Decimal("0")) - (opening_totals["credit"] or Decimal("0")))
-    running_fc = sign * ((opening_totals["debit_fc"] or Decimal("0")) - (opening_totals["credit_fc"] or Decimal("0")))
-    opening_base, opening_fc = running_base, running_fc
+    opening_base = sign * ((opening_totals["debit"] or Decimal("0")) - (opening_totals["credit"] or Decimal("0")))
+    opening_fc = sign * ((opening_totals["debit_fc"] or Decimal("0")) - (opening_totals["credit_fc"] or Decimal("0")))
 
     period_qs = base_qs
     if date_from is not None:
@@ -987,26 +1010,38 @@ def ledger_lines(tenant, account, legal_entity=None, date_from=None, date_to=Non
         # any statement line. Only narrows the returned `lines`, never
         # the opening-balance total above (still every POSTED line).
         period_qs = period_qs.filter(bank_statement_line__isnull=True)
-    period_qs = period_qs.select_related("entry").order_by("entry__date", "entry__number", "id")
 
-    lines = []
-    for line in period_qs:
-        running_base += sign * (line.debit - line.credit)
-        running_fc += sign * (line.debit_fc - line.credit_fc)
-        lines.append(
-            {
-                "date": line.entry.date,
-                "entry_id": line.entry_id,
-                "entry_number": line.entry.number,
-                "description": line.description or line.entry.memo,
-                "debit": line.debit, "credit": line.credit,
-                "debit_fc": line.debit_fc, "credit_fc": line.credit_fc, "currency": line.currency,
-                "running_balance": running_base, "running_balance_fc": running_fc,
-                "source_type": line.entry.source_type, "source_id": line.entry.source_id,
-            }
+    order = (F("entry__date").asc(), F("entry__number").asc(), F("id").asc())
+    period_rows = (
+        period_qs.annotate(
+            cum_base=Window(expression=Sum((F("debit") - F("credit")) * sign), order_by=order),
+            cum_fc=Window(expression=Sum((F("debit_fc") - F("credit_fc")) * sign), order_by=order),
         )
+        .order_by(*order)
+        .values(
+            "id", "entry_id", "description", "debit", "credit", "debit_fc", "credit_fc", "currency",
+            "cum_base", "cum_fc",
+            "entry__date", "entry__number", "entry__memo", "entry__source_type", "entry__source_id",
+        )
+    )
+
+    lines = [
+        {
+            "date": row["entry__date"],
+            "entry_id": row["entry_id"],
+            "entry_number": row["entry__number"],
+            "description": row["description"] or row["entry__memo"],
+            "debit": row["debit"], "credit": row["credit"],
+            "debit_fc": row["debit_fc"], "credit_fc": row["credit_fc"], "currency": row["currency"],
+            "running_balance": opening_base + row["cum_base"], "running_balance_fc": opening_fc + row["cum_fc"],
+            "source_type": row["entry__source_type"], "source_id": row["entry__source_id"],
+        }
+        for row in period_rows
+    ]
+    closing_base = lines[-1]["running_balance"] if lines else opening_base
+    closing_fc = lines[-1]["running_balance_fc"] if lines else opening_fc
     return {
         "opening_balance": opening_base, "opening_balance_fc": opening_fc,
         "lines": lines,
-        "closing_balance": running_base, "closing_balance_fc": running_fc,
+        "closing_balance": closing_base, "closing_balance_fc": closing_fc,
     }

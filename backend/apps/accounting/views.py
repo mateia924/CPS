@@ -180,10 +180,11 @@ class AccountViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
             from apps.organization.models import LegalEntity
 
             legal_entity = LegalEntity.objects.filter(tenant=request.user.tenant, id=legal_entity_id).first()
+        include_children = request.query_params.get("include_children", "true") != "false"
         date_from = request.query_params.get("from")
         date_to = request.query_params.get("to")
         result = ledger_lines(
-            request.user.tenant, account, legal_entity=legal_entity,
+            request.user.tenant, account, legal_entity=legal_entity, include_children=include_children,
             date_from=datetime.date.fromisoformat(date_from) if date_from else None,
             date_to=datetime.date.fromisoformat(date_to) if date_to else None,
             # Sprint 5.5 (block 5.5.2): ?unreconciled=true narrows to
@@ -832,8 +833,20 @@ class FiscalPeriodViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
 
     @action(detail=True, methods=["get"])
     def checklist(self, request, pk=None):
+        """Sprint 6.6.7 (§2 item 2): `?legal_entity=` previews the
+        checklist for just that company's own sub-tree (a multi-branch
+        tenant inspecting one branch before closing) — `close_period`'s
+        own internal call stays tenant-wide regardless, since closing a
+        fiscal period is always a tenant-level action."""
         period = self.get_object()
-        return Response({"items": period_checklist(period)})
+        legal_entity = None
+        legal_entity_id = request.query_params.get("legal_entity")
+        if legal_entity_id:
+            from apps.organization.models import LegalEntity
+
+            legal_entity = LegalEntity.objects.filter(tenant=request.user.tenant, id=legal_entity_id).first()
+        include_children = request.query_params.get("include_children", "true") != "false"
+        return Response({"items": period_checklist(period, legal_entity=legal_entity, include_children=include_children)})
 
     @action(detail=True, methods=["post"])
     def reopen(self, request, pk=None):
