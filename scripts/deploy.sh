@@ -54,13 +54,23 @@ log() { echo "[deploy $(date -Iseconds)] $1"; }
 # either, and is explicitly allowed to say so via this one flag rather
 # than needing "change-me"-shaped values of its own. Everything else
 # about this guard (which file, which vars) is unchanged.
-CPS_ENVIRONMENT_VALUE="$(grep -m1 "^CPS_ENVIRONMENT=" "$REPO_DIR/.env" | cut -d= -f2-)"
+# Sprint 6.6.5 fix (found live, the hard way — the first deploy.sh run
+# after introducing this exact line died here, silently, with no error
+# message at all): `grep -m1` exits 1 on no match, and this whole
+# script runs under `set -e` — the real .env has no CPS_ENVIRONMENT
+# line at all (that var is only ever set directly in docker-compose.
+# prod.yml/staging.yml's own `environment:` blocks, never via .env),
+# so this killed the script before it printed a single line, before
+# even the backup step. `|| true` here and on the loop's own grep
+# below (same failure mode for any required var genuinely missing)
+# makes "no match" a normal, handled case instead of a silent death.
+CPS_ENVIRONMENT_VALUE="$(grep -m1 "^CPS_ENVIRONMENT=" "$REPO_DIR/.env" | cut -d= -f2- || true)"
 if [ "$CPS_ENVIRONMENT_VALUE" = "ci" ]; then
   log "CPS_ENVIRONMENT=ci — skipping the placeholder-secret guard (see .env.ci)"
 else
 REQUIRED_SECRET_VARS="DJANGO_SECRET_KEY PLATFORM_JWT_SIGNING_KEY POSTGRES_PASSWORD POSTGRES_APP_PASSWORD MINIO_ACCESS_KEY MINIO_SECRET_KEY ATTACHMENT_LINK_SIGNING_KEY CPS_BACKUP_ENCRYPTION_PASSPHRASE"
 for VAR in $REQUIRED_SECRET_VARS; do
-  VALUE="$(grep -m1 "^${VAR}=" "$REPO_DIR/.env" | cut -d= -f2-)"
+  VALUE="$(grep -m1 "^${VAR}=" "$REPO_DIR/.env" | cut -d= -f2- || true)"
   case "$VALUE" in
     change-me*)
       echo "ERROR: .env still holds .env.example's own placeholder for $VAR (\"$VALUE\") — refusing to deploy. Never copy .env.example over the real .env; use an isolated git worktree (/opt/cps-ci, its own env file) for any environment simulation instead. See docs/SYSTEM_ANALYSIS.md §11 (2026-10-01 incident) and docs/ops/DEPLOY.md." >&2
