@@ -2,6 +2,9 @@
 .env
 .env.*
 !.env.example
+# Sprint 6.6.5 (CI #46): committed on purpose — recognizable test
+# values only, never real secrets, used only by the e2e job/`make e2e`.
+!.env.ci
 .env.local
 
 # Python

@@ -48,6 +48,16 @@ log() { echo "[deploy $(date -Iseconds)] $1"; }
 # the structural backstop for that rule: refuse outright if any
 # required secret still holds the literal "change-me..." placeholder
 # every single one of them uses in .env.example.
+# Sprint 6.6.5 (CI #46): the ONLY exception — .env.ci (the e2e job's
+# own committed, non-secret test env file, never this script's real
+# $REPO_DIR/.env in normal operation) legitimately isn't real secrets
+# either, and is explicitly allowed to say so via this one flag rather
+# than needing "change-me"-shaped values of its own. Everything else
+# about this guard (which file, which vars) is unchanged.
+CPS_ENVIRONMENT_VALUE="$(grep -m1 "^CPS_ENVIRONMENT=" "$REPO_DIR/.env" | cut -d= -f2-)"
+if [ "$CPS_ENVIRONMENT_VALUE" = "ci" ]; then
+  log "CPS_ENVIRONMENT=ci — skipping the placeholder-secret guard (see .env.ci)"
+else
 REQUIRED_SECRET_VARS="DJANGO_SECRET_KEY PLATFORM_JWT_SIGNING_KEY POSTGRES_PASSWORD POSTGRES_APP_PASSWORD MINIO_ACCESS_KEY MINIO_SECRET_KEY ATTACHMENT_LINK_SIGNING_KEY CPS_BACKUP_ENCRYPTION_PASSPHRASE"
 for VAR in $REQUIRED_SECRET_VARS; do
   VALUE="$(grep -m1 "^${VAR}=" "$REPO_DIR/.env" | cut -d= -f2-)"
@@ -58,6 +68,7 @@ for VAR in $REQUIRED_SECRET_VARS; do
       ;;
   esac
 done
+fi
 
 fail() {
   log "FAILED: $1"

@@ -1,8 +1,14 @@
 .PHONY: dev-up dev-down dev-logs dev-build dev-config prod-up prod-down prod-config test lint check smoke backup restore-test e2e migrate deploy staging-up staging-down staging-refresh staging-config
 
-COMPOSE_DIR := infra
-ENV_FILE := .env
-STAGING_ENV_FILE := .env.staging
+# Sprint 6.6.5 (CI #46): absolute, anchored to wherever `make` itself
+# was invoked from (repo root, by every existing convention here) —
+# evaluated once, so a recipe that `cd`s elsewhere first (test/lint's
+# own `cd backend`, needed for the native/no-RUN branch) can't break
+# these paths' resolution the way plain relative ones would.
+REPO_ROOT := $(CURDIR)
+COMPOSE_DIR := $(REPO_ROOT)/infra
+ENV_FILE := $(REPO_ROOT)/.env
+STAGING_ENV_FILE := $(REPO_ROOT)/.env.staging
 BASE := -f $(COMPOSE_DIR)/docker-compose.yml
 # Sprint 6.6.0: three separate overlays, three separate compose
 # projects — "infra" (unchanged name, the same containers/volumes this
@@ -36,30 +42,36 @@ dev-build:
 dev-config:
 	$(DC) $(DEV) config
 
-## Tests run against the dev sandbox's own Postgres service (starts it
-## via depends_on if not already up), in a separate test_<db> database
-## pytest-django creates and drops automatically — never SQLite, never
-## the local/live stack. The throwaway test/lint container bypasses
-## entrypoint.sh's non-root privilege-drop (--entrypoint '') since it's
-## a one-off run, not a persistent service; dev deps aren't baked into
-## the image, so each run installs them fresh.
-##
-## `--create-db`: found (and reproduced, in a concurrent/overlapping-
-## runs scenario — NOT confirmed as CI run #43's own actual cause,
-## which a faithful from-scratch `dev-up` -> `lint` -> `test` sequence
-## never reproduced) that a `make test` interrupted before pytest-
-## django's own teardown (timeout, cancelled job, Ctrl-C) leaves
-## test_<db> behind; the NEXT run against the same Postgres then hits
-## `psycopg.errors.DuplicateDatabase` immediately, which pytest-django
-## turns into a bare `SystemExit(2)`. `--create-db` forces a fresh
-## DROP + CREATE every run regardless of what a prior run left behind
-## — a real, harmless hardening either way, whether or not it turns
-## out to be what CI #43 actually hit.
+## Sprint 6.6.5 (CI #46): lint/test run through $(RUN), which the
+## interactive dev sandbox and CI point at two different things — "the
+## checks are ONE; the dev sandbox runs them inside the already-built
+## `cps-dev` backend container, CI runs them natively on the runner"
+## (README). Default (RUN unset): exec into the already-running
+## persistent `cps-dev` backend container (`make dev-up` first) — its
+## `dev` build target already bakes in requirements-dev.txt (pytest/
+## ruff/factory-boy), so no per-run pip install is needed, unlike the
+## old throwaway `run --rm --entrypoint ''` container this replaced.
+## CI overrides `RUN=` (empty, via ci.yml's job-level `env:`) — make's
+## `?=` only applies when a variable is COMPLETELY unset, so an
+## environment-provided empty string is honored, not defaulted — which
+## makes `$(RUN) pytest ...`/`$(RUN) ruff ...` below reduce to a bare
+## shell command, executed directly on the runner (no docker compose,
+## no .env, no image build at all): CI #46's actual root cause — every
+## `make` target unconditionally went through `docker compose -p
+## cps-dev`, which needs a real `.env` and a from-scratch image build,
+## neither of which exists nor is wanted on a GitHub-hosted runner.
+RUN ?= $(DC) $(DEV) exec -T backend
+
+## `cd backend` only matters for the native (RUN empty) branch, where
+## `make` itself runs from the repo root — inside the container, exec
+## already starts at its own WORKDIR (/app, == this repo's backend/),
+## so the `cd` is a harmless no-op there (host-side chdir, irrelevant
+## to what the exec'd command's own cwd is).
 test:
-	$(DC) $(DEV) run --rm --entrypoint '' backend sh -c "pip install -q -r requirements-dev.txt && pytest -v --create-db"
+	cd backend && $(RUN) pytest -v --create-db
 
 lint:
-	$(DC) $(DEV) run --rm --entrypoint '' backend sh -c "pip install -q -r requirements-dev.txt && ruff check ."
+	cd backend && $(RUN) ruff check .
 
 ## Sprint 6.6.0: migrating the dev sandbox directly is still fine (its
 ## own throwaway database) — but the LOCAL stack (port 3000, what

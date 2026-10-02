@@ -1,29 +1,22 @@
 name: CI
 
-# Sprint 6.6.3c: CI aligned with make gate — every job below reuses the
-# exact same `make <target>` a human runs locally (`make lint`, `make
-# test`, `make e2e`), against the exact same docker-compose dev stack
-# (project "cps-dev": Postgres + Redis + MinIO + ClamAV + backend), not
-# a hand-rolled parallel setup. This is deliberate, not a style
-# preference: the previous version of this file ran pytest directly
-# against a bare `postgres:16-alpine` service with only three env vars
-# set (DJANGO_SECRET_KEY/DJANGO_DEBUG/DATABASE_URL) — missing
-# PLATFORM_JWT_SIGNING_KEY (required, crashes at Django settings-import,
-# before any test runs) and POSTGRES_APP_USER/PASSWORD (required by
-# apps.tenants.services.configure_database_roles_and_rls, crashes at
-# the test database's own first migration) entirely on top of that, and
-# had no Redis/MinIO/ClamAV at all (every attachment/rate-limiting/
-# bank-reconciliation test failed or errored as a result). Reusing the
-# Makefile/compose stack means any future service the dev stack gains
-# is automatically covered here too, with zero workflow edits.
+# Sprint 6.6.5 (CI #46, 6.6.3e): the backend job runs the gate
+# NATIVELY on the runner — no docker-compose, no .env, no image build
+# at all — via Makefile's `RUN=` override (see Makefile's own comment
+# on `RUN`/`test`/`lint`). CI #46 (backend ❌ in 9s, exit 2) traced
+# back to the previous version of this job, which — like every other
+# `make` target — unconditionally went through `docker compose -p
+# cps-dev ... up -d --build`/`exec`: real `.env` + a from-scratch
+# image build is neither available nor wanted on a GitHub-hosted
+# runner the way it is on this project's own long-lived dev host.
+# "The checks are ONE; the dev sandbox runs them inside the
+# already-built `cps-dev` backend container, CI runs them natively on
+# the runner via Makefile's RUN." (see README)
 #
-# config/settings.py's own TESTING flag (PYTEST_VERSION env var, which
-# pytest itself sets) still gives PLATFORM_JWT_SIGNING_KEY/
-# POSTGRES_APP_USER/POSTGRES_APP_PASSWORD safe pytest-only defaults —
-# that fix stands on its own (any clean-room pytest run benefits, not
-# just this workflow) and is what the single-service version of this
-# file would have needed anyway; .env.example's own placeholder values
-# (never real secrets) cover everything else make test/lint/e2e need.
+# The frontend job was never part of #46 and is unchanged. The e2e job
+# stays on docker-compose (closest to a real deployment, and Playwright
+# needs the full stack serving real HTTP) — its own `.env.ci` (committed,
+# non-secret test values) replaces `.env.example` + a sed patch.
 
 on:
   push:
@@ -31,21 +24,77 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-24.04
+    env:
+      RUN: ""
+      CPS_ENVIRONMENT: ci
+      DJANGO_SECRET_KEY: ci-test-django-secret-key-never-used-outside-github-actions
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/cps
+      REDIS_URL: redis://localhost:6379/0
+      MINIO_ACCESS_KEY: ci-test-minio-access-key
+      MINIO_SECRET_KEY: ci-test-minio-secret-key
+      MINIO_ENDPOINT_URL: http://localhost:9000
+      MINIO_BUCKET: cps-attachments
+      CLAMD_HOST: localhost
+      CLAMD_PORT: "3310"
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cps
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s --health-timeout=5s --health-retries=10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s --health-timeout=5s --health-retries=10
+      # bitnami's image (not the official minio/minio one): GitHub
+      # Actions service containers have no way to pass a custom
+      # command, and the official image needs one (`server /data`) —
+      # bitnami's defaults to running the server standalone. Needs no
+      # separate bucket-creation step: MINIO_DEFAULT_BUCKETS provisions
+      # it at startup (manage.py ensure_attachments_bucket, called
+      # below anyway, is idempotent either way — cheap insurance).
+      minio:
+        image: bitnami/minio:latest
+        env:
+          MINIO_ROOT_USER: ci-test-minio-access-key
+          MINIO_ROOT_PASSWORD: ci-test-minio-secret-key
+          MINIO_DEFAULT_BUCKETS: cps-attachments
+        ports: ["9000:9000"]
+        options: >-
+          --health-cmd="curl -f http://localhost:9000/minio/health/live || exit 1"
+          --health-interval=5s --health-timeout=5s --health-retries=10
+      # Sprint 5.1's own testing philosophy (tests/conftest.py
+      # `_celery_eager`): the real clamd, never mocked — same image
+      # docker-compose.yml already uses. Its own healthcheck
+      # (clamdcheck.sh || exit 0) always reports healthy immediately;
+      # the virus-DB download can still be in progress when the first
+      # scan-dependent test runs, same latent race the compose-based
+      # job already had — not introduced here.
+      clamav:
+        image: clamav/clamav:1.5.4-debian
+        ports: ["3310:3310"]
+        options: >-
+          --health-cmd="clamdcheck.sh || exit 0"
+          --health-interval=30s --health-timeout=10s --health-retries=10
+          --health-start-period=180s
     steps:
       - uses: actions/checkout@v6
 
-      - name: Prepare .env (dev-only placeholder secrets, never real ones)
-        run: cp .env.example .env
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
 
-      - name: Bring up the dev stack (same project make dev-up/test/lint use)
-        run: |
-          set -o pipefail
-          make dev-up 2>&1 | tee dev-up.log
-          status=$?
-          if [ "$status" -ne 0 ]; then
-            tail -n 40 dev-up.log | while IFS= read -r l; do echo "::error::$l"; done
-            exit "$status"
-          fi
+      - name: Install dependencies (requirements-dev.txt already pulls in requirements.txt)
+        run: pip install -r backend/requirements-dev.txt
 
       - name: Lint (ruff) — same gate as `make lint`
         run: |
@@ -57,20 +106,12 @@ jobs:
             exit "$status"
           fi
 
-      # First boot downloads ClamAV's virus DB (several hundred MB) —
-      # see infra/docker-compose.yml's own healthcheck start_period.
-      - name: Wait for ClamAV to be ready
-        run: |
-          for _ in $(seq 1 60); do
-            STATUS="$(docker inspect -f '{{.State.Health.Status}}' cps-dev-clamav-1 2>/dev/null || echo starting)"
-            if [ "$STATUS" = "healthy" ]; then
-              echo "clamav is healthy"
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "clamav never became healthy within 600s" >&2
-          exit 1
+      # Same idempotent command the persistent dev/local/staging
+      # backend container already runs on every startup (infra/
+      # docker-compose.yml) — here it's the only thing standing in for
+      # that, since the native job never starts that container at all.
+      - name: Prepare the attachments bucket
+        run: cd backend && python manage.py ensure_attachments_bucket
 
       # Sprint 6.6.5 (CI #46 investigation): a `make` failure's own
       # last lines, re-printed as `::error::` annotations — readable
@@ -120,14 +161,11 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Prepare .env (dev-only placeholder secrets, never real ones)
-        run: |
-          cp .env.example .env
-          # scripts/e2e.sh reads DEV_NEXT_PUBLIC_API_URL straight out of
-          # .env to find the stack it should target — .env.example's own
-          # value points at this dev host's real public IP, meaningless
-          # on a GitHub-hosted runner.
-          sed -i 's#^DEV_NEXT_PUBLIC_API_URL=.*#DEV_NEXT_PUBLIC_API_URL=http://localhost:3002/api#' .env
+      # Sprint 6.6.5 (6.6.3e): .env.ci (committed, non-secret test
+      # values, already pointed at localhost:3002 — no sed patch
+      # needed) replaces .env.example here specifically.
+      - name: Prepare .env (the e2e job's own committed test env file)
+        run: cp .env.ci .env
 
       - name: Bring up the dev stack
         run: |

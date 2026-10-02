@@ -353,6 +353,13 @@ make test    # pytest ضد Postgres حقيقي (خدمة postgres في dev compo
 make lint    # ruff check .
 ```
 
+الفحوص واحدة؛ السيرفر يشغّلها داخل الحاوية وCI أصلاً عبر RUN (سبرنت
+6.6.5، CI #46 — `make test`/`make lint` يمرّان عبر متغيّر `RUN` في
+الـMakefile: افتراضيًا `docker compose ... exec` على صندوق `cps-dev`
+القائم بالفعل؛ CI يصدّر `RUN=` فارغًا فتعمل نفس الأوامر حرفيًا على
+عامل GitHub Actions مباشرة، بلا docker-compose ولا `.env` ولا بناء
+صورة من الصفر).
+
 كلاهما يُشغَّل أيضًا في CI على كل push (انظر "GitHub / CI" تحت) ويفشل
 البناء فعليًا لو أي اختبار أو مخالفة lint فشلت — لا `continue-on-error`
 ولا إخفاء لأخطاء في أي مكان.
