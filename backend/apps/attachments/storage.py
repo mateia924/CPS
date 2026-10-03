@@ -1,4 +1,7 @@
+from pathlib import Path
+
 from django.conf import settings
+from django.core.files.storage import FileSystemStorage
 from storages.backends.s3boto3 import S3Boto3Storage
 
 
@@ -27,3 +30,22 @@ class AttachmentStorage(S3Boto3Storage):
     querystring_auth = False
     file_overwrite = False
     region_name = "us-east-1"  # ignored by MinIO; boto3 requires some value
+
+
+def attachment_storage():
+    """Sprint 7.0 (CI #56/#61): a plain callable, not a module-level
+    instance — Django's FileField has accepted a callable `storage=`
+    since 4.2 specifically so this can be evaluated lazily, after
+    settings are configured, instead of at import time. CI sets
+    ATTACHMENT_STORAGE_BACKEND=local (no MinIO service there at all —
+    see config/settings.py's own note); every other environment
+    (dev/staging/production) keeps the real S3-compatible backend
+    unchanged. Every attachment test goes through Django's ordinary
+    File API (attachment.file.open/.read) regardless of which backend
+    is active — nothing in this project's own code is storage-aware
+    beyond this one function."""
+    if settings.ATTACHMENT_STORAGE_BACKEND == "local":
+        root = Path("/tmp/cps-ci-attachments")
+        root.mkdir(parents=True, exist_ok=True)
+        return FileSystemStorage(location=str(root))
+    return AttachmentStorage()

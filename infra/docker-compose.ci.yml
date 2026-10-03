@@ -1,0 +1,28 @@
+# Sprint 7.0 (CI #61): the e2e job's own overlay, on top of
+# docker-compose.yml + docker-compose.dev.yml — `make dev-up` on a real
+# dev/staging box is completely unaffected by this file (it's never
+# part of that invocation). Removes `minio` entirely (not just its
+# healthcheck) via the compose-spec `!reset` merge tag: GitHub's hosted
+# runners cannot reliably pull quay.io/minio/minio at all (Docker-CLI
+# exit 125 — a pull/registry failure, not a slow boot — on every single
+# run since the backend job went native, see docs/SYSTEM_ANALYSIS.md
+# §11). ATTACHMENT_STORAGE_BACKEND=local (set directly on both
+# services below, not left to whichever .env happens to be loaded —
+# `make ci-local` runs this same overlay against the real dev `.env`,
+# which has no reason to carry a CI-only setting) makes
+# apps.attachments.storage.attachment_storage() use a local
+# FileSystemStorage instead, and ensure_attachments_bucket is a no-op
+# under that same setting — nothing left in the startup chain needs
+# MinIO at all.
+services:
+  minio: !reset null
+  backend:
+    environment:
+      ATTACHMENT_STORAGE_BACKEND: local
+    depends_on:
+      minio: !reset null
+  celery_worker:
+    environment:
+      ATTACHMENT_STORAGE_BACKEND: local
+    depends_on:
+      minio: !reset null

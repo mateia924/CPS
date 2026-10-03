@@ -2,12 +2,16 @@
 DJANGO_SETTINGS_MODULE = "config.settings"
 python_files = ["test_*.py"]
 testpaths = ["tests"]
-# Sprint 7.0 (CI #56): `clamav`-marked tests need a real, reachable
-# ClamAV (dev/staging only, never CI — CI #48's own decision) — excluded
-# from the default run by marker, not skipped/disabled; `make
-# test-integration` overrides this with `-m clamav` to run only them.
-markers = ["clamav: requires a real ClamAV service, run via `make test-integration` on dev/staging"]
-addopts = "-m 'not clamav'"
+# Sprint 7.0 (CI #56/#61): `clamav`/`minio`-marked tests each need a
+# real, reachable service (dev/staging only, never CI — CI #48/#56's
+# own decisions) — excluded from the default run by marker, not
+# skipped/disabled; `make test-integration` overrides this with
+# `-m "clamav or minio"` to run only them.
+markers = [
+    "clamav: requires a real ClamAV service, run via `make test-integration` on dev/staging",
+    "minio: requires a real MinIO/S3 service, run via `make test-integration` on dev/staging",
+]
+addopts = "-m 'not clamav and not minio'"
 
 [tool.ruff]
 line-length = 100

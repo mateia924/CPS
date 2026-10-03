@@ -30,22 +30,28 @@ jobs:
       DJANGO_SECRET_KEY: ci-test-django-secret-key-never-used-outside-github-actions
       # CI #56: required with no safe default outside TESTING
       # (config/settings.py) — TESTING is PYTEST_VERSION-gated, so it
-      # covers `make test` but not this job's own standalone
-      # `ensure_attachments_bucket` step (a bare `manage.py`
-      # invocation, never under pytest). Missing here since this job's
-      # native rewrite (770c9bd) first added that step — the backend
-      # job's "ensure_attachments_bucket" step has never actually gone
-      # green since, through CI #48's own fix and after; the "Verify
-      # required CI env vars" step below exists so the NEXT variable
-      # like this one fails fast with its own name, not a 40-second-deep
-      # traceback.
+      # covers `make test` but didn't cover this job's own now-removed
+      # `ensure_attachments_bucket` step (a bare `manage.py` invocation,
+      # never under pytest) back when that step still existed. The
+      # "Verify required CI env vars" step below exists so the NEXT
+      # variable like this one fails fast with its own name, not a
+      # 40-second-deep traceback.
       PLATFORM_JWT_SIGNING_KEY: ci-test-platform-jwt-signing-key-never-used-outside-github-actions
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/cps
       REDIS_URL: redis://localhost:6379/0
-      MINIO_ACCESS_KEY: ci-test-minio-access-key
-      MINIO_SECRET_KEY: ci-test-minio-secret-key
-      MINIO_ENDPOINT_URL: http://localhost:9000
-      MINIO_BUCKET: cps-attachments
+      # CI #56/#61: no MinIO service at all — "Start MinIO" failed
+      # Docker-CLI-level (exit 125, a quay.io pull/registry failure,
+      # never our own health-check timeout) on every single run since
+      # the native rewrite (770c9bd through #61, 13 consecutive runs
+      # over 2+ days) — not fixable from this side, same class of
+      # fragile third-party-registry dependency CI #48 already removed
+      # ClamAV for. apps.attachments.storage.attachment_storage() picks
+      # a local FileSystemStorage when ATTACHMENT_STORAGE_BACKEND=local
+      # — every attachment test goes through Django's ordinary File API
+      # regardless, so nothing here is weakened; the real S3/MinIO
+      # round trip is proven separately by the `minio`-marked test, run
+      # via `make test-integration` on dev/staging (docs/ops/DEPLOY.md).
+      ATTACHMENT_STORAGE_BACKEND: local
       # CI #48 investigation: no ClamAV service at all — downloading
       # its virus DB doesn't suit a CI runner (the old compose-based
       # job's own 600s wait step for this was already a tell). Reuses
@@ -84,7 +90,7 @@ jobs:
       - name: Verify required CI env vars are set
         run: |
           missing=""
-          for VAR in DJANGO_SECRET_KEY PLATFORM_JWT_SIGNING_KEY DATABASE_URL REDIS_URL MINIO_ACCESS_KEY MINIO_SECRET_KEY MINIO_ENDPOINT_URL MINIO_BUCKET; do
+          for VAR in DJANGO_SECRET_KEY PLATFORM_JWT_SIGNING_KEY DATABASE_URL REDIS_URL ATTACHMENT_STORAGE_BACKEND; do
             if [ -z "${!VAR}" ]; then
               missing="$missing $VAR"
             fi
@@ -122,41 +128,10 @@ jobs:
             exit "$status"
           fi
 
-      # CI #48 investigation (verified by actually running it, not
-      # guessed): neither `bitnami/minio` (0 tags left on Docker Hub —
-      # Bitnami moved its catalog) nor the official `minio/minio` on
-      # docker.io (now access-denied without login — MinIO moved
-      # distribution too, which is exactly why infra/docker-compose.
-      # yml already pulls this same image from quay.io instead) works
-      # as a GitHub Actions `services:` entry regardless — GH Actions
-      # gives service containers no way to override their command at
-      # all, and this image's own default CMD (`minio`, no `server
-      # /data`) just prints usage and exits. A plain `docker run` step
-      # (background, not awaited) + an explicit wait-loop sidesteps
-      # this entirely — same shape the old ClamAV wait step already
-      # used in this file before CI #46.
-      - name: Start MinIO (quay.io/minio/minio — the same image infra/docker-compose.yml runs)
-        run: |
-          docker run -d --name ci-minio -p 9000:9000 \
-            -e MINIO_ROOT_USER="$MINIO_ACCESS_KEY" -e MINIO_ROOT_PASSWORD="$MINIO_SECRET_KEY" \
-            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
-          for _ in $(seq 1 30); do
-            if curl -sf http://localhost:9000/minio/health/live >/dev/null 2>&1; then
-              echo "minio is up"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "minio never became ready within 60s" >&2
-          docker logs ci-minio >&2 || true
-          exit 1
-
-      # Same idempotent command the persistent dev/local/staging
-      # backend container already runs on every startup (infra/
-      # docker-compose.yml) — here it's the only thing standing in for
-      # that, since the native job never starts that container at all.
-      - name: Prepare the attachments bucket
-        run: cd backend && python manage.py ensure_attachments_bucket
+      # CI #56/#61: MinIO removed from this job entirely (see the
+      # ATTACHMENT_STORAGE_BACKEND note in this job's own env: block
+      # above) — no service to start, no bucket to prepare. The old
+      # "Start MinIO"/"Prepare the attachments bucket" steps lived here.
 
       # Sprint 6.6.5 (CI #46 investigation): a `make` failure's own
       # last lines, re-printed as `::error::` annotations — readable
@@ -212,10 +187,14 @@ jobs:
       - name: Prepare .env (the e2e job's own committed test env file)
         run: cp .env.ci .env
 
+      # CI #61: CI_OVERLAY=1 layers on infra/docker-compose.ci.yml
+      # (removes the minio service entirely — see that file's own
+      # header) — a real dev box's own `make dev-up` (no CI_OVERLAY)
+      # is completely unaffected.
       - name: Bring up the dev stack
         run: |
           set -o pipefail
-          make dev-up 2>&1 | tee dev-up.log
+          make dev-up CI_OVERLAY=1 2>&1 | tee dev-up.log
           status=$?
           if [ "$status" -ne 0 ]; then
             tail -n 40 dev-up.log | while IFS= read -r l; do echo "::error::$l"; done

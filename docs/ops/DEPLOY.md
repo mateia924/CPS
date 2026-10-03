@@ -5,13 +5,14 @@
 المنفذ 3000 إلا عبر `scripts/deploy.sh`** — لا `docker compose ... up
 -d --build` يدويًا ضد `docker-compose.local.yml`، ولا استثناء.
 
-## الملفات الأربعة
+## الملفات الخمسة
 
 | الملف | الغرض | المشروع (project) | المنفذ | من يشغّله |
 |---|---|---|---|---|
 | `infra/docker-compose.yml` | التعريفات المشتركة (لا يُشغَّل بمفرده أبدًا) | — | — | — |
 | `infra/docker-compose.local.yml` | **الحي** — ما يخدمه هذا الخادم فعليًا الآن، بلا إعادة تحميل، من صورة مبنية | `infra` | 3000 | `scripts/deploy.sh` فقط |
 | `infra/docker-compose.dev.yml` | صندوق التطوير التفاعلي — إعادة تحميل + bind-mount، للكتابة والتجربة على مستأجرات `smoke-*` فقط | `cps-dev` | 3002 | `make dev-up` |
+| `infra/docker-compose.ci.yml` | طبقة إضافية فوق `dev.yml` (سبرنت 7.0، CI #61) — تحذف خدمة `minio` نهائيًا (عمال GitHub لا يصلون إلى `quay.io`) | `cps-dev` | 3002 | `make dev-up CI_OVERLAY=1` فقط (مهمة e2e في CI، و`make ci-local`) — لا يُستخدَم أبدًا بلا `CI_OVERLAY=1` |
 | `infra/docker-compose.staging.yml` | staging — نسخة مستقلة كاملة، حيث يُنفَّذ كل UAT بشري من الآن | `cps-staging` | 3001 | `make staging-up` / `scripts/staging_refresh.sh` |
 | `infra/docker-compose.prod.yml` | سيرفر الإنتاج المستقل المستقبلي (6.6.8) — لا يُشغَّل على هذا الخادم أبدًا | — | 80/443 | — |
 
@@ -40,6 +41,37 @@ scripts/deploy.sh
 
 كل تشغيلة تُسجَّل سطرًا في `docs/ops/deploys.log` (الوقت، الهاش،
 النتيجة OK/FAILED والسبب عند الفشل).
+
+**قبل أي نشر حي: `make test-integration`** (سبرنت 7.0، CI #56/#61) —
+على صندوق التطوير أو staging، حيث ClamAV وMinIO يعملان فعليًا (CI لا
+يملك أيًا منهما — راجع سجل القرارات §11). يشغّل الاختبارات المعلَّمة
+`@pytest.mark.clamav`/`@pytest.mark.minio` فقط (مستبعَدة من `make test`
+الافتراضي بنفس العلامة): `test_eicar_real_clamav` (فحص فيروسات حقيقي
+يرصد EICAR فعليًا) و`test_attachment_is_actually_stored_in_minio`
+(رفع فعلي يصل إلى بادلة S3/MinIO حقيقية). هذه الوحيدة التي تتحقق من
+الخدمتين الخارجيتين أنفسهما — الاختبارات الحتمية في `make test` تثبت
+صحة كودنا بصرف النظر عن الخدمة الفعلية خلفه.
+
+## `make ci-local` — البوابة الحقيقية طوال ثمانية أيام (سبرنت 7.0)
+
+ثبت أن CI (`.github/workflows/ci.yml`) **لم تنجح ولا مرة واحدة منذ
+إنشاء سير العمل** — 61/61 تشغيلة `conclusion=failure` (`docs/
+SYSTEM_ANALYSIS.md` §11). ما اعتمد عليه هذا المشروع فعليًا طوال تلك
+الفترة هو تشغيل بشري يدوي لنفس الفحوص — `make ci-local` يجعل ذلك
+هدفًا مُسمًّى بنتيجة مُسجَّلة (`docs/ops/ci-local.log`)، لا ممارسة
+شفهية. يشغّل، بالترتيب، نفس تسلسل مهمات `ci.yml` الثلاث زائد بوابة
+المشروع القائمة (§0 القاعدة 7): `ruff` ← `manage.py check` ←
+`makemigrations --check` ← pytest الكاملة ← `npm run build` (يُشغِّل
+الفحوص البنيوية السبعة تلقائيًا عبر `prebuild`) ← e2e عبر
+`make dev-up CI_OVERLAY=1` (نفس مسار CI الحقيقي بلا MinIO) ← `make
+e2e`، ثم يعيد `make dev-up` العادي (بلا `CI_OVERLAY`) لإرجاع صندوق
+التطوير لحالته الطبيعية بصرف النظر عن النتيجة. يُشغَّل بعد آخر commit
+في كل كتلة (ضمن بوابة §0 القاعدة 7)، وناتجه (PASS/FAIL لكل خطوة) يُذكَر
+في ملخص الكتلة.
+
+```
+make ci-local
+```
 
 ## صندوق التطوير (`make dev-up`, منفذ 3002)
 

@@ -9,7 +9,7 @@ from django.utils.translation import gettext_lazy as _
 from apps.common.constants import MONEY_DECIMAL_PLACES, MONEY_MAX_DIGITS
 from apps.common.models import SoftDeleteModelMixin, TenantScopedModel
 
-from .storage import AttachmentStorage
+from .storage import attachment_storage
 
 
 def attachment_upload_path(instance, filename):
@@ -64,7 +64,7 @@ class Attachment(TenantScopedModel):
     object_id = models.UUIDField()
     target = GenericForeignKey("content_type", "object_id")
 
-    file = models.FileField(_("file"), upload_to=attachment_upload_path, storage=AttachmentStorage())
+    file = models.FileField(_("file"), upload_to=attachment_upload_path, storage=attachment_storage)
     original_name = models.CharField(_("original file name"), max_length=255)
     # Sniffed from magic bytes (services.detect_mime_type), never trusted
     # from the client's Content-Type header or file extension alone.

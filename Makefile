@@ -1,4 +1,4 @@
-.PHONY: dev-up dev-down dev-logs dev-build dev-config prod-up prod-down prod-config test lint check smoke backup restore-test e2e migrate deploy staging-up staging-down staging-refresh staging-config
+.PHONY: dev-up dev-down dev-logs dev-build dev-config prod-up prod-down prod-config test lint check smoke backup restore-test e2e migrate deploy staging-up staging-down staging-refresh staging-config ci-local
 
 # Sprint 6.6.5 (CI #46): absolute, anchored to wherever `make` itself
 # was invoked from (repo root, by every existing convention here) —
@@ -18,7 +18,14 @@ BASE := -f $(COMPOSE_DIR)/docker-compose.yml
 # never Fatma/acme, see §0 rule 3); "cps-staging" for staging (port
 # 3001, own independent stack, refreshed from a dev backup).
 LOCAL := $(BASE) -f $(COMPOSE_DIR)/docker-compose.local.yml
-DEV := -p cps-dev $(BASE) -f $(COMPOSE_DIR)/docker-compose.dev.yml
+# Sprint 7.0 (CI #61): empty by default — a real dev box's own `make
+# dev-up` is completely unaffected. CI's e2e job alone passes
+# `CI_OVERLAY=1` (`make dev-up CI_OVERLAY=1`) to layer on
+# docker-compose.ci.yml, which removes the `minio` service entirely
+# (GitHub's hosted runners can't pull quay.io/minio/minio at all — see
+# that file's own header) via the compose-spec `!reset` merge tag.
+CI_OVERLAY ?=
+DEV := -p cps-dev $(BASE) -f $(COMPOSE_DIR)/docker-compose.dev.yml $(if $(CI_OVERLAY),-f $(COMPOSE_DIR)/docker-compose.ci.yml,)
 STAGING := -p cps-staging $(BASE) -f $(COMPOSE_DIR)/docker-compose.staging.yml
 PROD := $(BASE) -f $(COMPOSE_DIR)/docker-compose.prod.yml
 DC := docker compose --env-file $(ENV_FILE)
@@ -70,13 +77,13 @@ RUN ?= $(DC) $(DEV) exec -T backend
 test:
 	cd backend && $(RUN) pytest -v --create-db
 
-## Sprint 7.0 (CI #56): the `clamav`-marked tests (a real ClamAV round
-## trip) — excluded from `test` above by pyproject.toml's own default
-## marker filter. Needs a dev/staging box with the `clamav` service
-## actually running (never CI). Run before every live deploy
-## (docs/ops/DEPLOY.md).
+## Sprint 7.0 (CI #56/#61): the `clamav`/`minio`-marked tests (real
+## ClamAV and real MinIO/S3 round trips) — excluded from `test` above
+## by pyproject.toml's own default marker filter. Needs a dev/staging
+## box with both services actually running (never CI). Run before
+## every live deploy (docs/ops/DEPLOY.md).
 test-integration:
-	cd backend && $(RUN) pytest -v -m clamav
+	cd backend && $(RUN) pytest -v -m "clamav or minio"
 
 lint:
 	cd backend && $(RUN) ruff check .
@@ -133,6 +140,16 @@ restore-test:
 ## scripts/e2e.sh and frontend/e2e/*.spec.ts.
 e2e:
 	./scripts/e2e.sh
+
+## Sprint 7.0 (CI #56/#61): CI has never had a single successful run
+## (61/61 failures — docs/SYSTEM_ANALYSIS.md §11) — what this project
+## has actually relied on for eight days is a human running these
+## checks by hand. This is that sequence, named, in the same order as
+## .github/workflows/ci.yml's three jobs plus this project's own
+## standing full-gate additions, with its result logged to
+## docs/ops/ci-local.log instead of staying a verbal practice.
+ci-local:
+	./scripts/ci_local.sh
 
 ## The ONLY supported way to change what port 3000 (project "infra")
 ## serves — sprint 6.6.0. See scripts/deploy.sh for the full backup →

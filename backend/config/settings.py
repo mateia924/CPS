@@ -384,6 +384,18 @@ MINIO_SECRET_KEY = env("MINIO_SECRET_KEY", default="")
 MINIO_BUCKET = env("MINIO_BUCKET", default="cps-attachments")
 MINIO_ENDPOINT_URL = env("MINIO_ENDPOINT_URL", default="http://minio:9000")
 
+# Sprint 7.0 (CI #56/#61): CI's own GitHub-hosted runner cannot
+# reliably pull quay.io/minio/minio at all — "Start MinIO" failed
+# Docker-CLI-level (exit 125, a pull/registry failure, never our own
+# health-check timeout) on every single run since the native rewrite
+# (770c9bd through today, 13 consecutive runs) — not a code bug this
+# project can fix, same class of fragile third-party-registry
+# dependency CI #48 already removed ClamAV for, and with zero security
+# value in CI either way (no test here asserts MinIO-specific
+# behavior; see apps.attachments.storage's own ATTACHMENT_STORAGE_BACKEND
+# switch and test_attachments.py's `minio`-marked integration test).
+ATTACHMENT_STORAGE_BACKEND = env("ATTACHMENT_STORAGE_BACKEND", default="s3")
+
 # Signs this app's own short-lived download links (apps.attachments.
 # services.sign_link/verify_link) — deliberately a separate secret from
 # DJANGO_SECRET_KEY, same reasoning as PLATFORM_JWT_SIGNING_KEY: a leak

@@ -1,20 +1,33 @@
 """Sprint 5.1 (docs/SYSTEM_ANALYSIS.md 3.17): Attachment model, S3
 storage (MinIO), SHA-256, real ClamAV scanning, signed downloads,
-AuditLog — against the real running services (MinIO always; ClamAV
-too, but only for `test_eicar_real_clamav`, see below), no mocks,
-matching this project's testing philosophy throughout.
+AuditLog — against the real running services on dev/staging (MinIO,
+ClamAV), no mocks there, matching this project's testing philosophy
+throughout. CI itself runs against local substitutes for both (see
+below) — every test here still goes through Django's ordinary File
+API and the real scan_attachment/DownloadView code, regardless of
+which backend is actually behind it.
 
 Sprint 7.0 (CI #56): `test_infected_file_blocks_download`/
-`test_clean_file_allows_download` are the one deliberate exception —
-CI runs with no ClamAV service at all (CI #48's own decision: a virus
-database download doesn't suit a CI runner), so they fake only the
-narrow socket class `scan_attachment` calls out to (`_FakeClamdSocket`
-below), never `scan_attachment`'s own logic. The real round-trip
-against a genuinely running ClamAV lives on in
-`test_eicar_real_clamav`, marked `@pytest.mark.clamav` and excluded
-from `make test`/CI by that marker (not skipped/disabled) — run it via
-`make test-integration` on a dev/staging box instead, before every
-live deploy (docs/ops/DEPLOY.md).
+`test_clean_file_allows_download` fake only the narrow socket class
+`scan_attachment` calls out to (`_FakeClamdSocket` below), never
+`scan_attachment`'s own logic — CI has no ClamAV service at all (CI
+#48's own decision). The real round-trip against a genuinely running
+ClamAV lives on in `test_eicar_real_clamav`, marked
+`@pytest.mark.clamav`.
+
+Sprint 7.0 (CI #61): CI also has no MinIO service at all now (CI #56/
+#61's own decision — quay.io/minio/minio failed to pull on every
+single GitHub-hosted run since the native job was introduced, exit
+125, a registry-access failure no code change here can fix) —
+apps.attachments.storage.attachment_storage() falls back to a local
+FileSystemStorage there (ATTACHMENT_STORAGE_BACKEND=local). The real
+S3-compatible round trip lives on in
+`test_attachment_is_actually_stored_in_minio`, marked
+`@pytest.mark.minio`.
+
+Both `clamav` and `minio` markers are excluded from `make test`/CI by
+marker (not skipped/disabled) — run via `make test-integration` on a
+dev/staging box instead, before every live deploy (docs/ops/DEPLOY.md).
 """
 
 import io
@@ -341,3 +354,31 @@ def test_pending_scan_status_blocks_download_with_409(tenant_a, client_a):
     link = client_a.post(f"/api/attachments/{attachment_id}/link/").data["token"]
     download = APIClient().get(f"/api/attachments/{attachment_id}/download/?token={link}")
     assert download.status_code == 409
+
+
+@pytest.mark.minio
+@pytest.mark.django_db
+def test_attachment_is_actually_stored_in_minio(tenant_a, client_a, settings):
+    """Sprint 7.0 (CI #61): requires a real, reachable MinIO/S3
+    (ATTACHMENT_STORAGE_BACKEND != "local" — see
+    apps.attachments.storage.attachment_storage). Never runs under
+    `make test`/CI (excluded by the `minio` marker), only under `make
+    test-integration` on a dev/staging box. The deterministic tests
+    above already prove our own code's handling of any storage
+    backend; this is the one that proves AttachmentStorage's own S3
+    config (bucket, endpoint, path-style addressing) actually works
+    end to end — a real boto3 head_object against the real bucket, not
+    just Django's File API round-tripping locally."""
+    import boto3
+
+    assert settings.ATTACHMENT_STORAGE_BACKEND != "local"
+
+    party = PartyFactory(tenant=tenant_a)
+    attachment_id = _upload(client_a, party).data["id"]
+    attachment = Attachment.objects.get(id=attachment_id)
+
+    client = boto3.client(
+        "s3", endpoint_url=settings.MINIO_ENDPOINT_URL,
+        aws_access_key_id=settings.MINIO_ACCESS_KEY, aws_secret_access_key=settings.MINIO_SECRET_KEY,
+    )
+    client.head_object(Bucket=settings.MINIO_BUCKET, Key=attachment.file.name)
