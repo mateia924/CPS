@@ -152,11 +152,30 @@ jobs:
           echo "nproc: $(nproc)"
           free -m
 
+      # CI #66 investigation: tail -n 80 was the wrong shape for GitHub's
+      # own annotation surface — it keeps the FIRST ~10 ::error:: calls
+      # a step makes, not the last, so 80 lines of mostly-PASSED output
+      # drowned out the one line that actually mattered. Now: one
+      # multi-line annotation per step (::error::'s own %0A-encoding),
+      # built from pytest's OWN "short test summary info" section (-ra)
+      # plus a short --tb=short traceback — picked by SECTION, not a
+      # blind tail, so a handful of PASSED lines can never crowd out the
+      # actual failure again.
+      #
+      # continue-on-error: true on all four groups — a single run now
+      # maps every group's real status instead of stopping at the first
+      # failure (four ~10-minute runs to see the whole picture). This
+      # makes a step LOOK green in the UI regardless of its real result,
+      # which is exactly why the "Gate" step below exists and is what
+      # actually protects the branch — `outcome` (pre-override) decides
+      # it, not `conclusion`.
       - name: Tests (pytest) — accounting
+        id: test_accounting
         shell: bash
+        continue-on-error: true
         run: |
           set +e
-          cd backend/tests && pytest -v --create-db \
+          cd backend/tests && pytest -v -ra --tb=short --create-db \
             test_chart_of_accounts.py test_db_triggers.py test_financial_controls.py \
             test_fiscal_periods.py test_journal_engine.py test_multi_currency.py \
             test_opening_balances.py test_period_checklist.py test_reports.py \
@@ -168,15 +187,19 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -ne 0 ]; then
-            tail -n 80 /tmp/test-accounting.log | while IFS= read -r l; do echo "::error::$l"; done
+            { echo "=== short test summary ==="; sed -n '/short test summary info/,$p' /tmp/test-accounting.log | head -n 40; echo "=== tail ==="; tail -n 40 /tmp/test-accounting.log; } > /tmp/ann-accounting.txt
+            msg=$(python3 -c "print(open('/tmp/ann-accounting.txt').read()[:3000].replace(chr(13),'').replace(chr(10),'%0A'))")
+            echo "::error title=pytest accounting failed::$msg"
             exit "$status"
           fi
 
       - name: Tests (pytest) — assets and treasury
+        id: test_assets_treasury
         shell: bash
+        continue-on-error: true
         run: |
           set +e
-          cd backend/tests && pytest -v \
+          cd backend/tests && pytest -v -ra --tb=short \
             test_asset_additions.py test_asset_declining_balance.py test_asset_depreciation.py \
             test_asset_disposal.py test_asset_transfer.py test_fixed_asset_accounts.py \
             test_fixed_assets_report.py test_fix_disposal_correction.py test_bank_reconciliation.py \
@@ -187,15 +210,19 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -ne 0 ]; then
-            tail -n 80 /tmp/test-assets-treasury.log | while IFS= read -r l; do echo "::error::$l"; done
+            { echo "=== short test summary ==="; sed -n '/short test summary info/,$p' /tmp/test-assets-treasury.log | head -n 40; echo "=== tail ==="; tail -n 40 /tmp/test-assets-treasury.log; } > /tmp/ann-assets-treasury.txt
+            msg=$(python3 -c "print(open('/tmp/ann-assets-treasury.txt').read()[:3000].replace(chr(13),'').replace(chr(10),'%0A'))")
+            echo "::error title=pytest assets-and-treasury failed::$msg"
             exit "$status"
           fi
 
       - name: Tests (pytest) — attachments and permissions
+        id: test_attachments_permissions
         shell: bash
+        continue-on-error: true
         run: |
           set +e
-          cd backend/tests && pytest -v \
+          cd backend/tests && pytest -v -ra --tb=short \
             test_attachments.py test_attachment_rules.py test_rbac.py test_dashboard_rbac.py \
             test_platform_rbac.py test_platform_rbac_structural.py test_entity_scoped_viewsets.py \
             test_entity_scoped_super_call.py test_entity_scope_structural.py test_entity_list_filters.py \
@@ -206,15 +233,19 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -ne 0 ]; then
-            tail -n 80 /tmp/test-attachments-permissions.log | while IFS= read -r l; do echo "::error::$l"; done
+            { echo "=== short test summary ==="; sed -n '/short test summary info/,$p' /tmp/test-attachments-permissions.log | head -n 40; echo "=== tail ==="; tail -n 40 /tmp/test-attachments-permissions.log; } > /tmp/ann-attachments-permissions.txt
+            msg=$(python3 -c "print(open('/tmp/ann-attachments-permissions.txt').read()[:3000].replace(chr(13),'').replace(chr(10),'%0A'))")
+            echo "::error title=pytest attachments-and-permissions failed::$msg"
             exit "$status"
           fi
 
       - name: Tests (pytest) — the rest (platform, RLS, tenants, misc)
+        id: test_rest
         shell: bash
+        continue-on-error: true
         run: |
           set +e
-          cd backend/tests && pytest -v \
+          cd backend/tests && pytest -v -ra --tb=short \
             test_accounts_backends.py test_anonymize_staging_users.py test_arabic_messages.py \
             test_archive_smoke_tenants.py test_default_legal_entity.py test_health.py \
             test_me_endpoint.py test_migrate_backup_guard.py test_organization_tree.py \
@@ -225,9 +256,31 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -ne 0 ]; then
-            tail -n 80 /tmp/test-rest.log | while IFS= read -r l; do echo "::error::$l"; done
+            { echo "=== short test summary ==="; sed -n '/short test summary info/,$p' /tmp/test-rest.log | head -n 40; echo "=== tail ==="; tail -n 40 /tmp/test-rest.log; } > /tmp/ann-rest.txt
+            msg=$(python3 -c "print(open('/tmp/ann-rest.txt').read()[:3000].replace(chr(13),'').replace(chr(10),'%0A'))")
+            echo "::error title=pytest the-rest failed::$msg"
             exit "$status"
           fi
+
+      # The actual branch protection: continue-on-error above means
+      # each step's own `conclusion` reads "success" regardless of its
+      # real result — `outcome` is the pre-override truth. if: always()
+      # so this runs even after an earlier group's own (overridden)
+      # "failure", and so every group gets a chance to run before this
+      # decides the job's real result.
+      - name: Gate — fail the job if any pytest group actually failed
+        if: always()
+        run: |
+          failed=""
+          [ "${{ steps.test_accounting.outcome }}" != "success" ] && failed="$failed accounting"
+          [ "${{ steps.test_assets_treasury.outcome }}" != "success" ] && failed="$failed assets-and-treasury"
+          [ "${{ steps.test_attachments_permissions.outcome }}" != "success" ] && failed="$failed attachments-and-permissions"
+          [ "${{ steps.test_rest.outcome }}" != "success" ] && failed="$failed the-rest"
+          if [ -n "$failed" ]; then
+            echo "::error::Pytest group(s) failed:$failed — see each group's own annotation above."
+            exit 1
+          fi
+          echo "All four pytest groups passed."
 
   frontend:
     runs-on: ubuntu-24.04
