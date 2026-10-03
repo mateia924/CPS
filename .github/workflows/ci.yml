@@ -28,6 +28,18 @@ jobs:
       RUN: ""
       CPS_ENVIRONMENT: ci
       DJANGO_SECRET_KEY: ci-test-django-secret-key-never-used-outside-github-actions
+      # CI #56: required with no safe default outside TESTING
+      # (config/settings.py) — TESTING is PYTEST_VERSION-gated, so it
+      # covers `make test` but not this job's own standalone
+      # `ensure_attachments_bucket` step (a bare `manage.py`
+      # invocation, never under pytest). Missing here since this job's
+      # native rewrite (770c9bd) first added that step — the backend
+      # job's "ensure_attachments_bucket" step has never actually gone
+      # green since, through CI #48's own fix and after; the "Verify
+      # required CI env vars" step below exists so the NEXT variable
+      # like this one fails fast with its own name, not a 40-second-deep
+      # traceback.
+      PLATFORM_JWT_SIGNING_KEY: ci-test-platform-jwt-signing-key-never-used-outside-github-actions
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/cps
       REDIS_URL: redis://localhost:6379/0
       MINIO_ACCESS_KEY: ci-test-minio-access-key
@@ -62,6 +74,26 @@ jobs:
           --health-interval=5s --health-timeout=5s --health-retries=10
     steps:
       - uses: actions/checkout@v6
+
+      # CI #56: PLATFORM_JWT_SIGNING_KEY was silently missing from this
+      # job's own `env:` block above for a long time — the only visible
+      # symptom was a 40-second-deep Django traceback from whichever
+      # step happened to import settings first. A missing required var
+      # now fails here instead, in under a second, naming exactly which
+      # one — before spending any time on setup-python/pip/MinIO.
+      - name: Verify required CI env vars are set
+        run: |
+          missing=""
+          for VAR in DJANGO_SECRET_KEY PLATFORM_JWT_SIGNING_KEY DATABASE_URL REDIS_URL MINIO_ACCESS_KEY MINIO_SECRET_KEY MINIO_ENDPOINT_URL MINIO_BUCKET; do
+            if [ -z "${!VAR}" ]; then
+              missing="$missing $VAR"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Required CI env var(s) not set (add to this job's own env: block in .github/workflows/ci.yml):$missing"
+            exit 1
+          fi
+          echo "All required CI env vars are present."
 
       - uses: actions/setup-python@v5
         with:

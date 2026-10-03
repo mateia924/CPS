@@ -47,9 +47,11 @@ def _celery_eager(settings):
     # real Celery task in this project — no live worker consumes the
     # queue during a pytest run, so EAGER makes `.delay()` execute
     # synchronously in-process instead of silently doing nothing
-    # observable. Talks to the *real* clamd service (CLAMD_HOST=clamav
-    # on the compose network) — never mocked, same philosophy as every
-    # other test in this project.
+    # observable. Most tests that exercise it fake only the ClamAV
+    # socket class (sprint 7.0, CI #56 — see test_attachments.py's own
+    # module docstring); `test_eicar_real_clamav` alone still talks to
+    # a genuinely running clamd, and is excluded from this default run
+    # by its own `clamav` marker.
     #
     # config.celery.app already read django.conf:settings once at import
     # time (module-level `app.config_from_object(...)`), so flipping the

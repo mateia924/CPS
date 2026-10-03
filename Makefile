@@ -70,6 +70,14 @@ RUN ?= $(DC) $(DEV) exec -T backend
 test:
 	cd backend && $(RUN) pytest -v --create-db
 
+## Sprint 7.0 (CI #56): the `clamav`-marked tests (a real ClamAV round
+## trip) — excluded from `test` above by pyproject.toml's own default
+## marker filter. Needs a dev/staging box with the `clamav` service
+## actually running (never CI). Run before every live deploy
+## (docs/ops/DEPLOY.md).
+test-integration:
+	cd backend && $(RUN) pytest -v -m clamav
+
 lint:
 	cd backend && $(RUN) ruff check .
 

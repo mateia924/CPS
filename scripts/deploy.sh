@@ -80,6 +80,25 @@ for VAR in $REQUIRED_SECRET_VARS; do
 done
 fi
 
+# Sprint 7.0 (CI #56 follow-up, decision 8): the same production rule
+# config/settings.py already enforces at Django boot
+# (ATTACHMENT_SCAN_ENABLED=false raises ImproperlyConfigured when
+# CPS_ENVIRONMENT=production) — checked again here, one layer earlier,
+# on the host, before even building an image: this deploy script
+# itself has no business targeting a production .env in the first
+# place (that's docker-compose.prod.yml's own concern, 6.6.8), but if
+# CPS_ENVIRONMENT ever legitimately is "production" in .env, scanning
+# disabled must refuse here too, not only inside the container.
+if [ "$CPS_ENVIRONMENT_VALUE" = "production" ]; then
+  ATTACHMENT_SCAN_VALUE="$(grep -m1 "^ATTACHMENT_SCAN_ENABLED=" "$REPO_DIR/.env" | cut -d= -f2- || true)"
+  case "$ATTACHMENT_SCAN_VALUE" in
+    false|False|FALSE|0)
+      echo "ERROR: CPS_ENVIRONMENT=production but ATTACHMENT_SCAN_ENABLED=$ATTACHMENT_SCAN_VALUE in .env — refusing to deploy. Every uploaded file must be virus-scanned before it's served in production (same rule config/settings.py enforces at Django boot)." >&2
+      exit 1
+      ;;
+  esac
+fi
+
 fail() {
   log "FAILED: $1"
   mkdir -p "$(dirname "$DEPLOYS_LOG")"

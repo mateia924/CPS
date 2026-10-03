@@ -1,7 +1,20 @@
 """Sprint 5.1 (docs/SYSTEM_ANALYSIS.md 3.17): Attachment model, S3
 storage (MinIO), SHA-256, real ClamAV scanning, signed downloads,
-AuditLog — all against the real running services (MinIO + ClamAV), no
-mocks, matching this project's testing philosophy throughout.
+AuditLog — against the real running services (MinIO always; ClamAV
+too, but only for `test_eicar_real_clamav`, see below), no mocks,
+matching this project's testing philosophy throughout.
+
+Sprint 7.0 (CI #56): `test_infected_file_blocks_download`/
+`test_clean_file_allows_download` are the one deliberate exception —
+CI runs with no ClamAV service at all (CI #48's own decision: a virus
+database download doesn't suit a CI runner), so they fake only the
+narrow socket class `scan_attachment` calls out to (`_FakeClamdSocket`
+below), never `scan_attachment`'s own logic. The real round-trip
+against a genuinely running ClamAV lives on in
+`test_eicar_real_clamav`, marked `@pytest.mark.clamav` and excluded
+from `make test`/CI by that marker (not skipped/disabled) — run it via
+`make test-integration` on a dev/staging box instead, before every
+live deploy (docs/ops/DEPLOY.md).
 """
 
 import io
@@ -12,7 +25,7 @@ from django.core.signing import TimestampSigner
 from rest_framework.test import APIClient
 
 from apps.attachments.models import Attachment
-from apps.platform.models import Plan
+from apps.platform.models import AuditLog, Plan
 from apps.tenants.services import apply_plan_to_tenant
 
 from .factories import PartyFactory
@@ -158,8 +171,93 @@ def test_list_filters_by_target_and_hides_other_tenants(tenant_a, tenant_b, clie
     assert all_response.data["count"] == 1  # tenant B's row never visible to tenant A
 
 
+class _FakeClamdSocket:
+    """Sprint 7.0 (CI #56 fix): the narrowest possible fake — only the
+    class `apps.attachments.tasks.scan_attachment` constructs to talk
+    to ClamAV, nothing about `scan_attachment`'s own logic. Every line
+    after the constructed verdict (status transition, download gating,
+    AuditLog) runs for real, unmodified — only the "is a real clamd
+    reachable" question is faked, so these three tests are deterministic
+    in CI (no ClamAV service there, by CI #48's own deliberate design)
+    and on any dev box, without weakening what they actually prove."""
+
+    def __init__(self, verdict):
+        self._verdict = verdict
+
+    def __call__(self, *args, **kwargs):
+        return self
+
+    def instream(self, _f):
+        return {"stream": (self._verdict, "Eicar-Signature" if self._verdict == "FOUND" else "OK")}
+
+
 @pytest.mark.django_db(databases=["default", "platform"], transaction=True)
-def test_eicar_file_is_flagged_infected_and_download_is_blocked(tenant_a, client_a):
+def test_infected_file_blocks_download(tenant_a, client_a, settings, monkeypatch):
+    settings.ATTACHMENT_SCAN_ENABLED = True
+    monkeypatch.setattr("apps.attachments.tasks.clamd.ClamdNetworkSocket", _FakeClamdSocket("FOUND"))
+
+    party = PartyFactory(tenant=tenant_a)
+    response = _upload(client_a, party, filename="virus.csv", content=EICAR_BYTES, category="other")
+    assert response.status_code == 201
+    attachment_id = response.data["id"]
+    assert response.data["scan_status"] == "infected"
+
+    link = client_a.post(f"/api/attachments/{attachment_id}/link/").data["token"]
+    download = APIClient().get(f"/api/attachments/{attachment_id}/download/?token={link}")
+    assert download.status_code == 409
+
+    assert AuditLog.objects.filter(action="attachment.upload", target_id=attachment_id).exists()
+
+
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
+def test_clean_file_allows_download(tenant_a, client_a, settings, monkeypatch):
+    settings.ATTACHMENT_SCAN_ENABLED = True
+    monkeypatch.setattr("apps.attachments.tasks.clamd.ClamdNetworkSocket", _FakeClamdSocket(None))
+
+    party = PartyFactory(tenant=tenant_a)
+    response = _upload(client_a, party)
+    assert response.status_code == 201
+    attachment_id = response.data["id"]
+    assert response.data["scan_status"] == "clean"
+
+    link = client_a.post(f"/api/attachments/{attachment_id}/link/").data["token"]
+    download = APIClient().get(f"/api/attachments/{attachment_id}/download/?token={link}")
+    assert download.status_code == 200
+    assert b"".join(download.streaming_content) == PDF_BYTES
+
+    assert AuditLog.objects.filter(action="attachment.download", target_id=attachment_id).exists()
+
+
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
+def test_scan_disabled_marks_skipped(tenant_a, client_a, settings):
+    settings.ATTACHMENT_SCAN_ENABLED = False
+
+    party = PartyFactory(tenant=tenant_a)
+    response = _upload(client_a, party)
+    assert response.status_code == 201
+    attachment_id = response.data["id"]
+    assert response.data["scan_status"] == "skipped"
+
+    # Documented behavior (apps/attachments/views.py DownloadView):
+    # SKIPPED is allowed exactly like CLEAN — never refused at download
+    # time, only refused at Django boot in production (the guard test
+    # below, and config/settings.py).
+    link = client_a.post(f"/api/attachments/{attachment_id}/link/").data["token"]
+    download = APIClient().get(f"/api/attachments/{attachment_id}/download/?token={link}")
+    assert download.status_code == 200
+
+
+@pytest.mark.clamav
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
+def test_eicar_real_clamav(tenant_a, client_a):
+    """Requires a real, reachable ClamAV (CLAMD_HOST/CLAMD_PORT) — never
+    runs under `make test`/CI (excluded by the `clamav` marker, registered
+    `not clamav` by default in pyproject.toml), only under `make
+    test-integration` on a dev/staging box that actually has the
+    `clamav` service running. Run before every live deploy
+    (docs/ops/DEPLOY.md) — this is the one test that proves real ClamAV
+    itself (not just our code's handling of its verdict, covered
+    deterministically above) still flags the real EICAR signature."""
     # The pure, unmodified 68-byte EICAR test string — ClamAV's built-in
     # rule matches it exactly; any extra bytes around it (even a
     # disguise as a valid PDF header) make real ClamAV NOT flag it,
