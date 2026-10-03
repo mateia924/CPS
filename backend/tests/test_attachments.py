@@ -188,6 +188,8 @@ class _FakeClamdSocket:
         return self
 
     def instream(self, _f):
+        if self._verdict == "RAISE":
+            raise ConnectionError("clamd unreachable (fake, for test_scan_error_blocks_download)")
         return {"stream": (self._verdict, "Eicar-Signature" if self._verdict == "FOUND" else "OK")}
 
 
@@ -245,6 +247,30 @@ def test_scan_disabled_marks_skipped(tenant_a, client_a, settings):
     link = client_a.post(f"/api/attachments/{attachment_id}/link/").data["token"]
     download = APIClient().get(f"/api/attachments/{attachment_id}/download/?token={link}")
     assert download.status_code == 200
+
+
+@pytest.mark.django_db(databases=["default", "platform"], transaction=True)
+def test_scan_error_blocks_download(tenant_a, client_a, settings, monkeypatch):
+    """Sprint 7.0 (6.6.10, question B closed with a real test, not just
+    a description): scanning ENABLED but ClamAV unreachable/erroring
+    must never fall through to SKIPPED (which allows download exactly
+    like CLEAN) — scan_attachment's own `except Exception` sets ERROR,
+    and ERROR is NOT in DownloadView's allowed set, so this is refused
+    with the same 409 "مرفوض" branch as INFECTED. Confirms the
+    unscanned file is never served just because the scanner itself
+    failed."""
+    settings.ATTACHMENT_SCAN_ENABLED = True
+    monkeypatch.setattr("apps.attachments.tasks.clamd.ClamdNetworkSocket", _FakeClamdSocket("RAISE"))
+
+    party = PartyFactory(tenant=tenant_a)
+    response = _upload(client_a, party)
+    assert response.status_code == 201
+    attachment_id = response.data["id"]
+    assert response.data["scan_status"] == "error"
+
+    link = client_a.post(f"/api/attachments/{attachment_id}/link/").data["token"]
+    download = APIClient().get(f"/api/attachments/{attachment_id}/download/?token={link}")
+    assert download.status_code == 409
 
 
 @pytest.mark.clamav
