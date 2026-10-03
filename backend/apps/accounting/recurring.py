@@ -30,7 +30,7 @@ from .models import (
     RecurringEntry,
     RecurringInstallment,
 )
-from .periods import create_next_fiscal_year_for_tenant
+from .periods import assert_open_period, create_next_fiscal_year_for_tenant, period_is_open
 from .services import CENTS
 
 DOC_TYPE = "recurring_entry"
@@ -190,6 +190,13 @@ def cancel_recurring_entry(entry, user, request=None):
 
 def _generate_one(installment):
     entry = installment.entry
+    # Sprint 7.0 (6.6.10, item 0-bis): a last-resort guard independent
+    # of whichever caller got here — generate_due_installments already
+    # checks the period before calling this (and reacts by SKIPPING,
+    # not raising, since it's a scheduled batch), but this function
+    # itself must never create a POSTED entry in a closed period no
+    # matter who calls it next.
+    assert_open_period(entry.tenant, installment.due_date)
     journal_entry = JournalEntry.objects.create(
         tenant=entry.tenant, legal_entity=entry.legal_entity, date=installment.due_date,
         memo=str(
@@ -230,7 +237,7 @@ def _generate_one(installment):
 def regenerate_installment(installment, user, request=None):
     if installment.status != RecurringInstallment.Status.SKIPPED:
         raise ValidationError(_("لا يمكن إعادة التوليد إلا لقسط تم تخطّيه."))
-    if installment.period.status != FiscalPeriod.Status.OPEN:
+    if not period_is_open(installment.period):
         raise ValidationError(_("لا يمكن إعادة التوليد إلا بعد إعادة فتح الفترة."))
     journal_entry = _generate_one(installment)
     log_action(
@@ -265,7 +272,7 @@ def generate_due_installments(tenant=None, as_of=None, recurring_entry=None):
 
     generated, skipped = 0, 0
     for installment in qs:
-        if installment.period.status == FiscalPeriod.Status.OPEN:
+        if period_is_open(installment.period):
             _generate_one(installment)
             generated += 1
         else:

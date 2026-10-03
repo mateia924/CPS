@@ -110,9 +110,16 @@ class Command(BaseCommand):
             return
 
         with transaction.atomic():
+            from apps.accounting.periods import assert_open_period
+
             accum_account = get_system_account(tenant, "ACCUM_DEPRECIATION")
             gain_loss_account = get_system_account(tenant, "DISPOSAL_GAIN_LOSS")
             today = timezone.localdate()
+            # Sprint 7.0 (6.6.10, item 0-bis): dated today, same as
+            # reverse_journal_entry/void_invoice_journal_entry's own
+            # correcting entries — no reason this one-off script should
+            # be the one place that can post into a closed period.
+            assert_open_period(tenant, today)
 
             entry = JournalEntry.objects.create(
                 tenant=tenant, legal_entity=asset.legal_entity, date=today,

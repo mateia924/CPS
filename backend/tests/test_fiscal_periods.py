@@ -285,6 +285,50 @@ def test_document_dated_in_a_closed_period_rejected_on_save(tenant_a, client_a):
 
 
 @pytest.mark.django_db
+def test_post_journal_entry_rejects_a_closed_period_called_directly(tenant_a):
+    """Sprint 7.0 (6.6.10 item 0-bis): calls `post_journal_entry` itself
+    directly — not through the API — so this keeps working regardless
+    of which future caller (sprint 7's own new posting paths included)
+    reaches it. `post_journal_entry` already calls `assert_open_period`
+    internally (apps/accounting/services.py); no code change needed —
+    this only proves it. The approved-but-unposted state constructed
+    here (period closed out from under an already-approved entry) is
+    not reachable through the real close-period flow (its own BLOCK
+    check refuses to close over an approved-but-unposted document) —
+    manipulated directly here specifically to exercise the function's
+    own defense, independent of whether that flow stays airtight."""
+    from django.core.exceptions import ValidationError
+
+    cash = Account.objects.get(tenant=tenant_a, system_key="CASH")
+    sales = Account.objects.get(tenant=tenant_a, system_key="SALES")
+    roles = _roles(tenant_a)
+    user = UserFactory(tenant=tenant_a, email="direct-post-closed@fiscal-periods.test")
+    user.roles.add(roles["Owner"])
+    entity = LegalEntityFactory(tenant=tenant_a)
+    entry = create_manual_journal_entry(
+        tenant=tenant_a, user=user, legal_entity=entity, date=date(2026, 1, 15),
+        line_specs=[
+            {"account": cash, "debit_fc": Decimal("10.00"), "credit_fc": Decimal("0")},
+            {"account": sales, "debit_fc": Decimal("0"), "credit_fc": Decimal("10.00")},
+        ],
+        currency="SAR", exchange_rate=Decimal("1"),
+    )
+    submit_journal_entry_for_approval(entry, user)
+    entry.refresh_from_db()
+    assert entry.status == JournalEntry.Status.APPROVED
+
+    january = _period(tenant_a, 1)
+    january.status = FiscalPeriod.Status.CLOSED
+    january.save(update_fields=["status"])
+
+    with pytest.raises(ValidationError):
+        post_journal_entry(entry, user)
+
+    entry.refresh_from_db()
+    assert entry.status == JournalEntry.Status.APPROVED  # unchanged — the write never happened
+
+
+@pytest.mark.django_db
 def test_date_with_no_covering_period_rejected(tenant_a, client_a):
     customer = PartyFactory(tenant=tenant_a)
     product = ProductFactory(tenant=tenant_a)

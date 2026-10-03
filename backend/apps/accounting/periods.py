@@ -252,6 +252,16 @@ def update_fiscal_year_boundaries(year, name, start_date, end_date, period_lengt
     return year
 
 
+def period_is_open(period):
+    """Sprint 7.0 (6.6.10, item 0-bis): the one definition of "open"
+    for a FiscalPeriod — `assert_open_period` below and any caller that
+    has already fetched its own `period` (e.g. generate_due_installments,
+    via select_related, to avoid an extra query per row) both go
+    through this, so there is exactly one place the rule itself lives,
+    never two independently-maintained copies that can quietly drift."""
+    return period is not None and period.status == FiscalPeriod.Status.OPEN
+
+
 def assert_open_period(tenant, on_date):
     """Decision 3: the single date gate. Returns the covering
     FiscalPeriod, or raises a 400-shaped ValidationError in Arabic."""
@@ -262,7 +272,7 @@ def assert_open_period(tenant, on_date):
     )
     if period is None:
         raise ValidationError(str(_("No fiscal period covers the date %(date)s.")) % {"date": on_date})
-    if period.status != FiscalPeriod.Status.OPEN:
+    if not period_is_open(period):
         raise ValidationError(
             str(_("The date %(date)s falls in a closed period: %(period)s.")) % {"date": on_date, "period": str(period)}
         )
