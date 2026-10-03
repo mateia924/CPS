@@ -119,10 +119,12 @@ jobs:
         run: pip install -r backend/requirements-dev.txt
 
       - name: Lint (ruff) — same gate as `make lint`
+        shell: bash
         run: |
-          set -o pipefail
+          set +e
           make lint 2>&1 | tee lint.log
-          status=$?
+          status=${PIPESTATUS[0]}
+          set -e
           if [ "$status" -ne 0 ]; then
             tail -n 40 lint.log | while IFS= read -r l; do echo "::error::$l"; done
             exit "$status"
@@ -151,8 +153,9 @@ jobs:
           free -m
 
       - name: Tests (pytest) — accounting
+        shell: bash
         run: |
-          set -o pipefail
+          set +e
           cd backend/tests && pytest -v --create-db \
             test_chart_of_accounts.py test_db_triggers.py test_financial_controls.py \
             test_fiscal_periods.py test_journal_engine.py test_multi_currency.py \
@@ -160,16 +163,19 @@ jobs:
             test_master_data.py test_master_data_screens.py test_mandatory_cost_center.py \
             test_entity_subtree_scoping.py test_open_period_structural.py \
             test_invoicing_e2e.py test_invoice_edit_void.py test_invoice_void_guard.py \
-            test_document_numbering.py test_migrations.py 2>&1 | tee /tmp/test-accounting.log
-          status=$?
+            test_document_numbering.py test_migrations.py \
+            test_zzz_ci_annotation_proof.py 2>&1 | tee /tmp/test-accounting.log
+          status=${PIPESTATUS[0]}
+          set -e
           if [ "$status" -ne 0 ]; then
             tail -n 80 /tmp/test-accounting.log | while IFS= read -r l; do echo "::error::$l"; done
             exit "$status"
           fi
 
       - name: Tests (pytest) — assets and treasury
+        shell: bash
         run: |
-          set -o pipefail
+          set +e
           cd backend/tests && pytest -v \
             test_asset_additions.py test_asset_declining_balance.py test_asset_depreciation.py \
             test_asset_disposal.py test_asset_transfer.py test_fixed_asset_accounts.py \
@@ -178,15 +184,17 @@ jobs:
             test_reconciliation_report_and_cash_count.py test_treasury_entity_migration.py \
             test_vouchers.py test_vouchers_transfers.py test_recurring_entries.py \
             test_credit_limit.py test_iban_change.py 2>&1 | tee /tmp/test-assets-treasury.log
-          status=$?
+          status=${PIPESTATUS[0]}
+          set -e
           if [ "$status" -ne 0 ]; then
             tail -n 80 /tmp/test-assets-treasury.log | while IFS= read -r l; do echo "::error::$l"; done
             exit "$status"
           fi
 
       - name: Tests (pytest) — attachments and permissions
+        shell: bash
         run: |
-          set -o pipefail
+          set +e
           cd backend/tests && pytest -v \
             test_attachments.py test_attachment_rules.py test_rbac.py test_dashboard_rbac.py \
             test_platform_rbac.py test_platform_rbac_structural.py test_entity_scoped_viewsets.py \
@@ -195,15 +203,17 @@ jobs:
             test_guards.py test_settings_guards.py test_rate_limiting.py test_2fa.py \
             test_must_change_password.py test_session_hygiene.py test_soft_delete.py \
             test_soft_delete_structural.py 2>&1 | tee /tmp/test-attachments-permissions.log
-          status=$?
+          status=${PIPESTATUS[0]}
+          set -e
           if [ "$status" -ne 0 ]; then
             tail -n 80 /tmp/test-attachments-permissions.log | while IFS= read -r l; do echo "::error::$l"; done
             exit "$status"
           fi
 
       - name: Tests (pytest) — the rest (platform, RLS, tenants, misc)
+        shell: bash
         run: |
-          set -o pipefail
+          set +e
           cd backend/tests && pytest -v \
             test_accounts_backends.py test_anonymize_staging_users.py test_arabic_messages.py \
             test_archive_smoke_tenants.py test_default_legal_entity.py test_health.py \
@@ -212,7 +222,8 @@ jobs:
             test_rls.py test_rls_structural.py test_simplified_mode.py test_sprint6_block0.py \
             test_structural_isolation.py test_tenant_isolation.py test_tenant_subdomain_rules.py \
             2>&1 | tee /tmp/test-rest.log
-          status=$?
+          status=${PIPESTATUS[0]}
+          set -e
           if [ "$status" -ne 0 ]; then
             tail -n 80 /tmp/test-rest.log | while IFS= read -r l; do echo "::error::$l"; done
             exit "$status"
@@ -261,10 +272,12 @@ jobs:
       # header) — a real dev box's own `make dev-up` (no CI_OVERLAY)
       # is completely unaffected.
       - name: Bring up the dev stack
+        shell: bash
         run: |
-          set -o pipefail
+          set +e
           make dev-up CI_OVERLAY=1 2>&1 | tee dev-up.log
-          status=$?
+          status=${PIPESTATUS[0]}
+          set -e
           if [ "$status" -ne 0 ]; then
             tail -n 40 dev-up.log | while IFS= read -r l; do echo "::error::$l"; done
             exit "$status"
@@ -289,10 +302,12 @@ jobs:
           exit 1
 
       - name: E2E (Playwright) — same gate as `make e2e`
+        shell: bash
         run: |
-          set -o pipefail
+          set +e
           make e2e 2>&1 | tee e2e.log
-          status=$?
+          status=${PIPESTATUS[0]}
+          set -e
           if [ "$status" -ne 0 ]; then
             tail -n 40 e2e.log | while IFS= read -r l; do echo "::error::$l"; done
             exit "$status"
