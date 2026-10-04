@@ -154,3 +154,28 @@ def test_guard_bypass_env_var_skips_everything(tmp_path, monkeypatch):
     with patch.dict(connection.settings_dict, {"NAME": "cps"}), \
          patch("apps.tenants.management.commands.migrate.BACKUPS_LOG_PATH", tmp_path / "missing.log"):
         Command()._guard_recent_backup()  # must not raise, must not even query the DB
+
+
+def test_guard_rejects_even_with_ci_and_github_actions_env_vars_set(tmp_path, monkeypatch):
+    """Rule 11 (CI #67): this guard once exempted itself unconditionally
+    whenever CI=true or GITHUB_ACTIONS=true — exactly the two vars every
+    GitHub Actions runner sets on every job with no opt-in, so the
+    guard was silently off for anyone running under CI, not just the
+    e2e job's own (fresh-database, never actually blocked) migrate
+    call. CPS_ENVIRONMENT=production here too, since the removed
+    branch must never come back conditioned on CPS_ENVIRONMENT either —
+    this is the one test that proves the off switch is actually gone,
+    not just that the two tests above it are green again."""
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("CPS_ENVIRONMENT", "production")
+    with patch.dict(connection.settings_dict, {"NAME": "cps"}), \
+         patch("apps.tenants.management.commands.migrate.BACKUPS_LOG_PATH", tmp_path / "missing.log"), \
+         patch("apps.tenants.management.commands.migrate.MigrationExecutor") as mock_executor_cls:
+        mock_executor = mock_executor_cls.return_value
+        mock_executor.loader.applied_migrations = {"something": True}
+        mock_executor.loader.graph.leaf_nodes.return_value = []
+        mock_executor.migration_plan.return_value = [("fake_migration",)]
+
+        with pytest.raises(CommandError, match="migrate رُفض"):
+            Command()._guard_recent_backup()

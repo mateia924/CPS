@@ -24,12 +24,24 @@ Deliberately narrow:
   skipped.
 - A test database (pytest-django always names it "test_<NAME>") is
   never subject to this at all — it's thrown away after every run.
-- CI (GITHUB_ACTIONS/CI env vars) never runs `manage.py migrate`
-  directly today (see .github/workflows/ci.yml — only `pytest -v`,
-  which uses its own disposable test database) but is exempted
-  explicitly anyway, matching the exact request.
 - CPS_SKIP_BACKUP_GUARD=1 is a documented, loud, manual escape hatch
   for a genuine emergency — never silent.
+
+Sprint 7.0 (CI #67 investigation): a prior version of this also
+exempted `os.environ.get("CI") == "true" or GITHUB_ACTIONS == "true"`
+unconditionally. Verified before removing it: the only real
+`manage.py migrate` call that ever runs under CI (the e2e job's
+docker-compose backend startup command, via `make dev-up
+CI_OVERLAY=1`) never receives CI/GITHUB_ACTIONS in its container env
+at all (only CPS_ENVIRONMENT=ci, via .env.ci's own env_file) and
+always hits a fresh, empty database first (the "nothing real to lose
+yet" return above) — no legitimate caller ever needed this branch.
+What it actually did: any ambient CI/GITHUB_ACTIONS=true (which every
+GitHub Actions runner sets on every job, unconditionally, with no
+opt-in) silently defeated this guard for anyone, anywhere, including
+the two tests designed to exercise the real refusal path by
+impersonating a real database — a self-disabling guard is not a
+guard, it is a universally-available off switch.
 """
 
 import os
@@ -59,8 +71,6 @@ class Command(MigrateCommand):
 
     def _guard_recent_backup(self):
         if connection.settings_dict["NAME"].startswith("test_"):
-            return
-        if os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true":
             return
         if os.environ.get("CPS_SKIP_BACKUP_GUARD") == "1":
             self.stderr.write(
