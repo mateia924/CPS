@@ -1,0 +1,7 @@
+{
+  "_meta": {
+    "purpose": "Sprint 7.0.2 (incident #5/#6 — docs/SYSTEM_ANALYSIS.md §11): deliberate, committed exceptions to apps.accounting.management.commands.check_chart_health's own --fail-on-findings gate. Never an environment variable, never a silent skip — same pattern as archived-tenant exclusion in add_missing_system_accounts. A finding listed here is still PRINTED by check_chart_health on every run (as an accepted exception, not hidden), it just no longer fails the deploy. Add an entry only when the owner has explicitly decided to accept a specific tenant's chart shape as-is rather than fix it.",
+    "schema": "tenant (subdomain), system_key, reason, date (when accepted), decided_by"
+  },
+  "exceptions": []
+}

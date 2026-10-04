@@ -95,7 +95,7 @@ docker run -d --name ci-local-backend --network host \
   -v "$ROOT_DIR:/workspace" -w /workspace \
   python:3.12 sleep infinity >/dev/null
 
-run_step "install system dependencies (libmagic)" docker exec ci-local-backend bash -c "apt-get update -qq && apt-get install -y --no-install-recommends libmagic1 make >/tmp/apt.log 2>&1"
+run_step "install system dependencies (libmagic, git)" docker exec ci-local-backend bash -c "apt-get update -qq && apt-get install -y --no-install-recommends libmagic1 make git >/tmp/apt.log 2>&1"
 run_step "install dependencies (requirements-dev.txt)" docker exec ci-local-backend bash -c "pip install -q -r backend/requirements-dev.txt"
 run_step "ruff (lint) — same gate as \`make lint\`" docker exec -w /workspace/backend ci-local-backend ruff check .
 run_step "manage.py check" docker exec -w /workspace/backend ci-local-backend python manage.py check

@@ -19,14 +19,42 @@ set -euo pipefail
 # the CURRENT working tree -> apply migrations (apps.tenants's own
 # migrate override still refuses a pending migration without a fresh
 # backup — this script's own backup step above is what satisfies it)
-# -> setup_rls -> add_missing_system_accounts (sprint 7.0, sprint-7.md
-# §0 rule 4 / D1 — both idempotent, every deploy) -> recreate the
-# containers from the freshly built images -> make smoke -> one line
-# in docs/ops/deploys.log (time, hash, result).
+# -> setup_rls -> add_missing_system_accounts -> check_chart_health
+# --fail-on-findings (sprint 7.0/7.0.2, sprint-7.md §0 rule 4 / D1 —
+# all idempotent, every deploy) -> recreate the containers from the
+# freshly built images -> make smoke -> one line in docs/ops/
+# deploys.log (time, hash, result).
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEPLOYS_LOG="$REPO_DIR/docs/ops/deploys.log"
 COMPOSE="docker compose --env-file $REPO_DIR/.env -f docker-compose.yml -f docker-compose.local.yml"
+
+log() { echo "[deploy $(date -Iseconds)] $1"; }
+
+# Sprint 7.0.2 (incident, 2026-10-04): the night this guard didn't
+# exist, a deploy ran from a working tree carrying uncommitted 7.0.1
+# fixes on top of the committed 7.0.1 commit — the live database ended
+# up built from code that no git hash alone could reconstruct, and
+# deploys.log's own one-line record (just a hash) silently implied
+# otherwise. Refuses outright by default; the one documented escape
+# hatch is explicit on both ends (never silent): set ALLOW_DIRTY_DEPLOY=1
+# AND DIRTY_DEPLOY_REASON="..." and rerun — both get logged into
+# deploys.log's own record of this run, not just printed and forgotten.
+DIRTY_STATUS="$(git -C "$REPO_DIR" status --porcelain)"
+DIRTY_NOTE=""
+if [ -n "$DIRTY_STATUS" ]; then
+  if [ "${ALLOW_DIRTY_DEPLOY:-}" = "1" ] && [ -n "${DIRTY_DEPLOY_REASON:-}" ]; then
+    log "WARNING: deploying from a DIRTY working tree (ALLOW_DIRTY_DEPLOY=1): $DIRTY_DEPLOY_REASON"
+    log "changed file(s):"
+    echo "$DIRTY_STATUS" | while IFS= read -r line; do log "  $line"; done
+    DIRTY_NOTE=" [DIRTY TREE, ALLOWED: $DIRTY_DEPLOY_REASON]"
+  else
+    echo "ERROR: working tree is not clean — refusing to deploy. Changed file(s):" >&2
+    echo "$DIRTY_STATUS" >&2
+    echo "If this is deliberate: ALLOW_DIRTY_DEPLOY=1 DIRTY_DEPLOY_REASON=\"...\" scripts/deploy.sh — logged into deploys.log, never silent." >&2
+    exit 1
+  fi
+fi
 
 # So ${HTTP_PORT:-3000} below actually reflects .env instead of always
 # falling back to the default (this script's own shell never inherits
@@ -34,8 +62,6 @@ COMPOSE="docker compose --env-file $REPO_DIR/.env -f docker-compose.yml -f docke
 set -a
 source "$REPO_DIR/.env"
 set +a
-
-log() { echo "[deploy $(date -Iseconds)] $1"; }
 
 # Incident, 2026-10-01 (docs/SYSTEM_ANALYSIS.md §11): the real .env got
 # mistakenly overwritten with .env.example's own placeholder values
@@ -104,7 +130,7 @@ fi
 fail() {
   log "FAILED: $1"
   mkdir -p "$(dirname "$DEPLOYS_LOG")"
-  printf '%s\t%s\tFAILED\t%s\n' "$(date -Iseconds)" "${GIT_HASH:-unknown}" "$1" >> "$DEPLOYS_LOG"
+  printf '%s\t%s\tFAILED\t%s%s\n' "$(date -Iseconds)" "${GIT_HASH:-unknown}" "$1" "$DIRTY_NOTE" >> "$DEPLOYS_LOG"
   exit 1
 }
 
@@ -112,32 +138,43 @@ cd "$REPO_DIR"
 GIT_HASH="$(git rev-parse HEAD)"
 log "deploying commit $GIT_HASH"
 
-log "step 1/7: backup"
+log "step 1/8: backup"
 ./scripts/backup.sh "deploy.sh $GIT_HASH" || fail "backup.sh"
 
 cd "$REPO_DIR/infra"
 
-log "step 2/7: build images"
+log "step 2/8: build images"
 $COMPOSE build || fail "build"
 
-log "step 3/7: migrate (apps.tenants's own guard enforces the fresh-backup rule)"
+log "step 3/8: migrate (apps.tenants's own guard enforces the fresh-backup rule)"
 $COMPOSE run --rm --entrypoint '' backend python manage.py migrate || fail "migrate"
 
 # Sprint 7.0 (sprint-7.md §0 rule 4): setup_rls after every migrate, not
 # just after a restore (scripts/staging_refresh.sh's own use) — this
 # script never called it at all before, relying only on migration
 # 0016's own one-time RunPython. Idempotent either way.
-log "step 4/7: setup_rls (re-apply cps_app grants/RLS policies)"
+log "step 4/8: setup_rls (re-apply cps_app grants/RLS policies)"
 $COMPOSE run --rm --entrypoint '' backend python manage.py setup_rls || fail "setup_rls"
 
 # Sprint 7.0 (D1): idempotent for every tenant, every deploy — the
 # generic replacement for a one-off backfill migration per new system
 # account (see apps/accounting/management/commands/
 # add_missing_system_accounts.py's own docstring).
-log "step 5/7: add_missing_system_accounts"
+log "step 5/8: add_missing_system_accounts"
 $COMPOSE run --rm --entrypoint '' backend python manage.py add_missing_system_accounts || fail "add_missing_system_accounts"
 
-log "step 6/7: restart from the freshly built images"
+# Sprint 7.0.2 (incident #5/#6 — docs/SYSTEM_ANALYSIS.md §11): a
+# tenant's own chart can silently disable an automated posting path
+# with no event logged anywhere (Account.can_post is computed, not
+# stored) — this caught 3 real tenants broken for over a week before
+# anyone noticed. --fail-on-findings: every tenant a deploy touches is
+# live by this project's own definition; a committed exception
+# (docs/ops/chart_health_exceptions.json) is the only way past this,
+# never silent.
+log "step 6/8: check_chart_health"
+$COMPOSE run --rm --entrypoint '' backend python manage.py check_chart_health --fail-on-findings || fail "check_chart_health"
+
+log "step 7/8: restart from the freshly built images"
 $COMPOSE up -d || fail "restart"
 
 # Sprint 6.6.0 (found while validating this exact script): nginx starts
@@ -168,10 +205,10 @@ for _ in $(seq 1 30); do
 done
 [ "$READY" = "1" ] || fail "backend never accepted a connection within 30s (last status: ${STATUS:-none})"
 
-log "step 7/7: smoke test"
+log "step 8/8: smoke test"
 cd "$REPO_DIR"
 ./scripts/smoke.sh || fail "smoke"
 
 mkdir -p "$(dirname "$DEPLOYS_LOG")"
-printf '%s\t%s\tOK\t%s\n' "$(date -Iseconds)" "$GIT_HASH" "deploy.sh" >> "$DEPLOYS_LOG"
+printf '%s\t%s\tOK\t%s%s\n' "$(date -Iseconds)" "$GIT_HASH" "deploy.sh" "$DIRTY_NOTE" >> "$DEPLOYS_LOG"
 log "OK — $GIT_HASH is now live on port ${HTTP_PORT:-3000}. Logged to $DEPLOYS_LOG"

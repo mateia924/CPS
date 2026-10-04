@@ -71,6 +71,26 @@ CONTROL_SYSTEM_KEYS = {
     "INVENTORY", "COGS", "INVENTORY_ADJUSTMENT", "GRNI", "GOODS_IN_TRANSIT",
 }
 
+# Sprint 7.0.2 (incident #5 follow-up — docs/SYSTEM_ANALYSIS.md §11):
+# system_keys an automated posting path (never a human choosing the
+# account manually) resolves and posts TO DIRECTLY — as opposed to
+# CUSTOMERS/SUPPLIERS/EMPLOYEES/AFFILIATES/BANKS/CUSTODIES/CASH, which
+# are only ever used as the PARENT of a per-party/per-instrument
+# sub-ledger account real postings actually target (get_or_create_
+# party_role_account/get_or_create_treasury_account) — a category
+# parent going non-leaf is the designed, safe outcome for those, not a
+# risk. Kept in sync by hand with every get_system_account/
+# get_required_system_account/_get_system_account_or_fallback call
+# site across apps/vouchers, apps/assets, apps/treasury, and this file
+# — see apps.accounting.management.commands.check_chart_health, which
+# cross-references this set against can_post=False to find a posting
+# path a tenant's own chart has silently disabled.
+AUTOMATED_POSTING_SYSTEM_KEYS = {
+    "VAT_OUTPUT", "VAT_INPUT", "FX_REALIZED", "CASH_COUNT_VARIANCE",
+    "ACCUM_DEPRECIATION", "DEPRECIATION_EXPENSE", "FIXED_ASSETS",
+    "DISPOSAL_GAIN_LOSS", "SALES",
+}
+
 # Sprint 7.0 (D1): the single master spec `add_missing_system_accounts`
 # walks — every system_key this project has ever introduced, with the
 # one universal code/name/type/parent it uses regardless of
