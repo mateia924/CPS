@@ -98,3 +98,29 @@ def test_a_clean_tenant_with_no_journal_entries_still_archives_without_force():
 
     tenant.refresh_from_db()
     assert tenant.status == Tenant.Status.ARCHIVED
+
+
+@pytest.mark.django_db
+def test_a_tenant_with_a_cleanly_reversed_entry_still_archives_without_force():
+    """Sprint 7.0.3: the command used to filter on status=POSTED alone
+    (apps.accounting.services.unreversed_posted_entries' definition),
+    which would wrongly count the REVERSAL entry itself — also POSTED
+    by construction — as unresolved debt, blocking a tenant that was
+    actually closed cleanly. Switching to debt_entries
+    (reverses__isnull=True) fixes this: the reversal is excluded, only
+    a genuinely un-reversed forward entry would still block."""
+    tenant = TenantFactory(subdomain="smoke-cleanlyreversed")
+    entity = LegalEntityFactory(tenant=tenant)
+    original = JournalEntry.objects.create(
+        tenant=tenant, legal_entity=entity, date="2026-01-01",
+        number="JV-TEST-0004", status=JournalEntry.Status.REVERSED,
+    )
+    JournalEntry.objects.create(
+        tenant=tenant, legal_entity=entity, date="2026-01-02",
+        number="JV-TEST-0004-R", status=JournalEntry.Status.POSTED, reverses=original,
+    )
+
+    call_command("archive_smoke_tenants")
+
+    tenant.refresh_from_db()
+    assert tenant.status == Tenant.Status.ARCHIVED

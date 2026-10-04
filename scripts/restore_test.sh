@@ -122,12 +122,26 @@ fi
 # inflated by dead test tenants nobody will ever look at again.
 RESTORED_TENANTS="$($COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$RESTORE_TEST_DB" -t -A -c \
   "SELECT count(*) FROM tenants_tenant WHERE status != 'archived';" | tr -d '[:space:]')"
-RESTORED_POSTED="$($COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$RESTORE_TEST_DB" -t -A -c \
-  "SELECT count(*) FROM accounting_journalentry je JOIN tenants_tenant t ON t.id = je.tenant_id WHERE je.status = 'posted' AND t.status != 'archived';" | tr -d '[:space:]')"
 LIVE_TENANTS="$($COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -A -c \
   "SELECT count(*) FROM tenants_tenant WHERE status != 'archived';" | tr -d '[:space:]')"
-LIVE_POSTED="$($COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -A -c \
-  "SELECT count(*) FROM accounting_journalentry je JOIN tenants_tenant t ON t.id = je.tenant_id WHERE je.status = 'posted' AND t.status != 'archived';" | tr -d '[:space:]')"
+
+# Sprint 7.0.3: the posted-entries count is exactly what
+# apps.accounting.services.unreversed_posted_entries(tenant) means
+# ("still open, not yet reversed") summed across live tenants — call
+# it through the backend's own Django ORM instead of re-deriving the
+# same `status='posted'` filter a third time in raw SQL (this file,
+# the audit, and a management command all drifted on this once; see
+# docs/SYSTEM_ANALYSIS.md §11, 2026-10-04 follow-up).
+POSTED_COUNT_PY='
+from apps.tenants.models import Tenant
+from apps.accounting.services import unreversed_posted_entries
+total = sum(unreversed_posted_entries(t).count() for t in Tenant.objects.exclude(status="archived"))
+print(f"RESULT:{total}")
+'
+RESTORED_POSTED="$($COMPOSE exec -T -e DATABASE_URL="$TEST_DATABASE_URL" backend python manage.py shell -c "$POSTED_COUNT_PY" \
+  | sed -n 's/^RESULT://p' | tr -d '[:space:]')"
+LIVE_POSTED="$($COMPOSE exec -T backend python manage.py shell -c "$POSTED_COUNT_PY" \
+  | sed -n 's/^RESULT://p' | tr -d '[:space:]')"
 
 log "tenants: restored=$RESTORED_TENANTS live=$LIVE_TENANTS | posted entries: restored=$RESTORED_POSTED live=$LIVE_POSTED"
 

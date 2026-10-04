@@ -23,6 +23,84 @@ from .models import Account, JournalEntry, JournalLine, TaxCode, TaxPeriod
 # (rule 13: "لا قيد محاسبي يُرحَّل إلا من مستند بحالة POSTED").
 REPORTABLE_STATUSES = [JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED]
 
+
+def unreversed_posted_entries(tenant):
+    """Every JournalEntry currently sitting at status=POSTED for this
+    tenant — i.e. still open, not yet offset by a reversal. Correct
+    for "what's open right now" (e.g. a pre-close checklist); WRONG
+    for "how much is this tenant's unresolved debt" (use debt_entries)
+    or for a historical gross total (use gross_trial_balance).
+
+    The error this function exists to prevent, made for real on
+    2026-10-04: `archive_smoke_tenants` used exactly this definition
+    (`status=POSTED`, nothing else) to decide whether a tenant was
+    safe to archive, and it refused to archive a tenant that had
+    already been used and properly closed (issued, then voided) —
+    because the CLOSING reversal entry is itself status=POSTED by
+    construction (see reverse_journal_entry below: reversing an entry
+    flips the ORIGINAL to REVERSED and creates the reversal as a new
+    POSTED row). The command was fixed by switching to debt_entries,
+    which excludes the reversal. If you are asking "is there unpaid
+    debt" and you reach for this function instead of debt_entries, you
+    will reproduce that exact false positive.
+    """
+    return JournalEntry.objects.filter(tenant=tenant, status=JournalEntry.Status.POSTED)
+
+
+def debt_entries(tenant):
+    """Every JournalEntry that is genuinely unresolved debt: POSTED,
+    and not itself a reversal of something else. Use this, not
+    unreversed_posted_entries, whenever the question is "how much
+    unpaid/unresolved debt does this tenant carry."
+
+    The error this function exists to prevent, made for real on
+    2026-10-04: a historical audit of archived tenants used
+    `status=POSTED` alone (no further condition) and flagged a
+    tenant's own CLOSING reversal entry as if it were 115.00 of fresh
+    debt — the entry it reversed had already gone to REVERSED and the
+    pair netted to zero, so there was no debt there at all. Any
+    reversal entry is ALSO status=POSTED by construction (it is the
+    mechanism that closes the original, not more of it), so counting
+    it as debt double-counts a position that is already closed.
+    Requiring `reverses__isnull=True` excludes exactly that case — if
+    you drop that condition and filter on status=POSTED alone, you
+    will reproduce that exact miscount.
+    """
+    return JournalEntry.objects.filter(
+        tenant=tenant, status=JournalEntry.Status.POSTED, reverses__isnull=True
+    )
+
+
+def gross_trial_balance(tenant):
+    """The historical gross trial balance for this tenant: the sum of
+    JournalLine.debit across every entry in REPORTABLE_STATUSES
+    (POSTED or REVERSED) — equal to the sum of credit by construction
+    (every entry balances). Use this for "what does the gross total
+    look like historically", never for a net/current balance (which
+    returns to its pre-activity value after a clean reversal — this
+    figure does not).
+
+    The error this function exists to prevent, made for real on
+    2026-10-04: a restore-vs-live balance comparison was computed with
+    `status=POSTED` alone and came out LOWER than the true live
+    figure, by exactly the amount of one already-reversed entry — its
+    original forward half had flipped to status=REVERSED (reversing
+    an entry moves the ORIGINAL to REVERSED and creates a brand-new
+    POSTED row for the reversal; see reverse_journal_entry below) and
+    silently dropped out of a `status=POSTED`-only sum, while its
+    reversal half (still POSTED) stayed in — a half-counted pair, not
+    a clean total. REPORTABLE_STATUSES (this module, above) is the
+    project's standing answer for which statuses count toward any
+    balance/report; filtering on POSTED alone instead will always
+    undercount by exactly the gross value of every already-reversed
+    entry.
+    """
+    return (
+        JournalLine.objects.filter(entry__tenant=tenant, entry__status__in=REPORTABLE_STATUSES)
+        .aggregate(total=Sum("debit"))["total"]
+        or Decimal("0")
+    )
+
 CHART_TEMPLATES_DIR = Path(__file__).resolve().parent / "chart_templates"
 COMPLIANCE_DIR = Path(__file__).resolve().parent.parent / "compliance"
 

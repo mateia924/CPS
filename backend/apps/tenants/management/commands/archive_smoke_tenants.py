@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand, CommandError
 
-from apps.accounting.models import JournalEntry
+from apps.accounting.services import debt_entries
 from apps.platform.models import AuditLog
 from apps.platform.services import log_action
 
@@ -27,16 +27,20 @@ class Command(BaseCommand):
     never-reversed JournalEntry rows (627,000.00 combined) — "archiving
     is cleanup" had never actually been true, only assumed, since this
     command archived a tenant's STATUS without ever looking at its
-    books. Reversing a entry changes its own status away from POSTED
-    (see DocumentStateMixin/apps.accounting.services.
-    reverse_journal_entry — the original becomes REVERSED, the
-    reversal itself is the new POSTED row), so `status=POSTED` alone
-    is exactly "posted and still un-reversed", same query as the
-    historical audit used. This command now refuses to archive any
-    tenant carrying such a row unless --force is given with a written
+    books. This command now refuses to archive any tenant carrying
+    real unresolved debt unless --force is given with a written
     --reason — and that reason is logged (AuditLog), never a silent
     bypass. --force does not reverse anything itself; it only lets a
-    known, named debt be archived anyway, on the record."""
+    known, named debt be archived anyway, on the record.
+
+    Sprint 7.0.3: uses apps.accounting.services.debt_entries(tenant),
+    not a hand-written `status=POSTED` filter — this command's first
+    version (7.0.2) used `status=POSTED` alone, which would have
+    wrongly flagged a tenant that was used and then properly closed
+    (issue + void, leaving a POSTED reversal entry behind) as still
+    carrying debt, refusing to archive it for no real reason. See
+    debt_entries' own docstring for why `reverses__isnull=True`
+    matters here."""
 
     help = "Archive (soft) every tenant whose subdomain starts with 'smoke-'. Touches no other tenant."
 
@@ -67,10 +71,7 @@ class Command(BaseCommand):
 
         blocked = []
         for tenant in tenants:
-            unreversed = list(
-                JournalEntry.objects.filter(tenant=tenant, status=JournalEntry.Status.POSTED)
-                .order_by("number")
-            )
+            unreversed = list(debt_entries(tenant).order_by("number"))
             if unreversed and not force:
                 blocked.append((tenant, unreversed))
                 continue
