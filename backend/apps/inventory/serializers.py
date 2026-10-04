@@ -2,9 +2,10 @@ from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
 from apps.accounting.models import Account
+from apps.organization.models import CostCenter, LegalEntity
 from apps.sales.models import Product
 
-from .models import InventorySettings, ItemBarcode, ItemCategory, ItemUoM, UnitOfMeasure
+from .models import InventorySettings, ItemBarcode, ItemCategory, ItemUoM, UnitOfMeasure, Warehouse
 
 
 class InventorySettingsSerializer(serializers.ModelSerializer):
@@ -121,3 +122,49 @@ class ItemBarcodeSerializer(serializers.ModelSerializer):
         if qs.exists():
             raise serializers.ValidationError(_("This barcode is already used by another item."))
         return value
+
+
+class WarehouseSerializer(serializers.ModelSerializer):
+    """Sprint 7.2 (block spec, item 1)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request is not None and request.user.is_authenticated:
+            tenant = request.user.tenant
+            self.fields["legal_entity"].queryset = LegalEntity.objects.filter(tenant=tenant)
+            self.fields["cost_center"].queryset = CostCenter.objects.filter(tenant=tenant, is_active=True)
+            for field_name in ("inventory_account_override", "cogs_account_override", "adjustment_account_override"):
+                self.fields[field_name].queryset = Account.objects.filter(tenant=tenant, is_active=True)
+
+    class Meta:
+        model = Warehouse
+        fields = (
+            "id", "legal_entity", "code", "name", "inventory_account_override", "cogs_account_override",
+            "adjustment_account_override", "cost_center", "is_default", "is_active", "created_at",
+        )
+        read_only_fields = ("id", "created_at")
+
+    def validate(self, attrs):
+        # 7.2 test item 2: two defaults in the same entity -> 400 (the
+        # DB's own conditional UniqueConstraint is the hard guarantee;
+        # this is just the clean 400 instead of a raw IntegrityError
+        # for the one case a plain create/update CAN still hit it —
+        # explicitly setting is_default=True on a SECOND row without
+        # going through set_default_warehouse below).
+        is_default = attrs.get("is_default", getattr(self.instance, "is_default", False))
+        legal_entity = attrs.get("legal_entity", getattr(self.instance, "legal_entity", None))
+        if is_default and legal_entity is not None:
+            existing = Warehouse.objects.filter(
+                tenant=legal_entity.tenant, legal_entity=legal_entity, is_default=True, deleted_at__isnull=True,
+            )
+            if self.instance is not None:
+                existing = existing.exclude(pk=self.instance.pk)
+            if existing.exists():
+                raise serializers.ValidationError(
+                    {"is_default": [_(
+                        "This entity already has a default warehouse. Use the set-default action "
+                        "to switch it instead of setting this field directly."
+                    )]}
+                )
+        return attrs

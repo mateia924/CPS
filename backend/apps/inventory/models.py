@@ -1,8 +1,17 @@
+from decimal import Decimal
+
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.utils.translation import gettext_lazy as _
 
-from apps.common.constants import QUANTITY_DECIMAL_PLACES, QUANTITY_MAX_DIGITS
+from apps.common.constants import (
+    MONEY_DECIMAL_PLACES,
+    MONEY_MAX_DIGITS,
+    PRICE_DECIMAL_PLACES,
+    PRICE_MAX_DIGITS,
+    QUANTITY_DECIMAL_PLACES,
+    QUANTITY_MAX_DIGITS,
+)
 from apps.common.models import SoftDeleteModelMixin, TenantScopedModel
 
 
@@ -195,3 +204,147 @@ class ItemBarcode(TenantScopedModel, SoftDeleteModelMixin):
 
     def __str__(self):
         return self.barcode
+
+
+class Warehouse(TenantScopedModel, SoftDeleteModelMixin):
+    """Sprint 7.2 (block spec, item 1): one legal_entity is mandatory —
+    a warehouse belongs to exactly one branch (or the company itself
+    in simplified mode), never shared across entities (ItemCost below
+    is the company-wide sharing mechanism; Warehouse/StockLevel are
+    deliberately NOT). The three optional account overrides mirror
+    Product's own inventory_account_override/cogs_account_override
+    pattern (sprint 7.1) — INVENTORY_ADJUSTMENT is the third because
+    rounding corrections (D2) need somewhere to post per-warehouse too
+    when a tenant wants that split; GRNI/GOODS_IN_TRANSIT are
+    purchasing-flow-wide, never a per-warehouse override."""
+
+    legal_entity = models.ForeignKey(
+        "organization.LegalEntity", on_delete=models.PROTECT, related_name="warehouses"
+    )
+    code = models.CharField(_("code"), max_length=20)
+    name = models.CharField(_("name"), max_length=255)
+    inventory_account_override = models.ForeignKey(
+        "accounting.Account", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    cogs_account_override = models.ForeignKey(
+        "accounting.Account", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    adjustment_account_override = models.ForeignKey(
+        "accounting.Account", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    cost_center = models.ForeignKey(
+        "organization.CostCenter", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    # Sprint 7.2: exactly one default warehouse per legal_entity — the
+    # conditional UniqueConstraint below is the hard guarantee (DB
+    # level, survives any future caller that forgets the atomic
+    # switch); WarehouseSerializer.validate()/save() is what actually
+    # performs the atomic switch (unset the old default, set the new
+    # one, one transaction) rather than ever naively letting a second
+    # True collide with the constraint and surface a raw 500.
+    is_default = models.BooleanField(_("default warehouse"), default=False)
+    is_active = models.BooleanField(_("active"), default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["code"]
+        constraints = [
+            models.UniqueConstraint(fields=["tenant", "code"], name="unique_warehouse_code_per_tenant"),
+            models.UniqueConstraint(
+                fields=["legal_entity"], condition=models.Q(is_default=True, deleted_at__isnull=True),
+                name="unique_default_warehouse_per_entity",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.code} {self.name}"
+
+
+def set_default_warehouse(warehouse):
+    """Sprint 7.2: the atomic switch Warehouse.is_default's own
+    comment promises — unsets whatever was the old default for this
+    warehouse's legal_entity (if any, and if it isn't this same row),
+    then sets this one, in one transaction. The DB's own conditional
+    UniqueConstraint (unique_default_warehouse_per_entity) is what
+    makes a bug here fail loudly instead of silently double-defaulting
+    — this function is the one, deliberate way to change which
+    warehouse is default; nothing else should flip is_default=True
+    directly."""
+    with transaction.atomic():
+        Warehouse.objects.filter(
+            tenant=warehouse.tenant, legal_entity=warehouse.legal_entity, is_default=True,
+        ).exclude(pk=warehouse.pk).update(is_default=False)
+        warehouse.is_default = True
+        warehouse.save(update_fields=["is_default"])
+
+
+class StockLevel(TenantScopedModel):
+    """Sprint 7.2 (D2): quantities PER WAREHOUSE — `qty_reserved` is
+    schema only for now (sales-order reservation is a later sprint;
+    available_qty already subtracts it so nothing needs to change
+    when that lands). No SoftDeleteModelMixin: this is a running
+    balance row, maintained by the stock-posting service (sprint 7.3),
+    never created/edited/deleted directly by a user."""
+
+    item = models.ForeignKey("sales.Product", on_delete=models.PROTECT, related_name="stock_levels")
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.PROTECT, related_name="stock_levels")
+    qty_on_hand = models.DecimalField(
+        _("quantity on hand"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES, default=0,
+    )
+    qty_reserved = models.DecimalField(
+        _("quantity reserved"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES, default=0,
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["item", "warehouse"], name="unique_stock_level_per_item_warehouse")
+        ]
+
+    def __str__(self):
+        return f"{self.item_id}@{self.warehouse_id}: {self.qty_on_hand}"
+
+
+def available_qty(item, warehouse):
+    """Sprint 7.2 (block spec, item 2): on-hand minus reserved — the
+    one function every future screen/report reads stock availability
+    through, so the reservation rule (once sales-order reservation
+    exists) only ever needs to change here."""
+    level = StockLevel.objects.filter(item=item, warehouse=warehouse).first()
+    if level is None:
+        return Decimal("0")
+    return level.qty_on_hand - level.qty_reserved
+
+
+class ItemCost(TenantScopedModel):
+    """Sprint 7.2 (D2/R-7.1): weighted-average cost scoped to the
+    COMPANY entity (the nearest ancestor in the legal-entity tree that
+    is NOT a branch — never the branch itself), shared by every branch
+    under it: "فروع الشركة تشترك بالتكلفة". Quantities for AVAILABILITY
+    live per-warehouse in StockLevel above; this row's own qty_on_hand
+    is the company-wide total the average is computed over. No
+    SoftDeleteModelMixin, same reasoning as StockLevel — a running
+    balance, never user-managed directly."""
+
+    item = models.ForeignKey("sales.Product", on_delete=models.PROTECT, related_name="costs")
+    company_entity = models.ForeignKey(
+        "organization.LegalEntity", on_delete=models.PROTECT, related_name="item_costs"
+    )
+    qty_on_hand = models.DecimalField(
+        _("quantity on hand"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES, default=0,
+    )
+    total_value = models.DecimalField(
+        _("total value"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0,
+    )
+    avg_cost = models.DecimalField(
+        _("average cost"), max_digits=PRICE_MAX_DIGITS, decimal_places=PRICE_DECIMAL_PLACES, default=0,
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["item", "company_entity"], name="unique_item_cost_per_item_company")
+        ]
+
+    def __str__(self):
+        return f"{self.item_id}@{self.company_entity_id}: avg={self.avg_cost}"

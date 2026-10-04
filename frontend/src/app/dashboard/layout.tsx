@@ -200,8 +200,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {showInventory && (
           <>
             <div className="sidebar-section-label">{t("inventorySection")}</div>
+            <SidebarLink href="/dashboard/inventory/warehouses">{t("warehouses")}</SidebarLink>
             <SidebarLink href="/dashboard/inventory/item-categories">{t("itemCategories")}</SidebarLink>
             <SidebarLink href="/dashboard/inventory/units">{t("unitsOfMeasure")}</SidebarLink>
+            <SidebarLink href="/dashboard/inventory/settings">{t("inventorySettings")}</SidebarLink>
           </>
         )}
 

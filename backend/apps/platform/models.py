@@ -89,6 +89,11 @@ class Plan(models.Model):
     max_invoices_per_month = models.PositiveIntegerField(
         _("max invoices per month"), null=True, blank=True
     )
+    # Sprint 7.2 (D17): enforced per-tenant (not per-entity) the same
+    # way max_branches already is — a tenant with 2 branches and a
+    # 1-warehouse plan can still only ever have 1 warehouse total,
+    # across both branches combined.
+    max_warehouses = models.PositiveIntegerField(_("max warehouses"), null=True, blank=True)
     storage_mb = models.PositiveIntegerField(_("storage (MB)"), null=True, blank=True)
     # Sprint 5.1 (3.17): per-file ceiling for attachment uploads — the
     # per-file check is separate from the tenant-wide storage_mb quota

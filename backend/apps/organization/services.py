@@ -159,3 +159,16 @@ def effective_company_profile(legal_entity):
             node = node.parent
         result[field] = value
     return result
+
+
+def company_entity_for(legal_entity):
+    """Sprint 7.2 (D2/R-7.1): the nearest ancestor (including itself)
+    that is NOT a BRANCH — "أقرب سلف في الشجرة القانونية ليس فرعًا".
+    This is the row apps.inventory.models.ItemCost keys its
+    company-wide weighted-average cost on, so every branch under the
+    same company shares one cost — a branch itself never gets its own
+    ItemCost row."""
+    node = legal_entity
+    while node.entity_type == LegalEntity.Type.BRANCH and node.parent_id:
+        node = node.parent
+    return node

@@ -72,6 +72,26 @@ def check_branch_limit(tenant):
         )
 
 
+def check_warehouse_limit(tenant):
+    """Sprint 7.2 (D17): counted across the WHOLE tenant, same as
+    check_branch_limit above — a tenant with two branches on a
+    1-warehouse plan still can't have a second warehouse on the
+    other branch; the limit is on the tenant's total, not per-entity."""
+    if tenant.plan is None or tenant.plan.max_warehouses is None:
+        return
+    from apps.inventory.models import Warehouse
+
+    count = Warehouse.objects.filter(tenant=tenant, is_active=True).count()
+    if count >= tenant.plan.max_warehouses:
+        raise TenantLimitExceeded(
+            _(
+                "You've reached the maximum number of warehouses allowed by "
+                "your current plan (%(max)s). Upgrade your plan to add more."
+            )
+            % {"max": tenant.plan.max_warehouses}
+        )
+
+
 def check_invoice_limit(tenant):
     if tenant.plan is None or tenant.plan.max_invoices_per_month is None:
         return

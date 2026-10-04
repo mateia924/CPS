@@ -1,18 +1,29 @@
 from rest_framework import filters
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.access.permissions import HasModulePermission, RequiresModuleFeature
-from apps.common.viewsets import SoftDeleteViewSetMixin, TenantScopedViewSet
+from apps.common.viewsets import EntityScopedViewSet, SoftDeleteViewSetMixin, TenantScopedViewSet
+from apps.tenants.services import TenantLimitExceeded, check_warehouse_limit
 
-from .models import InventorySettings, ItemBarcode, ItemCategory, ItemUoM, UnitOfMeasure
+from .models import (
+    InventorySettings,
+    ItemBarcode,
+    ItemCategory,
+    ItemUoM,
+    UnitOfMeasure,
+    Warehouse,
+    set_default_warehouse,
+)
 from .serializers import (
     InventorySettingsSerializer,
     ItemBarcodeSerializer,
     ItemCategorySerializer,
     ItemUoMSerializer,
     UnitOfMeasureSerializer,
+    WarehouseSerializer,
 )
 
 
@@ -139,3 +150,59 @@ class ItemBarcodeViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         if item_id:
             qs = qs.filter(item_id=item_id)
         return qs
+
+
+class WarehouseViewSet(SoftDeleteViewSetMixin, EntityScopedViewSet):
+    """Sprint 7.2 (block spec, item 1). Gated by the "inventory" module
+    (unlike ItemCategory/UnitOfMeasure/ItemBarcode above, which are
+    "products" — a warehouse only makes sense once a tenant has
+    actually turned inventory on)."""
+
+    serializer_class = WarehouseSerializer
+    permission_classes = [IsAuthenticated, RequiresModuleFeature, HasModulePermission]
+    module_feature = "inventory"
+    queryset = Warehouse.objects.all()
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["code", "name"]
+    ordering_fields = ["code", "created_at"]
+    permission_map = {
+        "list": "inventory.view",
+        "retrieve": "inventory.view",
+        "create": "inventory.manage",
+        "update": "inventory.manage",
+        "partial_update": "inventory.manage",
+        "destroy": "inventory.manage",
+        "deactivate": "inventory.manage",
+        "activate": "inventory.manage",
+        "set_default": "inventory.manage",
+    }
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # 6.6.1/4: the warehouse screen's own entity column + an
+        # explicit "all" filter — same optional, never-silent-default
+        # query param shape as BankViewSet's own legal_entity filter.
+        legal_entity_id = self.request.query_params.get("legal_entity")
+        if legal_entity_id:
+            qs = qs.filter(legal_entity_id=legal_entity_id)
+        return qs
+
+    def create(self, request, *args, **kwargs):
+        try:
+            check_warehouse_limit(request.user.tenant)
+        except TenantLimitExceeded as exc:
+            return Response({"detail": exc.message}, status=402)
+        return super().create(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"], url_path="set-default")
+    def set_default(self, request, pk=None):
+        """The one, deliberate "تبديل ذرّي" (atomic switch) action —
+        unsets whatever was this warehouse's entity's old default and
+        sets this one, in a single transaction (apps.inventory.models.
+        set_default_warehouse). The normal create/update path refuses
+        (400) to set is_default=True while a different warehouse is
+        already default for that entity — this action is the only way
+        to actually change it."""
+        warehouse = self.get_object()
+        set_default_warehouse(warehouse)
+        return Response(self.get_serializer(warehouse).data)

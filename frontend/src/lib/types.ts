@@ -87,6 +87,30 @@ export interface ItemBarcode {
   created_at: string;
 }
 
+export interface Warehouse {
+  id: string;
+  legal_entity: string;
+  code: string;
+  name: string;
+  inventory_account_override: string | null;
+  cogs_account_override: string | null;
+  adjustment_account_override: string | null;
+  cost_center: string | null;
+  is_default: boolean;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface InventorySettingsData {
+  allow_negative_stock: boolean;
+  expiry_alert_days: number;
+  freeze_warehouse_during_count: boolean;
+  default_tracking: ItemTracking;
+  show_weight_karat_fields: boolean;
+  units_enabled: boolean;
+  barcode_enabled: boolean;
+}
+
 export interface InvoiceLine {
   id: string;
   product: string;

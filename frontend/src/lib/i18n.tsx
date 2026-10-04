@@ -846,6 +846,20 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     karat: "العيار",
     metal: "المعدن",
     makingChargePerGram: "مصنعية الجرام",
+
+    // Sprint 7.2: warehouses, stock, item cost
+    warehouses: "المستودعات",
+    adjustmentAccountOverride: "تجاوز حساب تسوية المخزون",
+    defaultWarehouse: "المستودع الافتراضي",
+    makeDefault: "تعيين كافتراضي",
+    inventorySettings: "إعدادات المخزون",
+    allowNegativeStock: "السماح بالرصيد السالب",
+    expiryAlertDays: "أيام التنبيه قبل الانتهاء",
+    freezeWarehouseDuringCount: "تجميد المستودع أثناء الجرد",
+    defaultTracking: "التتبع الافتراضي",
+    showWeightKaratFields: "إظهار حقول الوزن والعيار",
+    unitsEnabled: "تفعيل وحدات القياس",
+    barcodeEnabled: "تفعيل الباركود",
   },
   en: {
     appName: "CPS",
@@ -1655,6 +1669,20 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     karat: "Karat",
     metal: "Metal",
     makingChargePerGram: "Making charge per gram",
+
+    // Sprint 7.2: warehouses, stock, item cost
+    warehouses: "Warehouses",
+    adjustmentAccountOverride: "Inventory adjustment account override",
+    defaultWarehouse: "Default warehouse",
+    makeDefault: "Make default",
+    inventorySettings: "Inventory settings",
+    allowNegativeStock: "Allow negative stock",
+    expiryAlertDays: "Expiry alert days",
+    freezeWarehouseDuringCount: "Freeze warehouse during count",
+    defaultTracking: "Default tracking",
+    showWeightKaratFields: "Show weight/karat fields",
+    unitsEnabled: "Enable units of measure",
+    barcodeEnabled: "Enable barcode",
   },
 };
 
