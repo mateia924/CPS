@@ -81,3 +81,4 @@
 2026-10-04T22:37:55+03:00	63e44ff	cps-db-20261004-223754.sql.gz.gpg	pre-restore-test backup: reflect final 7.0.2 state (all fixes applied) before restore_test.sh comparison against the four reference numbers
 2026-10-04T22:43:30+03:00	5006d1f	cps-db-20261004-224330.sql.gz.gpg	deploy.sh 5006d1f920a96df7d6a7f92c23007dcd7ce4e3ce
 2026-10-05T00:22:16+03:00	a915835	cps-db-20261005-002215.sql.gz.gpg	deploy.sh a915835976b2a10e922dc20effa156eeaa24bbc8
+2026-10-05T01:54:47+03:00	6d8161d	cps-db-20261005-015446.sql.gz.gpg	deploy.sh 6d8161dc9d97d55ac781d115a3ae589ab04eb224
