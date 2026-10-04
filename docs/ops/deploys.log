@@ -21,3 +21,4 @@
 2026-10-04T13:36:33+03:00	268b137501159f14047b4cff394f30b81402fd8b	OK	deploy.sh
 2026-10-04T20:38:08+03:00	3a4906555c9e55ccf468f4cc626a96f1c0856a8d	OK	deploy.sh
 2026-10-04T22:11:42+03:00	CORRECTION	the 2026-10-04T20:38:08+03:00 entry above (hash 3a4906555c9e55ccf468f4cc626a96f1c0856a8d) understated what was actually live: the deployed code = commit 3a49065 + the archived-tenant-exclusion generalization to add_missing_system_accounts.py, uncommitted at deploy time (dirty working tree, no guard existed yet) — committed later in 183030c01297e18b528e9201e077742a8ade4361
+2026-10-04T22:45:23+03:00	5006d1f920a96df7d6a7f92c23007dcd7ce4e3ce	OK	deploy.sh
