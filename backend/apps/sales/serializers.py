@@ -4,8 +4,9 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
-from apps.accounting.models import TaxCode
+from apps.accounting.models import Account, TaxCode
 from apps.common.constants import RATE_DECIMAL_PLACES, RATE_MAX_DIGITS
+from apps.inventory.models import InventorySettings, ItemCategory, UnitOfMeasure
 from apps.organization.models import CostCenter, LegalEntity
 from apps.organization.services import default_branch_for_tenant, get_accessible_entity_ids
 from apps.parties.models import Party, PartyRole
@@ -29,16 +30,58 @@ class ProductSerializer(serializers.ModelSerializer):
         super().__init__(*args, **kwargs)
         request = self.context.get("request")
         if request is not None and request.user.is_authenticated:
+            tenant = request.user.tenant
             self.fields["default_tax_code"].queryset = TaxCode.objects.filter(
-                tenant=request.user.tenant, is_active=True
+                tenant=tenant, is_active=True
+            )
+            self.fields["category"].queryset = ItemCategory.objects.filter(tenant=tenant, is_active=True)
+            self.fields["base_uom"].queryset = UnitOfMeasure.objects.filter(tenant=tenant)
+            self.fields["parent"].queryset = Product.objects.filter(tenant=tenant, is_template=True)
+            self.fields["inventory_account_override"].queryset = Account.objects.filter(
+                tenant=tenant, is_active=True
+            )
+            self.fields["cogs_account_override"].queryset = Account.objects.filter(
+                tenant=tenant, is_active=True
             )
 
     class Meta:
         model = Product
         fields = (
             "id", "sku", "name", "unit_price", "tax_rate", "default_tax_code", "is_active", "created_at",
+            "item_type", "category", "base_uom", "tracking", "expiry_required", "reorder_level",
+            "is_bundle", "pricing_mode", "parent", "is_template", "metal", "karat", "weight_grams",
+            "making_charge_per_gram", "part_number", "purchase_cost_default",
+            "inventory_account_override", "cogs_account_override",
         )
         read_only_fields = ("id", "created_at")
+
+    def validate(self, attrs):
+        item_type = attrs.get("item_type", getattr(self.instance, "item_type", Product.ItemType.SERVICE))
+        tracking = attrs.get("tracking", getattr(self.instance, "tracking", ""))
+        # 7.1 test item 3: a service item never accepts real tracking
+        # (serial/batch) — "" and NONE both mean "not tracked" and stay
+        # allowed, same distinction as Product.clean()'s own check.
+        if item_type == Product.ItemType.SERVICE and tracking in (
+            InventorySettings.Tracking.SERIAL, InventorySettings.Tracking.BATCH,
+        ):
+            raise serializers.ValidationError(
+                {"tracking": [_("A service item cannot have tracking (serial/batch).")]}
+            )
+        # 7.1 test item 4: changing the base unit for an item that
+        # already has real movements is refused. StockDocumentLine
+        # (D5) doesn't exist until sprint 7.2/7.3 — invoice_lines is
+        # the only "movement" that can exist on a Product today; this
+        # check extends to StockDocumentLine once that model lands.
+        if (
+            self.instance is not None
+            and "base_uom" in attrs
+            and attrs["base_uom"] != self.instance.base_uom
+            and self.instance.invoice_lines.exists()
+        ):
+            raise serializers.ValidationError(
+                {"base_uom": [_("Cannot change the base unit of an item that already has movements.")]}
+            )
+        return attrs
 
 
 class InvoiceLineSerializer(serializers.ModelSerializer):

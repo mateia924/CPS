@@ -1,5 +1,6 @@
 import uuid
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
@@ -16,6 +17,7 @@ from apps.common.constants import (
     RATE_MAX_DIGITS,
 )
 from apps.common.models import SoftDeleteModelMixin, TenantScopedModel
+from apps.inventory.models import InventorySettings
 
 
 class Customer(TenantScopedModel, SoftDeleteModelMixin):
@@ -35,6 +37,26 @@ class Customer(TenantScopedModel, SoftDeleteModelMixin):
 
 
 class Product(TenantScopedModel, SoftDeleteModelMixin):
+    """Sprint 7.1 (D7): extended in place, same app, same table it's
+    lived in since sprint 1 (docs/catalog/modules.json's "products"
+    module — deliberately never moved into its own app). Every field
+    below defaults to a no-op for an EXISTING row: `item_type` is
+    SERVICE unless a migration/caller explicitly sets STOCK, so no
+    pre-7.1 product or posted invoice line changes behavior. Variant
+    (`parent`/`is_template`) and weight/karat pricing
+    (`metal`/`karat`/`weight_grams`/`making_charge_per_gram`) are
+    schema-only here — the generation/pricing logic itself is sprint
+    7.7's job (D10); 7.1 only needs the columns to exist so 7.7 adds
+    no new migration touching every tenant's existing items again."""
+
+    class ItemType(models.TextChoices):
+        STOCK = "stock", _("Stock")
+        SERVICE = "service", _("Service")
+
+    class PricingMode(models.TextChoices):
+        FIXED = "fixed", _("Fixed")
+        WEIGHT_RATE = "weight_rate", _("Weight rate")
+
     sku = models.CharField(_("SKU"), max_length=64)
     name = models.CharField(_("name"), max_length=255)
     unit_price = models.DecimalField(
@@ -56,6 +78,64 @@ class Product(TenantScopedModel, SoftDeleteModelMixin):
     is_active = models.BooleanField(_("active"), default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # --- Sprint 7.1 (D7) additions below ---
+    item_type = models.CharField(
+        _("item type"), max_length=10, choices=ItemType.choices, default=ItemType.SERVICE
+    )
+    category = models.ForeignKey(
+        "inventory.ItemCategory", null=True, blank=True, on_delete=models.SET_NULL, related_name="items"
+    )
+    base_uom = models.ForeignKey(
+        "inventory.UnitOfMeasure", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    tracking = models.CharField(
+        _("tracking"), max_length=10, choices=InventorySettings.Tracking.choices,
+        blank=True, default="",
+    )
+    expiry_required = models.BooleanField(_("expiry required"), default=False)
+    reorder_level = models.DecimalField(
+        _("reorder level"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES,
+        null=True, blank=True,
+    )
+    is_bundle = models.BooleanField(_("bundle"), default=False)
+    pricing_mode = models.CharField(
+        _("pricing mode"), max_length=15, choices=PricingMode.choices, default=PricingMode.FIXED
+    )
+    # Variant template (D10/sprint 7.7): a template (is_template=True)
+    # is never itself stocked/posted against; its real subitems point
+    # back here via `parent`. Schema only in 7.1 — see class docstring.
+    parent = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="variants"
+    )
+    is_template = models.BooleanField(_("is template"), default=False)
+    metal = models.CharField(_("metal"), max_length=30, blank=True, default="")
+    karat = models.PositiveSmallIntegerField(_("karat"), null=True, blank=True)
+    weight_grams = models.DecimalField(
+        _("weight (grams)"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES,
+        null=True, blank=True,
+    )
+    making_charge_per_gram = models.DecimalField(
+        _("making charge per gram"), max_digits=PRICE_MAX_DIGITS, decimal_places=PRICE_DECIMAL_PLACES,
+        null=True, blank=True,
+    )
+    part_number = models.CharField(_("part number"), max_length=100, blank=True, default="")
+    purchase_cost_default = models.DecimalField(
+        _("default purchase cost"), max_digits=PRICE_MAX_DIGITS, decimal_places=PRICE_DECIMAL_PLACES,
+        null=True, blank=True,
+    )
+    # Overrides ItemCategory's own default_inventory_account/
+    # default_cogs_account for this one item specifically — both
+    # optional, both resolved by the (not-yet-written) stock-posting
+    # service in sprint 7.3 falling back to the category's default
+    # when null, same override/fallback shape CONTROL_SYSTEM_KEYS
+    # already uses elsewhere in this project.
+    inventory_account_override = models.ForeignKey(
+        "accounting.Account", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    cogs_account_override = models.ForeignKey(
+        "accounting.Account", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
     class Meta:
         ordering = ["name"]
         constraints = [
@@ -64,6 +144,26 @@ class Product(TenantScopedModel, SoftDeleteModelMixin):
 
     def __str__(self):
         return self.name
+
+    def clean(self):
+        # D7/7.1 test item 3: a service item never accepts real
+        # tracking — "" (unset) and NONE are both "not tracked" and
+        # stay allowed; only SERIAL/BATCH are rejected.
+        if self.item_type == self.ItemType.SERVICE and self.tracking in (
+            InventorySettings.Tracking.SERIAL, InventorySettings.Tracking.BATCH,
+        ):
+            raise ValidationError(_("A service item cannot have tracking (serial/batch)."))
+        if not self.parent_id:
+            return
+        if self.parent_id == self.id:
+            raise ValidationError(_("An item cannot be its own variant template."))
+        node = self.parent
+        seen = set()
+        while node is not None:
+            if node.id == self.id or node.id in seen:
+                raise ValidationError(_("This would create a cycle in the item variant tree."))
+            seen.add(node.id)
+            node = node.parent
 
 
 class Invoice(TenantScopedModel, SoftDeleteModelMixin):

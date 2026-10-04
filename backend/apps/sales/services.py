@@ -1,14 +1,17 @@
+import csv
+import io
 from datetime import timedelta
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils.translation import gettext_lazy as _
 
+from apps.inventory.models import ItemBarcode, ItemCategory, UnitOfMeasure
 from apps.numbering.services import next_document_number
 from apps.parties.models import PartyRole
 
-from .models import Invoice, InvoiceLine
+from .models import Invoice, InvoiceLine, Product
 
 CENTS = Decimal("0.01")
 HUNDRED = Decimal("100")
@@ -320,3 +323,103 @@ def void_invoice(invoice, user, reason="", request=None):
         request=request,
     )
     return invoice, reversal
+
+
+_ITEM_TYPE_LABELS = {
+    "مخزني": Product.ItemType.STOCK, "stock": Product.ItemType.STOCK,
+    "خدمي": Product.ItemType.SERVICE, "service": Product.ItemType.SERVICE,
+    "": Product.ItemType.SERVICE,
+}
+
+
+def import_items_csv(tenant, file_obj):
+    """Sprint 7.1 (block 7.1, item 3): CSV columns in this exact order
+    — كود، اسم، نوع، فئة، وحدة، باركود، حد إعادة الطلب، تكلفة افتراضية
+    (sku, name, item_type, category code, uom code, barcode, reorder
+    level, default purchase cost) — first row is a header, skipped.
+    `unit_price` isn't one of the spec's columns; a CSV-imported item
+    gets 0.00 and is expected to have it set for real afterward (this
+    is item SETUP, not a price list import).
+
+    Returns (created_count, errors) where errors is a list of
+    {"row": <1-based row number, header excluded>, "error": <Arabic
+    message>} — one row's failure never aborts the others; each row
+    is its own atomic unit so a later row's success is never undone
+    by an earlier row's rollback."""
+    decoded = file_obj.read().decode("utf-8-sig")
+    reader = csv.reader(io.StringIO(decoded))
+    rows = list(reader)
+    if rows:
+        rows = rows[1:]  # header
+
+    created = 0
+    errors = []
+    for row_number, row in enumerate(rows, start=1):
+        if not row or not any(cell.strip() for cell in row):
+            continue
+        try:
+            with transaction.atomic():
+                _import_one_item_row(tenant, row)
+            created += 1
+        except _ImportRowError as exc:
+            errors.append({"row": row_number, "error": str(exc)})
+        except (IntegrityError, ValidationError) as exc:
+            errors.append({"row": row_number, "error": str(exc)})
+    return created, errors
+
+
+class _ImportRowError(Exception):
+    pass
+
+
+def _import_one_item_row(tenant, row):
+    cells = [c.strip() for c in row] + [""] * 8
+    sku, name, item_type_raw, category_code, uom_code, barcode, reorder_level_raw, purchase_cost_raw = cells[:8]
+
+    if not sku:
+        raise _ImportRowError(str(_("الكود مطلوب.")))
+    if not name:
+        raise _ImportRowError(str(_("الاسم مطلوب.")))
+    if Product.objects.filter(tenant=tenant, sku=sku).exists():
+        raise _ImportRowError(str(_("الكود %(sku)s مستخدم من قبل.")) % {"sku": sku})
+
+    item_type = _ITEM_TYPE_LABELS.get(item_type_raw, None)
+    if item_type is None:
+        raise _ImportRowError(str(_("نوع الصنف غير معروف: %(value)s.")) % {"value": item_type_raw})
+
+    category = None
+    if category_code:
+        category = ItemCategory.objects.filter(tenant=tenant, code=category_code).first()
+        if category is None:
+            raise _ImportRowError(str(_("فئة غير موجودة بالكود: %(value)s.")) % {"value": category_code})
+
+    base_uom = None
+    if uom_code:
+        base_uom = UnitOfMeasure.objects.filter(tenant=tenant, code=uom_code).first()
+        if base_uom is None:
+            raise _ImportRowError(str(_("وحدة غير موجودة بالكود: %(value)s.")) % {"value": uom_code})
+
+    reorder_level = None
+    if reorder_level_raw:
+        try:
+            reorder_level = Decimal(reorder_level_raw)
+        except InvalidOperation:
+            raise _ImportRowError(str(_("حد إعادة الطلب ليس رقمًا صحيحًا: %(value)s.")) % {"value": reorder_level_raw})
+
+    purchase_cost_default = None
+    if purchase_cost_raw:
+        try:
+            purchase_cost_default = Decimal(purchase_cost_raw)
+        except InvalidOperation:
+            raise _ImportRowError(str(_("تكلفة الشراء الافتراضية ليست رقمًا صحيحًا: %(value)s.")) % {"value": purchase_cost_raw})
+
+    if barcode and ItemBarcode.objects.filter(tenant=tenant, barcode=barcode).exists():
+        raise _ImportRowError(str(_("الباركود %(value)s مستخدم من قبل.")) % {"value": barcode})
+
+    item = Product.objects.create(
+        tenant=tenant, sku=sku, name=name, unit_price=Decimal("0"),
+        item_type=item_type, category=category, base_uom=base_uom,
+        reorder_level=reorder_level, purchase_cost_default=purchase_cost_default,
+    )
+    if barcode:
+        ItemBarcode.objects.create(tenant=tenant, item=item, barcode=barcode)

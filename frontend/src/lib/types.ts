@@ -15,6 +15,10 @@ export interface Customer {
   is_active: boolean;
 }
 
+export type ItemType = "stock" | "service";
+export type ItemTracking = "" | "none" | "serial" | "batch";
+export type PricingMode = "fixed" | "weight_rate";
+
 export interface Product {
   id: string;
   sku: string;
@@ -23,6 +27,64 @@ export interface Product {
   tax_rate: string;
   default_tax_code: string | null;
   is_active: boolean;
+  item_type: ItemType;
+  category: string | null;
+  base_uom: string | null;
+  tracking: ItemTracking;
+  expiry_required: boolean;
+  reorder_level: string | null;
+  is_bundle: boolean;
+  pricing_mode: PricingMode;
+  parent: string | null;
+  is_template: boolean;
+  metal: string;
+  karat: number | null;
+  weight_grams: string | null;
+  making_charge_per_gram: string | null;
+  part_number: string;
+  purchase_cost_default: string | null;
+  inventory_account_override: string | null;
+  cogs_account_override: string | null;
+  created_at: string;
+}
+
+export interface ItemCategory {
+  id: string;
+  parent: string | null;
+  code: string;
+  name: string;
+  default_tracking: ItemTracking;
+  default_uom: string | null;
+  default_inventory_account: string | null;
+  default_cogs_account: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface UnitOfMeasure {
+  id: string;
+  code: string;
+  name_ar: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface ItemUoM {
+  id: string;
+  item: string;
+  uom: string;
+  factor_to_base: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface ItemBarcode {
+  id: string;
+  item: string;
+  barcode: string;
+  uom: string | null;
+  is_active: boolean;
+  created_at: string;
 }
 
 export interface InvoiceLine {

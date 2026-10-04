@@ -2,6 +2,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.utils.translation import gettext_lazy as _
 from rest_framework import filters
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -27,6 +28,7 @@ from .services import (
     VoidRejected,
     approve_invoice,
     credit_limit_check,
+    import_items_csv,
     issue_invoice,
     reject_invoice,
     void_invoice,
@@ -58,7 +60,9 @@ class ProductViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
     permission_classes = [IsAuthenticated, HasModulePermission]
     queryset = Product.objects.all()
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ["sku", "name"]
+    # D9 (sprint 7.1): every item picker searches by code/name/barcode/
+    # part number — "sku" is this project's own name for "code".
+    search_fields = ["sku", "name", "barcodes__barcode", "part_number"]
     ordering_fields = ["name", "sku", "unit_price", "created_at"]
     permission_map = {
         "list": "products.view",
@@ -69,7 +73,42 @@ class ProductViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
         "destroy": "products.manage",
         "deactivate": "products.manage",
         "activate": "products.manage",
+        "import_csv": "products.manage",
     }
+
+    def get_queryset(self):
+        # `barcodes__barcode` in search_fields above joins ItemBarcode —
+        # a product with more than one barcode matching the search term
+        # would otherwise come back once per matching barcode.
+        qs = super().get_queryset()
+        if self.action == "list":
+            qs = qs.distinct()
+            # 7.1 spec: the items screen filters by item_type/category/
+            # tracking — plain query-param filtering (same pattern
+            # ItemUoMViewSet/ItemBarcodeViewSet already use for `?item=`),
+            # not DjangoFilterBackend, to avoid a new dependency for three
+            # simple exact-match filters.
+            item_type = self.request.query_params.get("item_type")
+            if item_type:
+                qs = qs.filter(item_type=item_type)
+            category = self.request.query_params.get("category")
+            if category:
+                qs = qs.filter(category_id=category)
+            tracking = self.request.query_params.get("tracking")
+            if tracking:
+                qs = qs.filter(tracking=tracking)
+        return qs
+
+    @action(detail=False, methods=["post"], parser_classes=[MultiPartParser, FormParser])
+    def import_csv(self, request):
+        """7.1 block spec, item 3: CSV import with a per-row Arabic
+        error report — one bad row never aborts the others (see
+        import_items_csv's own docstring)."""
+        file_obj = request.FILES.get("file")
+        if file_obj is None:
+            return Response({"file": [_("ملف CSV مطلوب.")]}, status=400)
+        created, errors = import_items_csv(request.user.tenant, file_obj)
+        return Response({"created": created, "errors": errors})
 
 
 class InvoiceViewSet(SoftDeleteDocumentViewSetMixin, EntityScopedViewSet):

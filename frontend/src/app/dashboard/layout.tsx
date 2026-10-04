@@ -83,6 +83,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const showAssets = !!me && me.features.assets;
   // Sprint 3.5 (3.18): "المشتريات ... purchasing".
   const showPurchasing = !!me && me.features.purchasing;
+  // Sprint 7.1: item categories/units are dedicated MANAGEMENT screens,
+  // shown only for a tenant that actually has the inventory module —
+  // the underlying API itself stays reachable regardless (D7/D18: a
+  // category is a normal `products` field for everyone), this gate is
+  // purely about not cluttering a pure-service tenant's nav.
+  const showInventory = !!me && me.features.inventory;
   const showAccounting = !!me && me.permissions.includes("accounting.view");
   // Sprint 6.9 (sprint-6.md §القائمة) originally hid this behind
   // !simplified_mode too — corrected in 6.5.7 (§11): simplified mode
@@ -181,13 +187,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         <div className="sidebar-section-label">{t("salesSection")}</div>
         <SidebarLink href="/dashboard/customers">{t("customers")}</SidebarLink>
-        <SidebarLink href="/dashboard/products">{t("products")}</SidebarLink>
+        <SidebarLink href="/dashboard/products">{t("items")}</SidebarLink>
         <SidebarLink href="/dashboard/invoices">{t("invoices")}</SidebarLink>
 
         {showPurchasing && (
           <>
             <div className="sidebar-section-label">{t("purchasingSection")}</div>
             <SidebarLink href="/dashboard/suppliers">{t("suppliers")}</SidebarLink>
+          </>
+        )}
+
+        {showInventory && (
+          <>
+            <div className="sidebar-section-label">{t("inventorySection")}</div>
+            <SidebarLink href="/dashboard/inventory/item-categories">{t("itemCategories")}</SidebarLink>
+            <SidebarLink href="/dashboard/inventory/units">{t("unitsOfMeasure")}</SidebarLink>
           </>
         )}
 

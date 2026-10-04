@@ -1,4 +1,9 @@
-from .models import InventorySettings
+from decimal import Decimal
+
+from django.core.exceptions import ValidationError
+from django.utils.translation import gettext_lazy as _
+
+from .models import InventorySettings, ItemUoM
 
 # docs/catalog/industries.json's own item_features vocabulary
 # (sprint-7.md's "المدخلات الملزمة" row): barcode, variants, units,
@@ -42,3 +47,32 @@ def apply_item_feature_defaults(tenant, item_features):
 
     settings_obj.save()
     return settings_obj
+
+
+def convert_qty_to_base(item, uom, qty):
+    """Sprint 7.1 (D8 — sprint-7.md appendix: "كل سطر مستند يحمل uom +
+    qty + qty_base المحسوبة خادميًا"). Not wired into any document
+    model yet — StockDocumentLine (D5) is sprint 7.2/7.3's job — this
+    is the one, reusable conversion every future document line will
+    call, built now so it's never re-derived per-document the way the
+    accounting debt definitions were (sprint 7.0.3's own lesson).
+
+    `uom=None` or `uom == item.base_uom` means "already in the base
+    unit" — factor 1, no ItemUoM lookup needed (ItemUoM never holds a
+    row for the item's own base unit — see that model's docstring).
+    Any other unit must have a matching ItemUoM row for this exact
+    item; a unit nobody ever configured for this item is a real error,
+    not a silent 1:1 assumption."""
+    if uom is None or uom_id_matches_base(item, uom):
+        return qty
+    try:
+        factor = ItemUoM.objects.get(item=item, uom=uom, deleted_at__isnull=True).factor_to_base
+    except ItemUoM.DoesNotExist:
+        raise ValidationError(
+            _("%(uom)s is not a configured unit for item %(item)s.") % {"uom": uom, "item": item}
+        )
+    return (qty * factor).normalize() if isinstance(qty, Decimal) else qty * factor
+
+
+def uom_id_matches_base(item, uom):
+    return item.base_uom_id is not None and item.base_uom_id == uom.id
