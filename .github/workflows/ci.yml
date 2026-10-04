@@ -354,6 +354,25 @@ jobs:
           echo "backend never accepted a connection within 120s" >&2
           exit 1
 
+      # 2026-10-04 (CI #78 investigation, docs/ops/e2e_reliability.log):
+      # a blind `tail -n 40` as individual ::error:: lines was the same
+      # shape the backend job had already been burned by (CI #66, see
+      # that job's own comment above) — e2e.sh runs 9 separate
+      # `docker run` phases plus two archive_smoke_tenants calls, so 40
+      # lines can land anywhere: a later Playwright Docker image pull,
+      # an unrelated phase marker, or nothing useful at all. The public
+      # GitHub API also refuses to download a job's raw logs without
+      # admin rights on this repo, so this annotation IS the only
+      # diagnosis a human reviewing the run from outside gets — same
+      # reasoning as the backend job's own switch to a built, targeted
+      # annotation. Extracts: which "[e2e] phase N: ..." marker was the
+      # last one printed (so a shell-level failure before any Playwright
+      # test even a phase number can be located against), Playwright's
+      # own numbered failure block ("N) [browser] › spec.ts:LINE:COL ›
+      # test name" through its error message — the exact shape
+      # --reporter=list prints a failure in), and a plain tail as a
+      # catch-all for a failure that matches neither (a docker pull
+      # error, a non-Playwright shell command failing).
       - name: E2E (Playwright) — same gate as `make e2e`
         shell: bash
         run: |
@@ -362,6 +381,15 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -ne 0 ]; then
-            tail -n 40 e2e.log | while IFS= read -r l; do echo "::error::$l"; done
+            {
+              echo "=== last [e2e] phase marker reached before failure ==="
+              grep -n '^\[e2e\]' e2e.log | tail -n 1
+              echo "=== Playwright's own failure block (if any) ==="
+              awk '/^[[:space:]]*[0-9]+\)[[:space:]]*\[/{capture=1} capture{print}' e2e.log | tail -n 60
+              echo "=== tail ==="
+              tail -n 40 e2e.log
+            } > /tmp/ann-e2e.txt
+            msg=$(python3 -c "print(open('/tmp/ann-e2e.txt').read()[:3000].replace(chr(13),'').replace(chr(10),'%0A'))")
+            echo "::error title=e2e (Playwright) failed::$msg"
             exit "$status"
           fi

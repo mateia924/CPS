@@ -41,8 +41,21 @@ echo "[e2e] target: $BASE_URL (subdomain=$SUBDOMAIN)"
 rm -f "$SCREENS_DIR"/*.png
 mkdir -p "$SCREENS_DIR"
 
+# Sprint 7.0.3 follow-up (found 2026-10-04 via `make ci-local`, which
+# is exactly what it's for): archive_smoke_tenants now refuses to
+# archive a tenant carrying a POSTED, never-reversed JournalEntry —
+# and every scenario this suite runs (vouchers, asset entries, etc.)
+# deliberately posts real entries it never reverses, since the whole
+# point of archiving here is throwing the tenant away, not closing
+# its books. Without --force --reason, this call (and the one at the
+# end of this script) now fails every single run, deterministically —
+# not a flake. --reason is logged to AuditLog, same as any other
+# --force use; this is the one place in the whole project where
+# leaving real posted debt behind on archive is the INTENDED, accepted
+# outcome, not a lapse to be caught.
 echo "[e2e] archiving any leftover smoke-* tenants first"
-docker exec cps-dev-backend-1 python manage.py archive_smoke_tenants
+docker exec cps-dev-backend-1 python manage.py archive_smoke_tenants \
+  --force --reason "e2e.sh: disposable smoke tenant from a previous run, never meant to be reversed"
 
 echo "[e2e] phase 1: register, approval rule, voucher, asset, clean error, start/withdraw/restart"
 # Sprint 6.6.3c: @playwright/test lives in frontend/package.json now
@@ -134,6 +147,7 @@ docker run --rm --network host \
   sh -c "npx playwright test 09-asset-transfer-log-date-format.spec.ts --reporter=list"
 
 echo "[e2e] archiving the smoke-* tenant this run created"
-docker exec cps-dev-backend-1 python manage.py archive_smoke_tenants
+docker exec cps-dev-backend-1 python manage.py archive_smoke_tenants \
+  --force --reason "e2e.sh: disposable smoke tenant this run created, never meant to be reversed"
 
 echo "[e2e] ALL CHECKS PASSED — screenshots in $SCREENS_DIR/"

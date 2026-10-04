@@ -1,0 +1,28 @@
+# 2026-10-04 investigation (CI #78, commit f217030 — a pure docs
+# commit, sprint-7.md's §7 appendix, touching nothing under
+# frontend/ or backend/): frontend=success, backend=success — ruled
+# out as the cause, confirmed two ways: (1) the job-level result
+# itself (the 7 frontend structural checks run inside that job's own
+# `npm run build` and it passed), (2) a direct local re-run of all 7
+# checks against a worktree pinned to this exact commit (6/7 passed
+# cleanly; the 7th, check-brand's WCAG step, needs `node`, unavailable
+# in this shell — independently covered by (1) since real CI has node
+# and that job still passed). GitHub's public REST API refuses to
+# download a job's raw logs without admin rights on this repo, so the
+# only diagnostic surface available was this job's own annotations.
+# Found: #78 and the next run, #79 (commit 485c051, block 7.0.3's
+# real code — so NOT the same tree as #78, yet produced the identical
+# 7 annotations, byte-for-byte, same line numbers 172-175), both
+# stopping at "[e2e] phase 7: ... PASSED" and nothing past it. Root
+# mechanism (not the test failure itself, but why both looked
+# identical and uninformative): the OLD e2e annotation code did a
+# blind `tail -n 40 e2e.log | one ::error:: per line` — GitHub Actions
+# caps the number of annotations actually surfaced per step (~10), so
+# only the chronologically EARLIEST lines of that 40-line window ever
+# became visible, regardless of where the real failure actually was
+# later in the log — the exact same shape bug the backend job already
+# hit and fixed at CI #66 (see that job's own comment in
+# .github/workflows/ci.yml). Fixed the same way for e2e (this commit):
+# extract Playwright's own numbered failure block + the last
+# "[e2e] phase N" marker reached, instead of a blind tail.
+2026-10-04T23:02:44+03:00	78	f2170300375d1cc7a4dfe2df1f4b43965af0414a	e2e job	FAILURE	unknown — no usable annotation captured (pre-dates the targeted annotation fix)
