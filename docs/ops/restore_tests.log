@@ -1,3 +1,5 @@
 2026-10-01T14:07:06+03:00	OK	cps-db-20261001-140539.sql.gz.gpg	49	49	82	82	
 2026-10-01T14:09:03+03:00	OK	cps-db-20261001-140539.sql.gz.gpg	49	49	82	82	
 2026-10-04T15:44:10+03:00	OK	cps-db-20261004-133410.sql.gz.gpg	49	49	82	82	
+2026-10-04T22:38:11+03:00	OK	cps-db-20261004-223754.sql.gz.gpg	15	15	29	29
+2026-10-04T22:42:00+03:00	BALANCE_PROOF	cps-db-20261004-223754.sql.gz.gpg	-	-	-	-	manual follow-up to the row above (owner's request): same backup restored into a separate scratch db (cps_balance_check, dropped after use, outside restore_test.sh's own flow), then per-tenant gross trial balance (JournalLine.debit summed over entry status in [posted, reversed] — REPORTABLE_STATUSES, not status='posted' alone, which wrongly excludes a forward entry after it is reversed) compared restored-vs-live for all 15 live tenants, plus acme's total_equity via balance_sheet(). All 15 tenants equal, restored=live, to the cent (fatma 105250.59, acme 1905.34, sprint15test 1300.00, 11 others at 0, acme total_equity 1531.00 both sides) — matches docs/ops/live_reference_numbers.md exactly. Restore is accounting-proven, not just count-proven.

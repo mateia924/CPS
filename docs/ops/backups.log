@@ -78,3 +78,4 @@
 2026-10-04T20:35:59+03:00	3a49065	cps-db-20261004-203557.sql.gz.gpg	deploy.sh 3a4906555c9e55ccf468f4cc626a96f1c0856a8d
 2026-10-04T20:58:49+03:00	3a49065	cps-db-20261004-205848.sql.gz.gpg	emergency pre-fix backup — VAT_OUTPUT/equity-root can_post regression from tonight's 7.0.1 deploy
 2026-10-04T21:54:09+03:00	3a49065	cps-db-20261004-215408.sql.gz.gpg	pre-fix backup — reparenting DISPOSAL_GAIN_LOSS off SALES for fatma/acme/sprint15test (incident #6)
+2026-10-04T22:37:55+03:00	63e44ff	cps-db-20261004-223754.sql.gz.gpg	pre-restore-test backup: reflect final 7.0.2 state (all fixes applied) before restore_test.sh comparison against the four reference numbers
