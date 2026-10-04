@@ -1,3 +1,10 @@
+2026-10-04T13:44:50+03:00	71	268b137501159f14047b4cff394f30b81402fd8b	e2e job	SUCCESS	
+2026-10-04T13:47:49+03:00	72	2d7db688a52013358714518f01eed348d57ff351	e2e job	SUCCESS	
+2026-10-04T14:57:30+03:00	73	f9c3ae45b95aaef0daf80a5d5fd27b1fb7e2c3f6	e2e job	SUCCESS	
+2026-10-04T16:30:10+03:00	74	3a4906555c9e55ccf468f4cc626a96f1c0856a8d	e2e job	SUCCESS	
+2026-10-04T22:22:14+03:00	75	183030c01297e18b528e9201e077742a8ade4361	e2e job	SUCCESS	
+2026-10-04T22:21:20+03:00	76	965ddf93eb25bf4e92bbb22e7b9549fefd3eaeb1	e2e job	SUCCESS	
+2026-10-04T22:25:54+03:00	77	63e44ffb32e2198923a299cc719d0de31acf49e1	e2e job	SUCCESS	
 # 2026-10-04 investigation (CI #78, commit f217030 — a pure docs
 # commit, sprint-7.md's §7 appendix, touching nothing under
 # frontend/ or backend/): frontend=success, backend=success — ruled
@@ -25,4 +32,6 @@
 # .github/workflows/ci.yml). Fixed the same way for e2e (this commit):
 # extract Playwright's own numbered failure block + the last
 # "[e2e] phase N" marker reached, instead of a blind tail.
-2026-10-04T23:02:44+03:00	78	f2170300375d1cc7a4dfe2df1f4b43965af0414a	e2e job	FAILURE	unknown — no usable annotation captured (pre-dates the targeted annotation fix)
+2026-10-04T23:02:44+03:00	78	f2170300375d1cc7a4dfe2df1f4b43965af0414a	e2e job	FAILURE	  1 passed (1.7s) |   ✓  1 07-voucher-insufficient-balance-message.spec.ts:18:5 › 6.5.18 item 6: array-shaped detail on a failed voucher post shows verbatim, not the generic fallback (923ms) | Running 1 test using 1 worker | [e2e] phase 7: array-shaped detail on a failed voucher post shows verbatim, not the generic fallback
+2026-10-04T23:21:56+03:00	79	485c051d7860311b67611a3ae50d6753c41f6c26	e2e job	FAILURE	  1 passed (1.6s) |   ✓  1 07-voucher-insufficient-balance-message.spec.ts:18:5 › 6.5.18 item 6: array-shaped detail on a failed voucher post shows verbatim, not the generic fallback (933ms) | Running 1 test using 1 worker | [e2e] phase 7: array-shaped detail on a failed voucher post shows verbatim, not the generic fallback
+2026-10-05T00:01:03+03:00	80	a3c47204eee17617207902fb8913cc7d7e4388c6	e2e job	SUCCESS	
