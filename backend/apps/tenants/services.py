@@ -171,7 +171,27 @@ def configure_database_roles_and_rls(connection):
         )
         cursor.execute(f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO {quoted_user}")
 
+        # Sprint 7.0 (found while adding apps.inventory.InventorySettings
+        # — the first new tenant-scoped table added since this migration
+        # 0016 itself was written): tenant_scoped_tables() reads the
+        # LIVE, current model registry, not this migration's own
+        # historical state — so on a cold `--create-db` replay, by the
+        # time 0016's RunPython executes, Django's migration graph may
+        # not yet have created a table a LATER migration (in another
+        # app, e.g. apps.inventory.0001) will create — "relation ...
+        # does not exist". Skipping it here is correct and complete:
+        # scripts/deploy.sh now runs `manage.py setup_rls` (this same
+        # function) after every migrate (sprint-7.md §0 rule 4), so any
+        # table 0016 had to skip gets its policy from that very next
+        # call — never silently uncovered in a real database.
+        cursor.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+        )
+        existing_tables = {row[0] for row in cursor.fetchall()}
+
         for db_table, _model in tenant_scoped_tables():
+            if db_table not in existing_tables:
+                continue
             quoted_table = connection.ops.quote_name(db_table)
             policy_name = "tenant_isolation"
             cursor.execute(f"ALTER TABLE {quoted_table} ENABLE ROW LEVEL SECURITY")

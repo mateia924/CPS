@@ -19,8 +19,10 @@ set -euo pipefail
 # the CURRENT working tree -> apply migrations (apps.tenants's own
 # migrate override still refuses a pending migration without a fresh
 # backup — this script's own backup step above is what satisfies it)
-# -> recreate the containers from the freshly built images -> make
-# smoke -> one line in docs/ops/deploys.log (time, hash, result).
+# -> setup_rls -> add_missing_system_accounts (sprint 7.0, sprint-7.md
+# §0 rule 4 / D1 — both idempotent, every deploy) -> recreate the
+# containers from the freshly built images -> make smoke -> one line
+# in docs/ops/deploys.log (time, hash, result).
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEPLOYS_LOG="$REPO_DIR/docs/ops/deploys.log"
@@ -110,18 +112,32 @@ cd "$REPO_DIR"
 GIT_HASH="$(git rev-parse HEAD)"
 log "deploying commit $GIT_HASH"
 
-log "step 1/5: backup"
+log "step 1/7: backup"
 ./scripts/backup.sh "deploy.sh $GIT_HASH" || fail "backup.sh"
 
 cd "$REPO_DIR/infra"
 
-log "step 2/5: build images"
+log "step 2/7: build images"
 $COMPOSE build || fail "build"
 
-log "step 3/5: migrate (apps.tenants's own guard enforces the fresh-backup rule)"
+log "step 3/7: migrate (apps.tenants's own guard enforces the fresh-backup rule)"
 $COMPOSE run --rm --entrypoint '' backend python manage.py migrate || fail "migrate"
 
-log "step 4/5: restart from the freshly built images"
+# Sprint 7.0 (sprint-7.md §0 rule 4): setup_rls after every migrate, not
+# just after a restore (scripts/staging_refresh.sh's own use) — this
+# script never called it at all before, relying only on migration
+# 0016's own one-time RunPython. Idempotent either way.
+log "step 4/7: setup_rls (re-apply cps_app grants/RLS policies)"
+$COMPOSE run --rm --entrypoint '' backend python manage.py setup_rls || fail "setup_rls"
+
+# Sprint 7.0 (D1): idempotent for every tenant, every deploy — the
+# generic replacement for a one-off backfill migration per new system
+# account (see apps/accounting/management/commands/
+# add_missing_system_accounts.py's own docstring).
+log "step 5/7: add_missing_system_accounts"
+$COMPOSE run --rm --entrypoint '' backend python manage.py add_missing_system_accounts || fail "add_missing_system_accounts"
+
+log "step 6/7: restart from the freshly built images"
 $COMPOSE up -d || fail "restart"
 
 # Sprint 6.6.0 (found while validating this exact script): nginx starts
@@ -152,7 +168,7 @@ for _ in $(seq 1 30); do
 done
 [ "$READY" = "1" ] || fail "backend never accepted a connection within 30s (last status: ${STATUS:-none})"
 
-log "step 5/5: smoke test"
+log "step 7/7: smoke test"
 cd "$REPO_DIR"
 ./scripts/smoke.sh || fail "smoke"
 

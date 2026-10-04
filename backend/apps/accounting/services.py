@@ -63,7 +63,92 @@ CONTROL_SYSTEM_KEYS = {
     # gating it the same way only blocked the accountant's own normal
     # entry with no corresponding system-code benefit.
     "ACCUM_DEPRECIATION", "DEPRECIATION_EXPENSE", "DISPOSAL_GAIN_LOSS",
+    # Sprint 7.0 (D1): inventory's five new system accounts. COGS
+    # already existed as a plain (non-control) account on the trading/
+    # manufacturing/holding templates — add_missing_system_accounts
+    # below flips allow_manual_posting to False on any tenant's
+    # existing COGS account too, not just new ones.
+    "INVENTORY", "COGS", "INVENTORY_ADJUSTMENT", "GRNI", "GOODS_IN_TRANSIT",
 }
+
+# Sprint 7.0 (D1): the single master spec `add_missing_system_accounts`
+# walks — every system_key this project has ever introduced, with the
+# one universal code/name/type/parent it uses regardless of
+# tenant.business_type (same "one spec, not four" simplification
+# migrations 0006/0016/0022/0027 already used for their own one-off
+# keys). Idempotent per tenant per key: a tenant that already has the
+# key is only touched to fix allow_manual_posting if that key just
+# became a CONTROL_SYSTEM_KEYS member (see the command). Replaces the
+# old pattern of writing a brand-new one-off data migration every time
+# a system account is added — this one command covers every key, past
+# and future, for every tenant, forever.
+SYSTEM_ACCOUNT_SPECS = [
+    {"system_key": "CASH", "code": "1100", "name": "الصناديق", "type": "asset", "parent_code": "1000"},
+    {"system_key": "BANKS", "code": "1110", "name": "البنوك", "type": "asset", "parent_code": "1000"},
+    {"system_key": "CUSTOMERS", "code": "1200", "name": "العملاء", "type": "asset", "parent_code": "1000"},
+    {"system_key": "CUSTODIES", "code": "1300", "name": "عُهد الموظفين", "type": "asset", "parent_code": "1000"},
+    {"system_key": "INVENTORY", "code": "1400", "name": "المخزون", "type": "asset", "parent_code": "1000"},
+    {
+        "system_key": "GOODS_IN_TRANSIT", "code": "1450", "name": "بضاعة بالطريق", "type": "asset",
+        "parent_code": "1000",
+    },
+    {
+        "system_key": "AFFILIATES", "code": "1500", "name": "جاري الشركات الشقيقة", "type": "asset",
+        "parent_code": "1000",
+    },
+    {"system_key": "FIXED_ASSETS", "code": "1700", "name": "الأصول الثابتة", "type": "asset", "parent_code": "1000"},
+    {
+        "system_key": "ACCUM_DEPRECIATION", "code": "1750", "name": "مجمع إهلاك الأصول الثابتة", "type": "asset",
+        "parent_code": "1000",
+    },
+    {"system_key": "SUPPLIERS", "code": "2100", "name": "الموردون", "type": "liability", "parent_code": "2000"},
+    {
+        "system_key": "GRNI", "code": "2120", "name": "بضاعة مستلمة لم تُفوتر (GRNI)", "type": "liability",
+        "parent_code": "2000",
+    },
+    {
+        "system_key": "EMPLOYEES", "code": "2150", "name": "رواتب الموظفين المستحقة", "type": "liability",
+        "parent_code": "2000",
+    },
+    {"system_key": "VAT_OUTPUT", "code": "2200", "name": "ضريبة المخرجات", "type": "liability", "parent_code": "2000"},
+    {"system_key": "VAT_INPUT", "code": "2300", "name": "ضريبة المدخلات", "type": "liability", "parent_code": "2000"},
+    {
+        "system_key": "VAT_NON_DEDUCTIBLE", "code": "2350", "name": "ضريبة غير قابلة للخصم", "type": "liability",
+        "parent_code": "2000",
+    },
+    {
+        "system_key": "RETAINED_EARNINGS", "code": "3200", "name": "الأرباح المرحّلة", "type": "equity",
+        "parent_code": "3000",
+    },
+    {
+        "system_key": "OPENING_BALANCE", "code": "3900", "name": "الأرصدة الافتتاحية", "type": "equity",
+        "parent_code": "3000",
+    },
+    {"system_key": "SALES", "code": "4100", "name": "إيرادات المبيعات", "type": "revenue", "parent_code": "4000"},
+    {
+        "system_key": "DISPOSAL_GAIN_LOSS", "code": "4900", "name": "أرباح/خسائر استبعاد الأصول", "type": "revenue",
+        "parent_code": "4000",
+    },
+    {"system_key": "COGS", "code": "5050", "name": "تكلفة البضاعة المباعة", "type": "expense", "parent_code": "5000"},
+    {
+        "system_key": "INVENTORY_ADJUSTMENT", "code": "5070", "name": "فروق وتسويات المخزون", "type": "expense",
+        "parent_code": "5000",
+    },
+    {
+        "system_key": "DEPRECIATION_EXPENSE", "code": "5150", "name": "مصروف إهلاك الأصول الثابتة", "type": "expense",
+        "parent_code": "5000",
+    },
+    {"system_key": "ROUNDING", "code": "5900", "name": "فروق تقريب العملة", "type": "expense", "parent_code": "5000"},
+    {"system_key": "FX_REALIZED", "code": "5910", "name": "فروق عملة محققة", "type": "expense", "parent_code": "5000"},
+    {
+        "system_key": "FX_UNREALIZED", "code": "5920", "name": "فروق عملة غير محققة", "type": "expense",
+        "parent_code": "5000",
+    },
+    {
+        "system_key": "CASH_COUNT_VARIANCE", "code": "5930", "name": "فروق جرد الصندوق", "type": "expense",
+        "parent_code": "5000",
+    },
+]
 
 # Sprint 3.3/3.4: which system_key parent a given PartyRole.Role's
 # sub-ledger account is created under. Deliberately excludes BANK (a

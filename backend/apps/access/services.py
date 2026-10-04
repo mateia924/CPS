@@ -99,6 +99,13 @@ DEFAULT_PERMISSIONS = [
     # has no financial posting at all, hence its own narrower code.
     ("assets.depreciate", _("Start, add to, or dispose of an asset's depreciation schedule")),
     ("assets.transfer", _("Transfer an asset between branches or cost centers")),
+    # Sprint 7.0 (D17): "post" covers posting stock receipt/issue/
+    # transfer/count documents and confirming an inter-branch transfer's
+    # receipt — same add/post split as vouchers and the recurring-entry
+    # "accounting.post" above.
+    ("inventory.view", _("View items, warehouses and stock documents")),
+    ("inventory.manage", _("Create and edit items, warehouses and inventory settings")),
+    ("inventory.post", _("Post stock receipt/issue/transfer/count documents and confirm transfers")),
 ]
 
 # Reasonable, editable defaults per system role — not specified in full
@@ -137,6 +144,11 @@ SYSTEM_ROLES = {
         "accounting.post",
         "assets.depreciate",
         "assets.transfer",
+        # Sprint 7.0 (D17): "المحاسب inventory.view + inventory.post"
+        # — view and post, deliberately not inventory.manage (creating/
+        # editing items and warehouses is the warehouse keeper's job).
+        "inventory.view",
+        "inventory.post",
     ],
     "Sales": [
         "customers.view",
@@ -162,6 +174,16 @@ SYSTEM_ROLES = {
         "attachments.view",
         "vouchers.view",
     ],
+    # Sprint 7.0 (D17): "أمين مستودع" — inventory.view/manage/post plus
+    # accounting.view for the stock reports/reconciliation screens
+    # only (D17 is explicit: "للتقارير المخزنية فقط" — no
+    # accounting.manage, no posting/viewing journal entries directly).
+    "Warehouse Keeper": [
+        "inventory.view",
+        "inventory.manage",
+        "inventory.post",
+        "accounting.view",
+    ],
 }
 
 
@@ -173,7 +195,8 @@ def seed_permissions():
 
 
 def seed_default_roles(tenant):
-    """Create the four system roles for a tenant with their default
+    """Create the system roles (SYSTEM_ROLES — four from sprint 1, plus
+    "Warehouse Keeper" from sprint 7.0) for a tenant with their default
     permission sets. Returns {name: Role}. Used at registration and by
     the Sprint 1 data migration for pre-existing tenants.
 

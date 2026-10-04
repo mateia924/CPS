@@ -27,6 +27,12 @@ DEFAULT_PREFIXES = {
     # Sprint 6.4 (decision 9): granted at first exit from DRAFT (submit),
     # same timing as vouchers/cash counts above.
     "recurring_entry": "RE",
+    # Sprint 7.0 (D5): the four stock-document kinds (apps.inventory.
+    # models.StockDocument), same code-at-first-exit-from-DRAFT timing.
+    "stock_receipt": "SR",
+    "stock_issue": "SI",
+    "stock_transfer": "ST",
+    "stock_count": "SC",
 }
 
 

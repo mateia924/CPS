@@ -58,7 +58,13 @@ def test_service_template_is_the_default_and_smaller_than_trading(db):
     trading_count = Account.objects.filter(tenant=tenant_trading).count()
 
     assert service_count < trading_count
-    assert not Account.objects.filter(tenant=tenant, system_key="COGS").exists()
+    # Sprint 7.0 (D1): COGS is now a universal system key (any business
+    # type can activate inventory and sell stock items), added to
+    # service.json too — AFFILIATES (inter-company current account)
+    # stays genuinely trading/holding/manufacturing-specific, the
+    # clearer example of what the service template still lacks.
+    assert Account.objects.filter(tenant=tenant, system_key="COGS").exists()
+    assert not Account.objects.filter(tenant=tenant, system_key="AFFILIATES").exists()
 
 
 @pytest.mark.django_db

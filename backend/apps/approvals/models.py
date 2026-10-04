@@ -56,6 +56,16 @@ class ApprovalRule(TenantScopedModel, SoftDeleteModelMixin):
         # Sprint 6.5 (decision 11): full/partial disposal's own
         # approval channel, same default-rule/editable treatment.
         ASSET_DISPOSAL = "asset_disposal", _("Asset Disposal")
+        # Sprint 7.0 (D5): the four stock-document kinds (apps.
+        # inventory.models.StockDocument) — a default rule
+        # (min_amount=0, required_role=Owner) seeded per tenant, same
+        # freely editable/deletable treatment as RECURRING_ENTRY/
+        # ASSET_*. Amount matched is the document's own total valued
+        # at the moving weighted average (D2).
+        STOCK_RECEIPT = "stock_receipt", _("Stock Receipt")
+        STOCK_ISSUE = "stock_issue", _("Stock Issue")
+        STOCK_TRANSFER = "stock_transfer", _("Stock Transfer")
+        STOCK_COUNT = "stock_count", _("Stock Count")
 
     doc_type = models.CharField(_("document type"), max_length=30, choices=DocType.choices)
     min_amount = models.DecimalField(

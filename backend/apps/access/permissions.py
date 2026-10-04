@@ -1,3 +1,4 @@
+from django.http import Http404
 from rest_framework.permissions import BasePermission
 
 from .services import user_has_permission
@@ -35,3 +36,39 @@ class HasModulePermission(BasePermission):
         return bool(request.user and request.user.is_authenticated) and user_has_permission(
             request.user, required_code
         )
+
+
+class RequiresModuleFeature(BasePermission):
+    """Sprint 7.0 (sprint-7.md §0 rule 1): a tenant whose
+    `TenantFeatures` flag for this module is off gets a genuine 404,
+    not 403 — the whole module doesn't exist for them, same as it
+    would if the URL itself weren't registered, not merely "access
+    denied" to something they can at least see exists. First real
+    enforcement of TenantFeatures.* as an actual gate — until now every
+    flag (inventory/purchasing/hr/treasury/assets) was read only by
+    billing (apps.tenants.services.apply_plan_to_tenant) and the
+    frontend menu, never by the API itself.
+
+    Opt-in via `view.module_feature = "inventory"` (a TenantFeatures
+    field name) — a ViewSet/APIView that doesn't set it isn't gated by
+    this class at all, same opt-in shape as HasModulePermission's own
+    `permission_map`. Raising Http404 directly (rather than returning
+    False, which DRF would turn into 403) is what gets the 404 — DRF's
+    exception handler converts Http404 to a 404 response the same way
+    Django itself does.
+    """
+
+    def has_permission(self, request, view):
+        feature_name = getattr(view, "module_feature", None)
+        if feature_name is None:
+            return True
+        if not (request.user and request.user.is_authenticated):
+            # Let authentication (or whatever runs instead of this
+            # permission) produce the 401/403 it normally would —
+            # never mask "not logged in" as "module doesn't exist".
+            return True
+        tenant = getattr(request.user, "tenant", None)
+        features = getattr(tenant, "features", None) if tenant else None
+        if features is None or getattr(features, feature_name, True):
+            return True
+        raise Http404()
