@@ -108,14 +108,26 @@ if ! $COMPOSE exec -T -e DATABASE_URL="$TEST_DATABASE_URL" backend python manage
   fail "manage.py check failed against the restored database"
 fi
 
+# Sprint 7.0.2 follow-up (docs/SYSTEM_ANALYSIS.md §11, 2026-10-04): both
+# counts below used to include archived tenants with no exclusion at
+# all. A historical audit found 19 archived smoke-* tenants silently
+# carrying 57 POSTED, never-reversed JournalEntry rows — on the same
+# day this script last ran, those accounted for 58 of 87 (two-thirds)
+# of the platform-wide "posted" count, with zero bearing on whether a
+# backup of the LIVE, in-use data actually restores correctly. The fix
+# belongs in the metric, not the data (the 57 rows are deliberately
+# left as documented, inert debt — see docs/ops/archived_tenant_debt.md):
+# every cross-tenant aggregate here now excludes archived tenants, so
+# this check reflects restore health of live tenants, not a count
+# inflated by dead test tenants nobody will ever look at again.
 RESTORED_TENANTS="$($COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$RESTORE_TEST_DB" -t -A -c \
-  "SELECT count(*) FROM tenants_tenant;" | tr -d '[:space:]')"
+  "SELECT count(*) FROM tenants_tenant WHERE status != 'archived';" | tr -d '[:space:]')"
 RESTORED_POSTED="$($COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$RESTORE_TEST_DB" -t -A -c \
-  "SELECT count(*) FROM accounting_journalentry WHERE status = 'posted';" | tr -d '[:space:]')"
+  "SELECT count(*) FROM accounting_journalentry je JOIN tenants_tenant t ON t.id = je.tenant_id WHERE je.status = 'posted' AND t.status != 'archived';" | tr -d '[:space:]')"
 LIVE_TENANTS="$($COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -A -c \
-  "SELECT count(*) FROM tenants_tenant;" | tr -d '[:space:]')"
+  "SELECT count(*) FROM tenants_tenant WHERE status != 'archived';" | tr -d '[:space:]')"
 LIVE_POSTED="$($COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -A -c \
-  "SELECT count(*) FROM accounting_journalentry WHERE status = 'posted';" | tr -d '[:space:]')"
+  "SELECT count(*) FROM accounting_journalentry je JOIN tenants_tenant t ON t.id = je.tenant_id WHERE je.status = 'posted' AND t.status != 'archived';" | tr -d '[:space:]')"
 
 log "tenants: restored=$RESTORED_TENANTS live=$LIVE_TENANTS | posted entries: restored=$RESTORED_POSTED live=$LIVE_POSTED"
 
