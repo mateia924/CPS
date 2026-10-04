@@ -212,6 +212,32 @@ def get_system_account(tenant, system_key):
     return Account.objects.filter(tenant=tenant, system_key=system_key).first()
 
 
+def get_required_system_account(tenant, system_key):
+    """Sprint 7.0.1 (rule-11 incident #4 — docs/SYSTEM_ANALYSIS.md
+    §11): the strict counterpart get_system_account's own docstring
+    above already calls for — raises, naming the missing key, instead
+    of returning None. Every POSTING path that cannot correctly
+    continue without a specific system account (the inventory engine
+    from block 7.3 onward: INVENTORY/COGS/INVENTORY_ADJUSTMENT/GRNI/
+    GOODS_IN_TRANSIT) must call this, never get_system_account
+    directly — a posting operation is rejected outright if the account
+    is missing, never silently redirected to a different account.
+
+    Deliberately NOT applied to get_or_create_party_role_account/
+    get_or_create_treasury_account above: those are documented,
+    pre-existing "return None, not an error" convenience-account
+    auto-creation on a party-role/bank/cash-box/custody change, not a
+    posting operation — changing their behavior now would be an
+    unrelated, unrequested change to tenants already relying on it
+    today (confirmed live: 12 tenants with a pre-4.3 chart)."""
+    account = get_system_account(tenant, system_key)
+    if account is None:
+        raise ValidationError(
+            _("Required system account '%(key)s' is missing for this tenant.") % {"key": system_key}
+        )
+    return account
+
+
 def _get_system_account_or_fallback(tenant, system_key):
     account = get_system_account(tenant, system_key)
     if account is not None:

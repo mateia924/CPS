@@ -50,3 +50,14 @@
   OK	frontend build (npm ci + npm run build — runs all 7 structural checks via prebuild)
   OK	e2e (make e2e, same CI_OVERLAY=1 stack)
   OVERALL: PASS
+[2026-10-04T16:18:28+03:00] ci-local run
+  OK	install system dependencies (libmagic)
+  OK	install dependencies (requirements-dev.txt)
+  OK	ruff (lint) — same gate as `make lint`
+  OK	manage.py check
+  OK	makemigrations --check
+  OK	collect-only (fast import/collection check — seconds, not minutes)
+  OK	pytest (full deterministic suite) — same gate as `make test`
+  OK	frontend build (npm ci + npm run build — runs all 7 structural checks via prebuild)
+  OK	e2e (make e2e, same CI_OVERLAY=1 stack)
+  OVERALL: PASS
