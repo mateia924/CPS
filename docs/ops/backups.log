@@ -73,3 +73,4 @@
 2026-10-03T14:34:13+03:00	8e6ceb4	cps-db-20261003-143412.sql.gz.gpg	staging_refresh.sh --code-only
 2026-10-03T14:34:49+03:00	8e6ceb4	cps-db-20261003-143448.sql.gz.gpg	deploy.sh 8e6ceb45cffed75bd184d0110f9d96a2bd74b3d2
 2026-10-04T03:00:04+03:00	7343522	cps-db-20261004-030001.sql.gz.gpg	
+2026-10-04T12:37:45+03:00	51afc6d	cps-db-20261004-123743.sql.gz.gpg	sprint 7.0 block 7.0 — before applying access/0021 + makemigrations
