@@ -75,3 +75,6 @@
 2026-10-04T03:00:04+03:00	7343522	cps-db-20261004-030001.sql.gz.gpg	
 2026-10-04T12:37:45+03:00	51afc6d	cps-db-20261004-123743.sql.gz.gpg	sprint 7.0 block 7.0 — before applying access/0021 + makemigrations
 2026-10-04T13:34:11+03:00	268b137	cps-db-20261004-133410.sql.gz.gpg	deploy.sh 268b137501159f14047b4cff394f30b81402fd8b
+2026-10-04T20:35:59+03:00	3a49065	cps-db-20261004-203557.sql.gz.gpg	deploy.sh 3a4906555c9e55ccf468f4cc626a96f1c0856a8d
+2026-10-04T20:58:49+03:00	3a49065	cps-db-20261004-205848.sql.gz.gpg	emergency pre-fix backup — VAT_OUTPUT/equity-root can_post regression from tonight's 7.0.1 deploy
+2026-10-04T21:54:09+03:00	3a49065	cps-db-20261004-215408.sql.gz.gpg	pre-fix backup — reparenting DISPOSAL_GAIN_LOSS off SALES for fatma/acme/sprint15test (incident #6)
