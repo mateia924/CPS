@@ -21,6 +21,13 @@ export default defineConfig({
     // request that the backend's CORS config rejects at the preflight.
     baseURL: process.env.E2E_BASE_URL || "http://localhost:3000",
     screenshot: "off",
-    trace: "off",
+    // 2026-10-06 (03-non-emergency-approval regression investigation):
+    // "off" meant this exact failure — a wrong value that never
+    // self-corrected across the full retry window, not a slow one —
+    // left zero network/DOM trail beyond error-context.md's own
+    // auto-captured snapshot. retain-on-failure costs nothing on a
+    // passing run (no trace written) and is exactly the artifact this
+    // class of failure needs.
+    trace: "retain-on-failure",
   },
 });
