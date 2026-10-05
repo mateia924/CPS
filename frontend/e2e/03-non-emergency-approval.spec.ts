@@ -58,12 +58,45 @@ test("6.5.10 item 6: genuine creator != approver, a real second user made throug
     const row = page.locator("tr", { hasText: "جدول إهلاك أصل" });
     await row.getByRole("button", { name: "تعديل" }).click();
     await field(page, "required_role").selectOption({ label: "محاسب" });
-    await page.getByRole("button", { name: "حفظ التعديلات" }).click();
+
+    // 2026-10-06 (03-non-emergency-approval regression investigation):
+    // this used to be a bare click, racing the whole chain against
+    // whatever happens to make "تعديل" clickable again — captured
+    // network logs showed the two passing samples separated by only
+    // ~4ms, never actually guaranteed by the test. A fixed deadline
+    // standing in for a real signal, the exact shape ae4069e already
+    // fixed elsewhere.
+    //
+    // The real mechanism (read from approval-rules/page.tsx and
+    // DataTable.tsx, not guessed): clicking "تعديل" never issues a
+    // network request at all — DataTable's onEdit hands startEdit()
+    // whatever row object is ALREADY in its own in-memory `rows` state.
+    // The actual GET happens once, asynchronously, when onSubmit's
+    // `setRefreshToken((n) => n + 1)` runs right after the PATCH
+    // resolves — DataTable's own effect (`[load, refreshToken]`) is
+    // what refetches. A first attempt waited for a GET "triggered by"
+    // the reopen click — there isn't one; it hung the full 60s test
+    // timeout once an injected delay actually separated the PATCH from
+    // that refetch. The fix waits for BOTH responses the save action
+    // itself produces, then clicks "تعديل" with no network wait of its
+    // own — DataTable's rows state is already fresh by then.
+    const [saveResponse, listRefetchResponse] = await Promise.all([
+      page.waitForResponse(
+        (res) => res.url().includes("/api/approval-rules/") && res.request().method() === "PATCH"
+      ),
+      page.waitForResponse(
+        (res) => res.url().includes("/api/approval-rules/") && res.request().method() === "GET"
+      ),
+      page.getByRole("button", { name: "حفظ التعديلات" }).click(),
+    ]);
+    expect(saveResponse.ok()).toBeTruthy();
+    expect(listRefetchResponse.ok()).toBeTruthy();
     await shot(page, "approval-rule-now-requires-accountant");
 
     // The list view has no required_role column (doc_type/min_amount
-    // only) — re-open edit mode to confirm the saved value directly,
-    // a real check instead of trusting the save silently worked.
+    // only) — re-open edit mode to confirm the saved value directly, a
+    // real check instead of trusting the save silently worked. No
+    // network wait needed here — see above.
     await row.getByRole("button", { name: "تعديل" }).click();
     const accountantRoleId = await field(page, "required_role")
       .locator('option:has-text("محاسب")')
