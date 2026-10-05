@@ -374,7 +374,9 @@ commit: `Sprint 7.6: serial/batch screens inside the item, expiry report, daily 
   `is_batch_expired` (7.2.5)، `Warehouse`/`StockLevel`/`ItemCost`
   (7.2)، `convert_qty_to_base` (7.1)، `ApprovalRule.DocType.STOCK_*`
   (7.2.6)، `post_journal_entry`/`assert_open_period`/
-  `reverse_journal_entry` (موجودة أصلًا، سبرنت 4).
+  `reverse_journal_entry` (موجودة أصلًا، سبرنت 4). **قبل أي قيد:
+  اقرأ §8.6 — اختر content_type/object_id أو source_type حسمًا، لا
+  افتراضًا، قبل كتابة أول إسناد لقيد من مستند مخزني.**
 - **7.4:** كل ما سبق + `post_stock_document`/`reverse_stock_document`/
   `confirm_transfer_receipt` (7.3) + `ALLOWED_TARGETS` كنمط جاهز
   للتسجيل (موجود البنية من سبرنت 5، المفاتيح المخزنية نفسها تُضاف هنا).
@@ -398,3 +400,32 @@ commit: `Sprint 7.6: serial/batch screens inside the item, expiry report, daily 
 - **7.11:** كل ما سبق — هذه الكتلة تعتمد على الكل بالتعريف، لا قائمة
   مستقلة؛ أول خطوتها تشغيل `make e2e` طور 8 كاملًا قبل كتابة سيناريو
   UAT جديد، للتأكد أن كل كتلة سابقة لا تزال خضراء فعليًا لا افتراضًا.
+
+### 8.6 قرار معلَّق يجب حسمه قبل 7.3 — ازدواج آلية الإسناد
+
+**تقرير وتسجيل فقط (مراجعة 7.2.6، 2026-10-05) — لم يُغيَّر شيء.**
+`JournalEntry` يحمل آلتَي إسناد معًا، لا واحدة: `source_type`/
+`source_id` (نص حر + UUID، الأقدم) و`content_type`/`object_id`
+(GenericFK حقيقي، الأحدث والمُعلَن معياريًا في الكود نفسه —
+`apps/accounting/models.py`'s own docstring: "superseded by
+content_type/object_id below"). **الاستخدام الفعلي اليوم منقسم:**
+`RecurringEntry`/`is_opening` لا تزالان تُفحَصان عبر `source_type`
+(`reverse_journal_entry`'s الفرعان القائمان)، بينما حارس
+`StockDocumentReversalRejected` الجديد (7.2.6) استخدم `content_type`
+(الآلية "الحالية"، حسب تصريح الكود) لأنه الأحدث ولا سبب لمدّ عمر
+الآلية القديمة لمستهلك جديد.
+
+**لماذا قبل 7.3 تحديدًا لا بعده:** 7.3 هي الكتلة التي ستكتب
+الإسناد الفعلي أول مرة عند ترحيل مستند مخزني إلى قيد — **بأي آلية؟**
+إن كتبت `source_type="stock_document"` (مطابقة النمط القديم) فحارس
+7.2.6 (المبني على `content_type`) لن يرى هذه القيود أبدًا — فجوة أمنية
+حقيقية صامتة، لا نظرية: نفس شكل "فحص لا يفشل حين يجب" الذي سجّلته
+`SYSTEM_ANALYSIS.md` (2026-10-03، ثلاث حوادث من نفس العلّة). الحسم
+الصحيح الآن أرخص من تصحيحه بعد أن تحمل قيود 7.3 حقيقية الآلية الخطأ.
+
+**لا قرار هنا — فقط تسمية الفجوة وتوقيتها.** خياران صريحان لـ7.3
+أول ما يبدأ: (أ) 7.3 يستخدم `content_type`/`object_id` حصرًا (الآلية
+الحالية)، أو (ب) هجرة بيانات صغيرة توحّد `RecurringEntry`/
+`is_opening` على `content_type` أولًا، ثم كل الكود الجديد يستخدمها
+دون استثناء. أيٌّ من الاثنين يُغلق الفجوة؛ ترك الحال كما هو (كل كاتب
+جديد يختار بنفسه) لا يُغلقها.
