@@ -276,11 +276,20 @@ check_chart_health --fail-on-findings صفر نتائج.
   مستودع» + `seed_permissions()`.
 - **D18 كامل:** `apply_item_feature_defaults` + `InventorySettings`
   نفسه (النموذج/الـAPI، بلا شاشة واجهة حتى 7.2).
-- **الترقيم (`SR`/`SI`/`ST`/`SC`) فقط من مهمتها الثانية** — البادئات
-  مبذورة في `apps/numbering/services.py`، لكن **لا نموذج يستخدمها**
-  (D5 غير موجود) **ولا `ApprovalRule.DocType` الأربعة الجديدة ولا
-  `ALLOWED_TARGETS` للمستندات المخزنية** — ثلاثتها وُعدت في نفس
-  الفقرة، لم تُسلَّم.
+- **تصحيح (2026-10-05، تحقّق مباشر من الكود عند بدء 7.2.6 — خطأ في
+  هذا القسم نفسه، لا افتراض جديد):** الترقيم (`SR`/`SI`/`ST`/`SC`)
+  مبذور في `apps/numbering/services.py`، **ولا نموذج يستخدمه بعد**
+  (D5 غير موجود) — هذا صحيح. لكن الجملة التالية كانت **خاطئة**:
+  `ApprovalRule.DocType` **يحمل فعليًا** `STOCK_RECEIPT`/`STOCK_ISSUE`/
+  `STOCK_TRANSFER`/`STOCK_COUNT` (`apps/approvals/models.py`)، ومهاجرة
+  `0019_seed_default_stock_document_rules.py` تبذر قاعدة
+  `min_amount=0 → Owner` لكل تينانت ولكل الأربعة — كلاهما مُسلَّم
+  فعليًا **في كوميت 7.0 نفسه** (`268b137`)، مُطبَّق على dev (`[X]` في
+  `showmigrations`). **فقط `ALLOWED_TARGETS` للمستندات المخزنية غير
+  موجود** (مؤكَّد — لا مفتاح `stock_document` في
+  `apps/attachments/services.py`) — وهذا مُسلَّم عمدًا لـ7.4 لا 7.2.6
+  (انظر 8.4 أدناه). **الأثر على 7.2.6:** مهمتها الثانية (أدناه) تنكمش
+  إلى تحقّق فقط — لا هجرة اعتماد جديدة.
 - **D2/D8/D9 اكتملت لاحقًا، لا في 7.0 نفسها:** D8 (`UnitOfMeasure`/
   `ItemUoM`) وD9 (`ItemBarcode`) بُنيا في 7.1؛ D2 (`ItemCost`/
   `StockLevel`) بُني في 7.2. D5/D10/D11/D12/D13/D14/D15/D16 لم
@@ -307,7 +316,7 @@ commit: `Sprint 7.2.5: serial numbers, batches, batch stock, FEFO selection — 
 **الكتلة 7.2.6 — D5 (المستندات المخزنية)، بعد D11:**
 
 1. `StockDocument(kind: RECEIPT | ISSUE | TRANSFER | COUNT | OPENING, legal_entity, warehouse, to_warehouse, date, party اختياري, account اختياري, reference, notes)` + `StockDocumentLine(item, uom, qty, qty_base, unit_cost, cost_center, batch, serials JSON/علاقة, expected_qty, counted_qty)` — **`batch`/`serials` حقلان حقيقيان من أول هجرة** (D11 موجود الآن) — على `DocumentStateMixin`.
-2. `ApprovalRule.DocType` الأربعة الجديدة (`STOCK_RECEIPT`, `STOCK_ISSUE`, `STOCK_TRANSFER`, `STOCK_COUNT`) + **هجرة تبذر قاعدة افتراضية `min_amount=0 → Owner` لكل مستأجر قائم** لكل نوع (نفس نمط `IBAN_CHANGE` من 5.5.0) — بند صريح، لا يُفترض أنه يأتي مجانًا مع إضافة الأنواع.
+2. ~~`ApprovalRule.DocType` الأربعة الجديدة + هجرة تبذر قاعدة افتراضية~~ — **مُسلَّمة فعليًا من كوميت 7.0 نفسه** (`268b137`؛ `apps/approvals/migrations/0019_seed_default_stock_document_rules.py`، مُطبَّقة على dev). تحقّق فقط، لا كود جديد: الأربعة قيم موجودة بالاسم، والهجرة مُطبَّقة.
 3. الترقيم: ربط `SR`/`SI`/`ST`/`SC` الفعلي (البادئات موجودة من 7.0) بـ`StockDocument` عبر `next_document_number`.
 4. الحذف بالقاعدة الموحّدة (مسودة فقط عبر `SoftDeleteViewSetMixin`/ما يعادله لمستند).
 5. **العكس:** زر «عكس» ينشئ مستندًا معاكسًا مرتبطًا (الكميات بالسالب بالتكلفة الأصلية للسطر)؛ `reverse_journal_entry` على قيد مخزني مباشرةً → 409 «التصحيح بمستند معاكس».
