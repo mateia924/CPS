@@ -348,3 +348,109 @@ class ItemCost(TenantScopedModel):
 
     def __str__(self):
         return f"{self.item_id}@{self.company_entity_id}: avg={self.avg_cost}"
+
+
+class Batch(TenantScopedModel):
+    """Sprint 7.2.5 (D11). Pure tracking — no cost field, deliberately:
+    D2 (R-7.1) already answered "where does cost live" with ItemCost's
+    own moving weighted average, scoped per company. A cost field here
+    would be a second source of truth for the same number, which is
+    worse than any single wrong number — if specific-identification
+    costing (cost tied to one physical batch) is ever wanted, that is
+    a different costing method entirely and needs its own explicit
+    decision and sprint, not a field that quietly grew on a tracking
+    model.
+
+    `expiry`/`manufactured` are both optional — a batch-tracked item
+    with no real expiry concern (lot tracking only) still needs a
+    Batch row to group its SerialNumber/BatchStock rows, with no date
+    to show."""
+
+    item = models.ForeignKey("sales.Product", on_delete=models.PROTECT, related_name="batches")
+    number = models.CharField(_("batch number"), max_length=50)
+    expiry = models.DateField(_("expiry"), null=True, blank=True)
+    manufactured = models.DateField(_("manufactured"), null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["tenant", "item", "number"], name="unique_batch_number_per_item")
+        ]
+
+    def __str__(self):
+        return f"{self.item_id}: {self.number}"
+
+    @property
+    def is_expired(self):
+        from django.utils import timezone
+
+        return self.expiry is not None and self.expiry < timezone.localdate()
+
+
+class BatchStock(TenantScopedModel):
+    """Sprint 7.2.5 (D11): quantity only, same reasoning as Batch's own
+    docstring — cost lives exclusively in ItemCost. A running balance,
+    maintained by the posting engine (sprint 7.3) once it exists —
+    like StockLevel, never created/edited by a user directly."""
+
+    batch = models.ForeignKey(Batch, on_delete=models.PROTECT, related_name="stock")
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.PROTECT, related_name="batch_stock")
+    qty = models.DecimalField(
+        _("quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES, default=0,
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["batch", "warehouse"], name="unique_batch_stock_per_batch_warehouse")
+        ]
+
+    def __str__(self):
+        return f"{self.batch_id}@{self.warehouse_id}: {self.qty}"
+
+
+class SerialNumber(TenantScopedModel):
+    """Sprint 7.2.5 (D11) — covers IMEI/VIN. Pure tracking, no cost
+    field (same reasoning as Batch). Uniqueness is scoped to
+    (tenant, item, serial) per the decision's own "فريد (مستأجر،
+    صنف)" — the same physical serial string is never recorded twice
+    for the SAME item in the same tenant; a different item reusing a
+    string by coincidence is not blocked (different physical things).
+
+    `received_doc`/`issued_doc`: plain UUIDs, not real ForeignKeys —
+    StockDocument (D5) doesn't exist until sprint 7.2.6, built
+    deliberately AFTER this block (D11 is independent of the document
+    model for its OWN fields — item/warehouse/batch/status — but the
+    decision's field list still names these two, so they're captured
+    now as loose references that need no later migration to add; only
+    sprint 7.3's engine starts POPULATING them with real StockDocument
+    ids once that model and the posting service both exist). Same
+    "kept loose, upgraded by convention not by schema change" shape
+    JournalEntry.source_type/source_id already used in this project
+    before it got a real GenericFK."""
+
+    class Status(models.TextChoices):
+        IN_STOCK = "in_stock", _("In stock")
+        ISSUED = "issued", _("Issued")
+        IN_TRANSIT = "in_transit", _("In transit")
+        DISPOSED = "disposed", _("Disposed")
+
+    item = models.ForeignKey("sales.Product", on_delete=models.PROTECT, related_name="serial_numbers")
+    serial = models.CharField(_("serial number"), max_length=100)
+    status = models.CharField(_("status"), max_length=10, choices=Status.choices, default=Status.IN_STOCK)
+    warehouse = models.ForeignKey(
+        Warehouse, null=True, blank=True, on_delete=models.PROTECT, related_name="serial_numbers"
+    )
+    batch = models.ForeignKey(Batch, null=True, blank=True, on_delete=models.PROTECT, related_name="serial_numbers")
+    received_doc = models.UUIDField(_("received by document"), null=True, blank=True)
+    issued_doc = models.UUIDField(_("issued by document"), null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name_plural = _("serial numbers")
+        constraints = [
+            models.UniqueConstraint(fields=["tenant", "item", "serial"], name="unique_serial_per_tenant_item")
+        ]
+
+    def __str__(self):
+        return self.serial
