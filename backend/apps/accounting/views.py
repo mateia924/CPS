@@ -90,6 +90,7 @@ from .services import (
     REPORTABLE_STATUSES,
     DepreciationEntryReversalRejected,
     OpeningEntryReversalRejected,
+    StockDocumentReversalRejected,
     approve_journal_entry,
     compute_trial_balance,
     create_manual_journal_entry,
@@ -502,7 +503,7 @@ class JournalEntryViewSet(
                 entry, request.user, serializer.validated_data["reason"],
                 date=serializer.validated_data.get("date"),
             )
-        except (OpeningEntryReversalRejected, DepreciationEntryReversalRejected) as exc:
+        except (OpeningEntryReversalRejected, DepreciationEntryReversalRejected, StockDocumentReversalRejected) as exc:
             return Response({"detail": str(exc)}, status=409)
         except (ValidationError, ValueError) as exc:
             return Response({"detail": str(exc)}, status=400)

@@ -12,7 +12,7 @@ from apps.common.constants import (
     QUANTITY_DECIMAL_PLACES,
     QUANTITY_MAX_DIGITS,
 )
-from apps.common.models import SoftDeleteModelMixin, TenantScopedModel
+from apps.common.models import DocumentStateMixin, SoftDeleteModelMixin, TenantScopedModel
 
 
 class InventorySettings(models.Model):
@@ -454,3 +454,156 @@ class SerialNumber(TenantScopedModel):
 
     def __str__(self):
         return self.serial
+
+
+class StockDocument(TenantScopedModel, DocumentStateMixin, SoftDeleteModelMixin):
+    """Sprint 7.2.6 (D5): the one model behind إذن إضافة/صرف/تحويل/جرد/
+    افتتاح — `status` comes from DocumentStateMixin, same DRAFT->
+    PENDING_APPROVAL->APPROVED->POSTED->REVERSED vocabulary as
+    JournalEntry/Voucher (`apps.vouchers.models.Voucher` is the
+    literal structural template followed here: TenantScopedModel +
+    DocumentStateMixin + SoftDeleteModelMixin, header + lines, self-FK
+    reversal).
+
+    No posting/stock-movement engine here — that's sprint 7.3's job
+    ("لا محرك ترحيل، لا مستند مرحَّل بأثر حقيقي بعد"، نفس روح FEFO في
+    7.2.5 التي بُنيت بلا مُستدعٍ). `post_stock_document` below is
+    deliberately the bare minimum: assigns the real number and flips
+    status to POSTED, nothing else — 7.3 adds the actual StockLevel/
+    ItemCost/JournalEntry side effects on top of it.
+
+    OPENING is included in `Kind` because D5's own spec names it, but
+    nothing in this block creates, numbers, or posts one — no numbering
+    prefix is seeded for "stock_opening" (only the four in
+    apps.numbering.services' _DOC_TYPE_PREFIXES), and 7.8 is explicitly
+    where OPENING's real engine and OpeningBalanceEntry integration
+    land. Calling post_stock_document on an OPENING document before
+    7.8 raises KeyError from next_document_number — loud, not silent.
+
+    Posted-immutability is enforced by a Postgres trigger
+    (protect_posted_stock_document, apps/inventory/migrations/
+    0006_protect_posted_stock_document_triggers.py), not a Python
+    save()/delete() override — this block's first draft used a model-
+    layer override, but that only runs on Model.save()/.delete() and is
+    silently skipped by QuerySet.update()/.delete() and bulk_create()/
+    bulk_update(), all four confirmed by test (see
+    tests/test_sprint7_db_triggers_2_6.py). JournalEntry/JournalLine
+    already answered this exact question in sprint 5.7 with a trigger,
+    for the same reason stock documents now need one too: 7.3 gives
+    every posted StockDocument a real JournalEntry behind it, the same
+    accounting weight — there is no technical reason to protect that
+    weight two different ways on two different models. The model
+    itself carries no save()/delete() override at all now, same as
+    JournalEntry's own class."""
+
+    class Kind(models.TextChoices):
+        RECEIPT = "receipt", _("Receipt")
+        ISSUE = "issue", _("Issue")
+        TRANSFER = "transfer", _("Transfer")
+        COUNT = "count", _("Count")
+        OPENING = "opening", _("Opening")
+
+    legal_entity = models.ForeignKey(
+        "organization.LegalEntity", on_delete=models.PROTECT, related_name="stock_documents"
+    )
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.PROTECT, related_name="stock_documents")
+    # Only meaningful for kind=TRANSFER — null for every other kind,
+    # same "field exists on the shared header, enforced per-kind by the
+    # service layer, not by a separate table per kind" shape Voucher
+    # uses for settlement_kind/treasury fields.
+    to_warehouse = models.ForeignKey(
+        Warehouse, null=True, blank=True, on_delete=models.PROTECT, related_name="incoming_stock_documents"
+    )
+    kind = models.CharField(_("kind"), max_length=10, choices=Kind.choices)
+    # Blank until the first exit from DRAFT (post_stock_document) — a
+    # deleted draft must never leave a gap in the sequence. Same
+    # pattern as Invoice.number/Voucher.number.
+    number = models.CharField(_("number"), max_length=32, blank=True, default="")
+    date = models.DateField(_("date"))
+    party = models.ForeignKey(
+        "parties.Party", null=True, blank=True, on_delete=models.PROTECT, related_name="stock_documents"
+    )
+    account = models.ForeignKey(
+        "accounting.Account", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    reference = models.CharField(_("reference"), max_length=100, blank=True, default="")
+    notes = models.TextField(_("notes"), blank=True, default="")
+    # Self-FK, same shape as JournalEntry.reverses: set on the NEW
+    # (reversing) document, pointing at the one it reverses — the
+    # original's own `reversed_by` reverse accessor needs no column of
+    # its own.
+    reverses = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="reversed_by"
+    )
+    created_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name_plural = _("stock documents")
+
+    def __str__(self):
+        return self.number or f"{self.get_kind_display()} ({self.pk})"
+
+
+class StockDocumentLine(models.Model):
+    """No TenantScopedModel/tenant_id of its own — scoped transitively
+    through `document` (same shape as JournalLine/VoucherLine/
+    InvoiceLine, none of which carry a second tenant_id either).
+
+    `serials` is a real ManyToMany to `SerialNumber`, not a JSON blob —
+    the spec left "JSON/علاقة" open; a relation was chosen because
+    SerialNumber already exists as a real model (7.2.5) and a JSON
+    array of serial strings here would be a second, unenforced source
+    of truth for which serials this line touched, the exact "مصدرا
+    حقيقة للرقم الواحد" trap 7.2.5's own BatchStock docstring warned
+    against for cost. No cost field here either, for the same reason:
+    `unit_cost` is this line's recorded value at posting time (set by
+    7.3's engine from ItemCost's moving average), never re-derived
+    from it.
+
+    Posted-immutability (including a brand new line INSERTed onto an
+    already-posted document, not just UPDATE/DELETE on an existing
+    one — one step past JournalLine's own trigger scope, which only
+    covers UPDATE/DELETE, a gap noted as inherited technical debt
+    there, not fixed here) is enforced by the same Postgres trigger as
+    StockDocument, branching on TG_TABLE_NAME exactly like
+    protect_posted_journal_entry does for JournalEntry/JournalLine.
+    No save()/delete() override on this model either.
+
+    Known, accepted gap (documented, not closed): the `serials` M2M's
+    own through-table (inventory_stockdocumentline_serials) carries no
+    trigger of its own — adding/removing a serial association on an
+    already-posted line bypasses both this trigger and any Python
+    check. Left open because it only touches which serials a line
+    references, never the quantity/cost/account data that carries the
+    document's actual accounting weight; closing it would need a third
+    trigger function keyed off a line's own parent lookup, for a
+    comparatively low-value target. Revisit if a real incident ever
+    shows this matters in practice."""
+
+    document = models.ForeignKey(StockDocument, on_delete=models.CASCADE, related_name="lines")
+    item = models.ForeignKey("sales.Product", on_delete=models.PROTECT, related_name="stock_document_lines")
+    uom = models.ForeignKey(UnitOfMeasure, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    qty = models.DecimalField(_("quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES)
+    qty_base = models.DecimalField(
+        _("quantity (base unit)"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES
+    )
+    unit_cost = models.DecimalField(
+        _("unit cost"), max_digits=PRICE_MAX_DIGITS, decimal_places=PRICE_DECIMAL_PLACES, default=0
+    )
+    cost_center = models.ForeignKey(
+        "organization.CostCenter", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    batch = models.ForeignKey(Batch, null=True, blank=True, on_delete=models.PROTECT, related_name="document_lines")
+    serials = models.ManyToManyField(SerialNumber, blank=True, related_name="document_lines")
+    # Only meaningful for kind=COUNT — null for every other kind.
+    expected_qty = models.DecimalField(
+        _("expected quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES,
+        null=True, blank=True,
+    )
+    counted_qty = models.DecimalField(
+        _("counted quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES,
+        null=True, blank=True,
+    )

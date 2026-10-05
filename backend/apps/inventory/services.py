@@ -1,10 +1,16 @@
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.db.models import F
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-from .models import BatchStock, InventorySettings, ItemUoM
+from apps.numbering.services import next_document_number
+from apps.platform.models import AuditLog
+from apps.platform.services import log_action
+
+from .models import BatchStock, InventorySettings, ItemUoM, StockDocument, StockDocumentLine
 
 # docs/catalog/industries.json's own item_features vocabulary
 # (sprint-7.md's "المدخلات الملزمة" row): barcode, variants, units,
@@ -141,3 +147,124 @@ def select_fefo_batch(item, warehouse, qty_needed, as_of=None):
         if not is_batch_expired(candidate.batch, as_of=as_of):
             return candidate
     return None
+
+
+@transaction.atomic
+def post_stock_document(document, user, request=None):
+    """Sprint 7.2.6 (D5): the bare minimum "post" this block owns —
+    assigns the real number (first exit from DRAFT, same "blank until
+    posted" rule as Invoice.number/Voucher.number) and flips status to
+    POSTED. Deliberately nothing else: no StockLevel/ItemCost/
+    JournalEntry side effect here — that's sprint 7.3's engine, built
+    once this model exists in full. Same "build it before its real
+    caller" shape as 7.2.5's own select_fefo_batch."""
+    document.status = StockDocument.objects.select_for_update().get(pk=document.pk).status
+    if document.status != StockDocument.Status.APPROVED:
+        raise ValidationError(_("Only an approved stock document can be posted."))
+    if not document.number:
+        document.number = next_document_number(
+            document.tenant, f"stock_{document.kind}", document.legal_entity, document.date
+        )
+    document.status = StockDocument.Status.POSTED
+    document.save(update_fields=["number", "status"])
+    log_action(
+        actor_type=AuditLog.ActorType.TENANT_USER,
+        actor_id=user.id,
+        action="stock_document.posted",
+        target_type="stock_document",
+        target_id=document.id,
+        tenant_id=document.tenant_id,
+        request=request,
+    )
+    return document
+
+
+@transaction.atomic
+def reverse_stock_document(document, user, reason, request=None):
+    """"التصحيح بمستند معاكس" — a new, linked document with every
+    line's quantity negated at the ORIGINAL line's own recorded
+    unit_cost (never re-derived from ItemCost's current average, which
+    may have moved on since) — never a direct edit of the posted
+    document (StockDocument.save()'s own guard forbids that anyway).
+    No accounting side effect yet — 7.3's engine will reverse the
+    linked JournalEntry alongside this once posting actually creates
+    one; see the matching guard added to
+    apps.accounting.services.reverse_journal_entry for the "someone
+    calls it directly on a stock-sourced entry" case.
+
+    `original_lines`/`reversed_lines` are paired by construction order
+    (bulk_create's own return value), never by a second `.all()` query
+    — two separate queries are not guaranteed to agree on order (the
+    exact class of bug 7.2.5's own FEFO review caught: don't rely on
+    an undeclared order)."""
+    document.status = StockDocument.objects.select_for_update().get(pk=document.pk).status
+    if document.status != StockDocument.Status.POSTED:
+        raise ValidationError(_("Only a posted stock document can be reversed."))
+    if not reason:
+        raise ValidationError(_("A reason is required to reverse a stock document."))
+
+    reversal_date = timezone.localdate()
+    reversal = StockDocument.objects.create(
+        tenant=document.tenant,
+        legal_entity=document.legal_entity,
+        warehouse=document.warehouse,
+        to_warehouse=document.to_warehouse,
+        kind=document.kind,
+        date=reversal_date,
+        party=document.party,
+        account=document.account,
+        reference=document.reference,
+        notes=_("Reversal of %(number)s: %(reason)s") % {"number": document.number or document.id, "reason": reason},
+        reverses=document,
+        created_by=user,
+        status=StockDocument.Status.DRAFT,
+    )
+    # Lines are built while the reversal is still DRAFT — the trigger's
+    # own INSERT branch (0006) rejects a line bulk_created onto an
+    # already-POSTED document on principle, and the reversal is no
+    # exception to a rule it exists to help enforce. Posted only once
+    # its own lines are in place, same order the original document's
+    # own post_stock_document call expects.
+    original_lines = list(document.lines.all())
+    reversed_lines = StockDocumentLine.objects.bulk_create(
+        [
+            StockDocumentLine(
+                document=reversal,
+                item=line.item,
+                uom=line.uom,
+                qty=-line.qty,
+                qty_base=-line.qty_base,
+                unit_cost=line.unit_cost,
+                cost_center=line.cost_center,
+                batch=line.batch,
+                expected_qty=line.expected_qty,
+                counted_qty=line.counted_qty,
+            )
+            for line in original_lines
+        ]
+    )
+    for original_line, reversed_line in zip(original_lines, reversed_lines):
+        serial_ids = list(original_line.serials.values_list("id", flat=True))
+        if serial_ids:
+            reversed_line.serials.set(serial_ids)
+
+    reversal.number = next_document_number(
+        document.tenant, f"stock_{document.kind}", document.legal_entity, reversal_date
+    )
+    reversal.status = StockDocument.Status.POSTED
+    reversal.save(update_fields=["number", "status"])
+
+    document.status = StockDocument.Status.REVERSED
+    document.save(update_fields=["status"])
+
+    log_action(
+        actor_type=AuditLog.ActorType.TENANT_USER,
+        actor_id=user.id,
+        action="stock_document.reversed",
+        target_type="stock_document",
+        target_id=document.id,
+        tenant_id=document.tenant_id,
+        after={"reason": reason, "reversal_id": str(reversal.id)},
+        request=request,
+    )
+    return reversal

@@ -85,3 +85,5 @@
 2026-10-05T02:53:47+03:00	2721761	cps-db-20261005-025346.sql.gz.gpg	deploy.sh 272176115528fb102afc6a204a1d833fc37ee454
 2026-10-05T03:00:03+03:00	adad9e3	cps-db-20261005-030002.sql.gz.gpg	
 2026-10-05T12:02:32+03:00	b878001	cps-db-20261005-120231.sql.gz.gpg	pre-migration backup before applying 7.2.5 (D11) migration to cps-dev
+2026-10-05T16:56:13+03:00	dc3e689	cps-db-20261005-165612.sql.gz.gpg	pre-migration backup — 7.2.6 StockDocument/StockDocumentLine
+2026-10-05T21:33:06+03:00	dc3e689	cps-db-20261005-213304.sql.gz.gpg	pre-migration backup — 7.2.6 protect_posted_stock_document trigger

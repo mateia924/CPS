@@ -1015,6 +1015,19 @@ class OpeningEntryReversalRejected(Exception):
     opening_balances), never a reversal of the posted entry itself."""
 
 
+class StockDocumentReversalRejected(Exception):
+    """Sprint 7.2.6 (D5 spec, task 5): "reverse_journal_entry على قيد
+    مخزني مباشرةً -> 409 «التصحيح بمستند معاكس»" — built now even
+    though no caller creates a stock-sourced JournalEntry yet (7.3's
+    engine is what will set content_type/object_id to a StockDocument
+    when it posts one), same "guard before its real caller exists"
+    shape as 7.2.5's own is_batch_expired. Checked via content_type,
+    the project's own current standard for "what created this entry"
+    (JournalEntry's own docstring: source_type/source_id are the
+    superseded, pre-GenericFK mechanism — recurring/is_opening still
+    read the old field above only because they predate this)."""
+
+
 class DepreciationEntryReversalRejected(Exception):
     """Sprint 6.5 (decision 12): same "not reversed individually, only
     corrected forward" rule as OpeningEntryReversalRejected — a
@@ -1034,6 +1047,10 @@ def reverse_journal_entry(entry, user, reason, date=None):
     entry.status = JournalEntry.objects.select_for_update().get(pk=entry.pk).status
     if entry.status != JournalEntry.Status.POSTED:
         raise ValidationError(_("Only a posted entry can be reversed."))
+    if entry.content_type is not None and entry.content_type.model == "stockdocument":
+        raise StockDocumentReversalRejected(
+            str(_("A stock-document-sourced entry is reversed via its own document, not reversed directly."))
+        )
     if entry.is_opening:
         raise OpeningEntryReversalRejected(
             str(_("A posted opening balance entry can never be reversed — correct it with a new adjustment instead."))
