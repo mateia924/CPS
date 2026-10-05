@@ -57,6 +57,17 @@ test("6.5.18 item 6: array-shaped detail on a failed voucher post shows verbatim
 
   await page.goto("/dashboard/treasury/vouchers/payment");
   await expect(page.getByText("PV-2026-00099")).toBeVisible();
-  await page.getByRole("button", { name: "ترحيل", exact: true }).click();
+  // 2026-10-05: wait on the posting request's own (mocked) response
+  // first — the 400 itself — before the dialog text. expect.poll()
+  // below was already signal-based (polling a variable an event
+  // listener sets, not a sleep), but it gave no visibility into
+  // WHETHER the request that's supposed to produce that dialog had
+  // even completed; this makes that explicit, per the project's own
+  // "wait for the signal, not a deadline" rule for e2e.
+  const [postResponse] = await Promise.all([
+    page.waitForResponse((res) => res.url().endsWith("/post/") && res.request().method() === "POST"),
+    page.getByRole("button", { name: "ترحيل", exact: true }).click(),
+  ]);
+  expect(postResponse.status()).toBe(400);
   await expect.poll(() => dialogMessage).toBe(message);
 });

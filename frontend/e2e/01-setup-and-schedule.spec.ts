@@ -69,7 +69,21 @@ test("6.5.8 UAT part 1: register, approval rule, voucher on FIXED_ASSETS, asset,
   await test.step("create a cash box", async () => {
     await page.goto("/dashboard/treasury/cash-boxes");
     await field(page, "name").fill("صندوق E2E");
-    await page.getByRole("button", { name: "إضافة", exact: true }).click();
+    // 2026-10-05 (e2e_reliability.log investigation): this used to be
+    // a bare click + toBeVisible(), racing the whole click -> POST ->
+    // state update -> list refetch -> render chain against
+    // toBeVisible()'s own default timeout alone — a time-based wait
+    // in disguise, the exact "fixed deadline, not a signal" shape the
+    // project standard now forbids in e2e. Waiting for the actual
+    // POST response first removes the uncertainty of whether the
+    // click even reached the server; toBeVisible() below still polls
+    // for the subsequent (normally fast) refetch+render, which is a
+    // real signal wait, not a sleep.
+    const [response] = await Promise.all([
+      page.waitForResponse((res) => res.url().includes("/api/cash-boxes/") && res.request().method() === "POST"),
+      page.getByRole("button", { name: "إضافة", exact: true }).click(),
+    ]);
+    expect(response.ok()).toBeTruthy();
     await expect(page.getByText("صندوق E2E").first()).toBeVisible();
     await shot(page, "cash-box-created");
   });
@@ -129,7 +143,13 @@ test("6.5.8 UAT part 1: register, approval rule, voucher on FIXED_ASSETS, asset,
     // here instead legitimately leaves it blank AND exercises the new
     // checkbox itself.
     await page.getByRole("checkbox", { name: "قابل للإهلاك" }).uncheck();
-    await page.getByRole("button", { name: "إضافة", exact: true }).click();
+    // Same signal-wait fix as the cash box step above — a bare click
+    // + toBeVisible() is a time-based wait wearing a different hat.
+    const [assetResponse] = await Promise.all([
+      page.waitForResponse((res) => res.url().includes("/api/assets/") && res.request().method() === "POST"),
+      page.getByRole("button", { name: "إضافة", exact: true }).click(),
+    ]);
+    expect(assetResponse.ok()).toBeTruthy();
     await expect(page.getByText("AST-E2E").first()).toBeVisible();
     await shot(page, "asset-created");
 
