@@ -64,6 +64,24 @@ def test_must_change_password_user_is_blocked_everywhere_except_the_change_scree
     refresh_attempt = APIClient().post("/api/auth/refresh/", {"refresh": refresh_token}, format="json")
     assert refresh_attempt.status_code == 401, refresh_attempt.data
 
+    # The negative half of this same round trip (2026-10-05 incident
+    # review, point 3): this forced-change screen is our ONLY password
+    # recovery mechanism today (no self-service "forgot password" path
+    # exists anywhere in the code), so it had zero coverage proving the
+    # OLD temporary password actually stops working once changed — a
+    # gap that would have let a leaked/observed temp password (exactly
+    # what this project printed in plaintext chat earlier tonight) keep
+    # working indefinitely after the real user moved on.
+    old_password_login = APIClient().post(
+        "/api/auth/login/",
+        {"subdomain": tenant_a.subdomain, "email": user.email, "password": PASSWORD},
+        format="json",
+    )
+    # TenantLoginSerializer.validate() raises a plain ValidationError for
+    # bad credentials (DRF maps that to 400) — not 401, which is only
+    # /api/auth/refresh/'s own convention for a dead refresh token above.
+    assert old_password_login.status_code == 400, old_password_login.data
+
     fresh_client, fresh_login = _client_as(tenant_a, user.email, NEW_PASSWORD)
     assert fresh_login["must_change_password"] is False
     assert fresh_client.get("/api/invoices/").status_code == 200
