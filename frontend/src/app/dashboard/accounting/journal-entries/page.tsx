@@ -319,7 +319,7 @@ export default function JournalEntriesPage() {
         ]}
         renderExtraActions={(entry, reload) => (
           <>
-            {entry.status === "draft" && !entry.source_type && (
+            {entry.status === "draft" && !entry.produced_by && (
               <button className="secondary" onClick={() => runTransition(entry, "submit", reload)}>
                 {t("submitForApproval")}
               </button>
@@ -354,7 +354,7 @@ export default function JournalEntriesPage() {
                 {t("post")}
               </button>
             )}
-            {entry.status === "posted" && !entry.source_type && (
+            {entry.status === "posted" && !entry.produced_by && (
               <button className="secondary" onClick={() => setReasonFor({ id: entry.id, kind: "reverse" })}>
                 {t("reverse")}
               </button>

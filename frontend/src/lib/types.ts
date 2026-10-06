@@ -858,6 +858,13 @@ export interface JournalEntry {
   reverses: string | null;
   source_type: string;
   source_id: string | null;
+  // Sprint 7.2.7 (§8.7): produced_by is the one field UI logic should
+  // branch on ("did an automated process produce this entry") —
+  // content_type/object_id answer "which record", never that
+  // question. source_type/source_id stay here read-only, frozen.
+  produced_by: string;
+  content_type: string | null;
+  object_id: string | null;
   currency: string;
   exchange_rate: string;
   created_at: string;

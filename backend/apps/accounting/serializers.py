@@ -149,15 +149,26 @@ class JournalLineSerializer(serializers.ModelSerializer):
 class JournalEntrySerializer(serializers.ModelSerializer):
     lines = JournalLineSerializer(many=True, read_only=True)
     legal_entity_name = serializers.CharField(source="legal_entity.name", read_only=True)
+    # Sprint 7.2.7 (§8.7, site 1 of 7 — produced_by/content_type must
+    # ship before anything that reads them, per the owner's own
+    # mandated order). content_type exposed as the model name string
+    # (same convention as apps.treasury.serializers.
+    # IbanChangeRequestSerializer.get_target_type), not the raw FK id —
+    # nothing downstream needs the ContentType row itself.
+    content_type = serializers.SerializerMethodField()
 
     class Meta:
         model = JournalEntry
         fields = (
             "id", "legal_entity", "legal_entity_name", "date", "memo", "reference", "number",
             "status", "created_by", "reverses", "source_type", "source_id",
+            "produced_by", "content_type", "object_id",
             "currency", "exchange_rate", "created_at", "lines",
         )
         read_only_fields = fields
+
+    def get_content_type(self, obj):
+        return obj.content_type.model_class()._meta.model_name if obj.content_type else None
 
 
 # ---------------------------------------------------------------------

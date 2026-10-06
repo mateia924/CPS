@@ -14,6 +14,7 @@ ADJUSTMENT document with its own balanced difference lines.
 
 from decimal import ROUND_HALF_UP, Decimal
 
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
@@ -510,6 +511,11 @@ def _post_opening_balance(entry, user):
         exchange_rate=Decimal("1"),
         source_type="opening_balance",
         source_id=entry.id,
+        # Sprint 7.2.7 (§8.7): produced_by + content_type/object_id for
+        # new rows going forward, mirroring migration 0040's نقل ب
+        # target for this value (OpeningBalanceEntry, clean 1:1 mapping).
+        produced_by="opening_balance",
+        content_type=ContentType.objects.get_for_model(OpeningBalanceEntry), object_id=entry.id,
         is_opening=True,
     )
     # System path, not the manual-JV one — a line on a control account

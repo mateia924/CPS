@@ -715,6 +715,12 @@ def post_invoice_journal_entry(invoice):
         status=JournalEntry.Status.POSTED,
         source_type="invoice",
         source_id=invoice.id,
+        # Sprint 7.2.7 (§8.7): found while converting the 7 named sites
+        # — this create() call is an active writer the owner's site
+        # list didn't name (it predates produced_by's own existence).
+        # Left blank here, every new invoice entry would read as
+        # "manual" to site 2's !entry.produced_by check.
+        produced_by="invoice",
         content_type=ContentType.objects.get_for_model(Invoice),
         object_id=invoice.id,
         currency=invoice.currency,
@@ -764,6 +770,8 @@ def void_invoice_journal_entry(invoice):
         reverses=original,
         source_type="invoice_void",
         source_id=invoice.id,
+        # Sprint 7.2.7 (§8.7): same gap as post_invoice_journal_entry above.
+        produced_by="invoice_void",
         content_type=original.content_type,
         object_id=original.object_id,
         currency=original.currency,
@@ -1055,7 +1063,15 @@ def reverse_journal_entry(entry, user, reason, date=None):
         raise OpeningEntryReversalRejected(
             str(_("A posted opening balance entry can never be reversed — correct it with a new adjustment instead."))
         )
-    if entry.source_type == "recurring":
+    # Sprint 7.2.7 (§8.7, site 6 of 7): produced_by replaces source_type
+    # for the operation check. The id lookup stays on source_id, not
+    # object_id — migration 0040 (نقل ب) deliberately backfills
+    # content_type/object_id for only 4 rows (asset_disposal/
+    # opening_balance/asset_disposal_correction), never recurring;
+    # confirmed on dev (2026-10-06): 86/86 recurring rows have
+    # produced_by="recurring" but content_type/object_id still NULL on
+    # all 86. object_id would silently never match here.
+    if entry.produced_by == "recurring":
         from .models import RecurringEntry
 
         if RecurringEntry.objects.filter(id=entry.source_id, kind=RecurringEntry.Kind.DEPRECIATION).exists():
@@ -1247,9 +1263,22 @@ def ledger_lines(tenant, account, legal_entity=None, include_children=True, date
         .values(
             "id", "entry_id", "description", "debit", "credit", "debit_fc", "credit_fc", "currency",
             "cum_base", "cum_fc",
-            "entry__date", "entry__number", "entry__memo", "entry__source_type", "entry__source_id",
+            "entry__date", "entry__number", "entry__memo",
+            # Sprint 7.2.7 (§8.7, site 3 of 7): produced_by/content_type
+            # replace source_type/source_id in this function's own
+            # output — the DB columns stay (frozen, read-only trail),
+            # this is just one reader switching to the new field.
+            "entry__produced_by", "entry__content_type", "entry__object_id",
         )
     )
+    period_rows = list(period_rows)
+
+    content_types = {
+        ct.id: ct
+        for ct in ContentType.objects.filter(
+            id__in={row["entry__content_type"] for row in period_rows if row["entry__content_type"]}
+        )
+    }
 
     lines = [
         {
@@ -1260,7 +1289,12 @@ def ledger_lines(tenant, account, legal_entity=None, include_children=True, date
             "debit": row["debit"], "credit": row["credit"],
             "debit_fc": row["debit_fc"], "credit_fc": row["credit_fc"], "currency": row["currency"],
             "running_balance": opening_base + row["cum_base"], "running_balance_fc": opening_fc + row["cum_fc"],
-            "source_type": row["entry__source_type"], "source_id": row["entry__source_id"],
+            "produced_by": row["entry__produced_by"],
+            "content_type": (
+                content_types[row["entry__content_type"]].model
+                if row["entry__content_type"] else None
+            ),
+            "object_id": row["entry__object_id"],
         }
         for row in period_rows
     ]

@@ -12,6 +12,7 @@ disposal's internal reschedule)."""
 
 from decimal import Decimal
 
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils.translation import gettext_lazy as _
@@ -137,6 +138,11 @@ def _post_disposal_entry(disposal, user):
         status=JournalEntry.Status.POSTED, created_by=user,
         currency=asset.legal_entity.base_currency, exchange_rate=Decimal("1"),
         source_type="asset_disposal", source_id=disposal.id,
+        # Sprint 7.2.7 (§8.7): produced_by + content_type/object_id for
+        # new rows going forward, mirroring migration 0040's نقل ب
+        # target for this value (AssetDisposal, clean 1:1 mapping).
+        produced_by="asset_disposal",
+        content_type=ContentType.objects.get_for_model(AssetDisposal), object_id=disposal.id,
     )
     lines = [
         JournalLine(

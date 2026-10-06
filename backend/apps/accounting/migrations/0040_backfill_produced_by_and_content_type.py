@@ -51,6 +51,14 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("accounting", "0039_journalentry_produced_by"),
+        # Found running the full test suite's --create-db from scratch
+        # (2026-10-06): apps.get_model("assets", ...) below needs an
+        # explicit dependency on that app, or a fresh migrate can
+        # order this node before any assets migration has run at all
+        # — "No installed app with label 'assets'". Applying straight
+        # to an existing DB (most migrations already applied) never
+        # exposed this; only a from-zero replay does.
+        ("assets", "0010_assetdisposal_deleted_at_assetdisposal_deleted_by"),
     ]
 
     operations = [

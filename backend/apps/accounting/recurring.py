@@ -206,6 +206,12 @@ def _generate_one(installment):
         number=next_document_number(entry.tenant, "journal_entry", entry.legal_entity, installment.due_date),
         status=JournalEntry.Status.POSTED,
         source_type="recurring", source_id=entry.id,
+        # Sprint 7.2.7 (§8.7): produced_by for new rows going forward —
+        # content_type/object_id deliberately NOT set here, mirroring
+        # migration 0040's own scope (نقل ب never backfills recurring's
+        # reference half; confirmed on dev 2026-10-06: 86/86 recurring
+        # rows have content_type still NULL).
+        produced_by="recurring",
         currency=entry.legal_entity.base_currency, exchange_rate=Decimal("1"),
     )
     JournalLine.objects.bulk_create(

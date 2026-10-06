@@ -465,8 +465,13 @@ class JournalEntryViewSet(
                 {"detail": str(_("لا يمكن عكس قيد افتتاحي مُرحَّل — صحّحه بمستند تعديل جديد بدلًا من ذلك."))},
                 status=409,
             )
-        if entry.source_type == "recurring":
-            # Decision 12: checked before the generic source_type guard
+        # Sprint 7.2.7 (§8.7, site 6 of 7): produced_by replaces
+        # source_type for the operation check below. The id lookup
+        # stays on source_id — see reverse_journal_entry's own comment
+        # in services.py (migration 0040 never backfills content_type/
+        # object_id for recurring rows; confirmed on dev 2026-10-06).
+        if entry.produced_by == "recurring":
+            # Decision 12: checked before the generic produced_by guard
             # below, same reasoning as is_opening above — a depreciation
             # installment gets its own dedicated 409, distinct from an
             # ordinary recurring installment's generic 400.
@@ -481,7 +486,7 @@ class JournalEntryViewSet(
                     },
                     status=409,
                 )
-        if entry.source_type:
+        if entry.produced_by:
             # A system-generated entry (currently only invoices) has
             # its own reversal path (Invoice.void() ->
             # void_invoice_journal_entry) that also updates the source

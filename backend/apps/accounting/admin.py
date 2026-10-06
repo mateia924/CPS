@@ -17,6 +17,7 @@ class JournalLineInline(admin.TabularInline):
 
 @admin.register(JournalEntry)
 class JournalEntryAdmin(admin.ModelAdmin):
-    list_display = ("date", "memo", "tenant", "source_type")
-    list_filter = ("tenant", "source_type")
+    # Sprint 7.2.7 (§8.7, site 4 of 7): produced_by replaces source_type here.
+    list_display = ("date", "memo", "tenant", "produced_by")
+    list_filter = ("tenant", "produced_by")
     inlines = [JournalLineInline]

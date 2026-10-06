@@ -11,7 +11,8 @@ history was affected.
 Never raw SQL: an ordinary JournalEntry, numbered and posted through
 the same code every other document uses. Idempotent — running it twice
 for the same asset is a safe no-op the second time (detected via the
-correcting entry's own source_type/source_id marker).
+correcting entry's own produced_by/object_id marker — Sprint 7.2.7,
+§8.7 site 5 of 7).
 """
 
 from decimal import Decimal
@@ -60,8 +61,12 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(f"Asset {asset_code} has no disposals — nothing to check."))
             return
 
+        # Sprint 7.2.7 (§8.7, site 5 of 7 — the one writer): checks
+        # produced_by now, not source_type — this command is the first
+        # thing that would collide with the §8.7 freeze if it ever ran
+        # after produced_by existed but before this site converted.
         already_corrected = JournalEntry.objects.filter(
-            tenant=tenant, source_type="asset_disposal_correction", source_id=asset.id
+            tenant=tenant, produced_by="asset_disposal_correction", object_id=asset.id
         ).exists()
         if already_corrected:
             self.stdout.write(self.style.WARNING(f"Asset {asset_code} was already corrected — nothing to do."))
@@ -110,6 +115,8 @@ class Command(BaseCommand):
             return
 
         with transaction.atomic():
+            from django.contrib.contenttypes.models import ContentType
+
             from apps.accounting.periods import assert_open_period
 
             accum_account = get_system_account(tenant, "ACCUM_DEPRECIATION")
@@ -127,7 +134,12 @@ class Command(BaseCommand):
                 number=next_document_number(tenant, "journal_entry", asset.legal_entity, today),
                 status=JournalEntry.Status.POSTED,
                 currency=asset.legal_entity.base_currency, exchange_rate=Decimal("1"),
+                # source_type/source_id: frozen, kept for the historical
+                # trail (never delete a column) — produced_by/content_type/
+                # object_id are the live mechanism going forward.
                 source_type="asset_disposal_correction", source_id=asset.id,
+                produced_by="asset_disposal_correction",
+                content_type=ContentType.objects.get_for_model(Asset), object_id=asset.id,
             )
             # total_accum_diff > 0 means ACCUM_DEPRECIATION was
             # over-debited (its own real, historical entries debited it
