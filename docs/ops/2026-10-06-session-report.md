@@ -80,3 +80,28 @@
 **§8.7 المرحلة 3 أُعيدت كتابتها بالمواضع السبعة بأسمائها وترتيب ملزم:** serializer (1) → الواجهة (2) → `ledger_lines`/`admin.py` (3-4) → `fix_disposal_correction.py` المحوَّل (5) → `recurring`/`is_opening` (6) → التجميد أخيرًا (7). **تحذير مسجَّل صريحًا: تجميد قبل تحويل الـserializer يُعمي الواجهة.** اختبار إلزامي جديد: الحارس ضد `fix_disposal_correction.py` تحديدًا بعد تحويله.
 
 **لم يبدأ أي تنفيذ لـ7.2.7 بعد — فقط §8.7 نفسها حُدِّثت.**
+
+## 6. نشرة (أ) — التنفيذ الكامل على dev، الكوميت `1ca6511`، بلا مساس بالحي
+
+**تم الليلة، بأمر المالك الصريح "بلا مساس بالحي":**
+
+1. **المواضع السبعة المذكورة بأسمائها في §8.7 حُوِّلت كلها على dev** (6 قرّاء + التجميد مؤجَّل لنشرة (ب) كما هو مقرَّر):
+   - `serializers.py:157` (`JournalEntrySerializer`) — يُصدِّر `produced_by`/`content_type`/`object_id`.
+   - `frontend/.../journal-entries/page.tsx:322,357` + `frontend/src/lib/types.ts` — شرط الأزرار صار `!entry.produced_by`.
+   - `services.py` (`ledger_lines`) — يُرجع `produced_by`/`content_type`/`object_id` بدل `source_type`/`source_id`.
+   - `admin.py:20-21` — `list_display`/`list_filter` صارا `produced_by`.
+   - `fix_disposal_correction.py:64,130` (الكاتب) — يكتب الثلاثة معًا.
+   - `services.py::reverse_journal_entry` + `views.py::JournalEntryViewSet.reverse` — فرعا `recurring`/`is_opening` يقرآن `produced_by` للتحقق من العملية.
+
+2. **ثلاثة أخطاء حقيقية وُجدت وصُحِّحت أثناء التحويل، قبل أي commit:**
+   - **هجرة 0040 كانت تفتقد `dependencies` على `apps.assets`** — `apps.get_model("assets", ...)` داخلها يعتمد على ترتيب تلقائي قد يضع هذه الهجرة قبل أي هجرة لـ`assets` في تشغيلة من الصفر (بالضبط ما يفعله `--create-db`) — ظهر فقط عند تشغيل مجموعة الاختبارات الكاملة (`LookupError: No installed app with label 'assets'`)، لم يظهر على قاعدة dev الحيّة لأنها كانت مُطبَّقة مسبقًا. أُصلِح بإضافة تبعية صريحة على `assets.0010`.
+   - **فرعا `recurring`/`is_opening` في الخطوة 6 كانا سيقرآن `object_id` بدل `source_id`** لإيجاد صف `RecurringEntry` — لكن هجرة 0040 (نقل ب) **لا تملأ `content_type`/`object_id` لصفوف `recurring` إطلاقًا** (مؤكَّد على dev: 86/86 صفًّا بـ`produced_by="recurring"`، 0/86 بـ`content_type` مكتوب). لو مرّ هذا بدون تصحيح، كان حارس "قسط الإهلاك لا يُعكس فرديًا" سيتوقف عن العمل صمتًا على كل قيد إهلاك قديم. أُصلِح بإبقاء القراءة على `source_id` (المجمَّد، لا يزال صحيحًا) مع التحقق من العملية عبر `produced_by`.
+   - **خمسة كتّاب فعليون لم يذكرهم المواضع السبعة** (لأنهم أُنشئوا قبل وجود `produced_by` نفسه): `post_invoice_journal_entry`/`void_invoice_journal_entry` (`services.py`)، `_post_disposal_entry` (`assets/disposal.py`)، `_generate_one` (`accounting/recurring.py`)، `_post_opening_balance` (`accounting/opening_balances.py`). بلا تصحيح، كل قيد جديد يُنتجه أيٌّ منها بعد هذه النشرة كان سيُقرأ كـ"يدوي" في شرط الواجهة الجديد. أُضيف `produced_by` لكل واحد (و`content_type`/`object_id` أيضًا لـ`asset_disposal`/`opening_balance`، اتساقًا مع نقل ب — لا لـ`recurring`، اتساقًا مع استثنائها هي نفسها من نقل ب).
+
+3. **الاختبار:** `pytest` على الملفات المتعلقة مباشرة (72 اختبارًا: `test_accounting_debt_functions`، `test_asset_disposal`، `test_fix_disposal_correction`، `test_journal_engine`، `test_opening_balances`، `test_recurring_entries`) — كلها نجحت بعد إصلاح تبعية الهجرة. ثم `make ci-local` كاملًا: **`OVERALL: PASS`، مسجَّل `[2026-10-06T23:05:51+03:00]`** في `docs/ops/ci-local.log` (التسعة بوابات كلها OK، بما فيها `pytest` الكامل و`e2e`).
+
+4. **Commit والدفع:** `1ca6511` — "Sprint 7.2.7a: produced_by field, backfill migration, convert the seven named sites to it" — مدفوع لـ`origin/main`. **لا نشر على الحي الليلة، كما أُمِر — هذا كله على dev فقط.**
+
+**مدة التشغيل المقترحة بين النشرتين (أ) و(ب):** مُسجَّلة سابقًا في §8.7 نفسها (كوميت `72276c5`) — **يوم عمل كامل واحد (24 ساعة)**، كافية لرصد أي استخدام فعلي حقيقي لـ`source_type`/`source_id` لم يظهر في البحث الثابت. لم تتغيّر هذه المدة الليلة.
+
+**المتبقي لنشرة (ب) (مؤجَّل، غير مبدوء عمدًا):** حارس رفض الكتابة على `source_type`/`source_id` + اختباره السلبي (قاعدة 11) + الاختبار الإلزامي المُسمَّى ضد `fix_disposal_correction.py` تحديدًا. **ونافذتا النشر الفعليتان على الحي — (أ) والمدة البينية ثم (ب) — تُحدَّدان معًا غدًا بحضور المالك، بالأرقام المرجعية قبل وبعد.**
