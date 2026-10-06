@@ -174,9 +174,27 @@ class JournalEntry(TenantScopedModel, DocumentStateMixin, SoftDeleteModelMixin):
     # Kept, untouched, unused going forward — superseded by
     # content_type/object_id below (a real GenericFK, ARCH_REVIEW_1.md
     # debt #6: "source_type/source_id نص حر لا GenericFK حقيقي"). Same
-    # never-delete-a-column pattern as Invoice.legacy_customer.
+    # never-delete-a-column pattern as Invoice.legacy_customer. Frozen
+    # by 7.2.7 (§8.7) — no new writer after that block, read-only
+    # historical trail.
     source_type = models.CharField(_("source type"), max_length=50, blank=True)
     source_id = models.UUIDField(_("source id"), null=True, blank=True)
+    # Sprint 7.2.7 (§8.7, owner decision 2026-10-06): content_type/
+    # object_id answer ONE question only — "which record does this
+    # entry concern" — never "what produced it". The two used to be
+    # conflated inside source_type's own string (e.g.
+    # "asset_disposal_correction" named both a process AND, via
+    # source_id, a target) — found exactly because that one value's
+    # target (Asset) doesn't share its own name, a lossless split was
+    # impossible without a third field. produced_by is that field:
+    # blank = a genuine manual entry; non-empty = the named automated
+    # process that created it (recurring/voucher_payment/
+    # voucher_receipt/invoice/invoice_void/asset_disposal/
+    # asset_disposal_correction today — the exact 7 source_type values
+    # in use, carried over with zero loss). Any reader asking "is this
+    # system-generated" or "which specific process" reads this field,
+    # never content_type.
+    produced_by = models.CharField(_("produced by"), max_length=50, blank=True)
     content_type = models.ForeignKey(
         ContentType, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
