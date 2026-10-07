@@ -211,7 +211,7 @@ def _generate_one(installment):
         # migration 0040's own scope (نقل ب never backfills recurring's
         # reference half; confirmed on dev 2026-10-06: 86/86 recurring
         # rows have content_type still NULL).
-        produced_by="recurring",
+        produced_by=JournalEntry.ProducedBy.RECURRING,
         currency=entry.legal_entity.base_currency, exchange_rate=Decimal("1"),
     )
     JournalLine.objects.bulk_create(

@@ -31,6 +31,18 @@ HUNDRED = Decimal("100")
 
 TREASURY_SYSTEM_KEY = {"bank": "BANKS", "cash_box": "CASH", "custody": "CUSTODIES"}
 
+# Sprint 7.2.7 (§8.7, owner decision 2026-10-07): explicit, closed
+# mapping — the posting code below indexes this instead of building
+# produced_by with f"voucher_{voucher.voucher_type}" (the pattern that
+# let the equivalent source_type value escape detection three times).
+# A new Voucher.VoucherType member with no entry here raises KeyError
+# at posting time, not a silently-constructed string.
+_VOUCHER_PRODUCED_BY = {
+    Voucher.VoucherType.RECEIPT: JournalEntry.ProducedBy.VOUCHER_RECEIPT,
+    Voucher.VoucherType.PAYMENT: JournalEntry.ProducedBy.VOUCHER_PAYMENT,
+    Voucher.VoucherType.SETTLEMENT: JournalEntry.ProducedBy.VOUCHER_SETTLEMENT,
+}
+
 
 class VoucherValidationError(ValidationError):
     pass
@@ -738,9 +750,19 @@ def _actually_post(voucher, user, request=None):
         # check reads (e.g. JournalEntryViewSet.reverse() refusing to
         # reverse a system-generated entry directly); content_type/
         # object_id is the real GenericFK alongside it, same dual
-        # pattern already used for invoices (4.4).
+        # pattern already used for invoices (4.4). Frozen — never the
+        # live mechanism again after 7.2.7 (§8.7).
         source_type=f"voucher_{voucher.voucher_type}",
         source_id=voucher.id,
+        # Sprint 7.2.7 (§8.7, owner decision 2026-10-07): produced_by
+        # from the enum member, never an f-string — this exact
+        # dynamically-built source_type value (above) is what survived
+        # three completeness searches undetected; _VOUCHER_PRODUCED_BY
+        # is a closed, explicit mapping, so a Voucher.VoucherType member
+        # with no entry raises KeyError here, loudly, rather than
+        # constructing an unvalidated string the CheckConstraint would
+        # only catch later as a bare IntegrityError.
+        produced_by=_VOUCHER_PRODUCED_BY[voucher.voucher_type],
         content_type=ContentType.objects.get_for_model(Voucher),
         object_id=voucher.id,
         currency=voucher.currency,

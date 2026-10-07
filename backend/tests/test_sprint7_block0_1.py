@@ -219,6 +219,7 @@ def _post_a_line_on_sales(tenant):
     cash = Account.objects.get(tenant=tenant, system_key="CASH")
     entry = JournalEntry.objects.create(
         tenant=tenant, legal_entity=branch, date="2026-01-01", status=JournalEntry.Status.POSTED,
+        produced_by=JournalEntry.ProducedBy.MANUAL,
     )
     JournalLine.objects.create(entry=entry, account=cash, debit=100, credit=0)
     JournalLine.objects.create(entry=entry, account=sales, debit=0, credit=100)

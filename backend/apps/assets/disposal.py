@@ -141,7 +141,7 @@ def _post_disposal_entry(disposal, user):
         # Sprint 7.2.7 (§8.7): produced_by + content_type/object_id for
         # new rows going forward, mirroring migration 0040's نقل ب
         # target for this value (AssetDisposal, clean 1:1 mapping).
-        produced_by="asset_disposal",
+        produced_by=JournalEntry.ProducedBy.ASSET_DISPOSAL,
         content_type=ContentType.objects.get_for_model(AssetDisposal), object_id=disposal.id,
     )
     lines = [

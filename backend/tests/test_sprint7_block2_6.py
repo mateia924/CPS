@@ -237,6 +237,11 @@ def test_reverse_journal_entry_rejects_a_stock_document_sourced_entry(tenant_a):
         tenant=tenant_a, legal_entity=entity, date=document.date, memo="stub stock posting",
         number="JV-2026-STUB", status=JournalEntry.Status.POSTED,
         content_type=ContentType.objects.get_for_model(StockDocument), object_id=document.id,
+        # No "stock_document" ProducedBy member exists yet — 7.3's own
+        # engine isn't built (this test stubs its future output ahead
+        # of time). This test's own assertion is gated by content_type,
+        # not produced_by, so MANUAL here is inert, not a claim.
+        produced_by=JournalEntry.ProducedBy.MANUAL,
     )
 
     with pytest.raises(StockDocumentReversalRejected):

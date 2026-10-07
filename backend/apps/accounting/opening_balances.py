@@ -514,7 +514,7 @@ def _post_opening_balance(entry, user):
         # Sprint 7.2.7 (§8.7): produced_by + content_type/object_id for
         # new rows going forward, mirroring migration 0040's نقل ب
         # target for this value (OpeningBalanceEntry, clean 1:1 mapping).
-        produced_by="opening_balance",
+        produced_by=JournalEntry.ProducedBy.OPENING_BALANCE,
         content_type=ContentType.objects.get_for_model(OpeningBalanceEntry), object_id=entry.id,
         is_opening=True,
     )

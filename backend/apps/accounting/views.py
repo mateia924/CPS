@@ -470,7 +470,7 @@ class JournalEntryViewSet(
         # stays on source_id — see reverse_journal_entry's own comment
         # in services.py (migration 0040 never backfills content_type/
         # object_id for recurring rows; confirmed on dev 2026-10-06).
-        if entry.produced_by == "recurring":
+        if entry.produced_by == JournalEntry.ProducedBy.RECURRING:
             # Decision 12: checked before the generic produced_by guard
             # below, same reasoning as is_opening above — a depreciation
             # installment gets its own dedicated 409, distinct from an
@@ -486,7 +486,12 @@ class JournalEntryViewSet(
                     },
                     status=409,
                 )
-        if entry.produced_by:
+        # Sprint 7.2.7 (§8.7, owner decision 2026-10-07): produced_by is
+        # never blank now — "manual" is the real, declared member for a
+        # genuine manual entry, so this must be an explicit inequality,
+        # not truthiness (every produced_by value is truthy now,
+        # "manual" included).
+        if entry.produced_by != JournalEntry.ProducedBy.MANUAL:
             # A system-generated entry (currently only invoices) has
             # its own reversal path (Invoice.void() ->
             # void_invoice_journal_entry) that also updates the source

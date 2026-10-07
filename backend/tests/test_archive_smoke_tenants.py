@@ -43,6 +43,7 @@ def test_refuses_to_archive_a_tenant_with_an_unreversed_posted_entry():
     entry = JournalEntry.objects.create(
         tenant=tenant, legal_entity=entity, date="2026-01-01",
         number="JV-TEST-0001", status=JournalEntry.Status.POSTED,
+        produced_by=JournalEntry.ProducedBy.MANUAL,
     )
 
     with pytest.raises(CommandError) as excinfo:
@@ -61,6 +62,7 @@ def test_force_without_reason_is_refused():
     JournalEntry.objects.create(
         tenant=tenant, legal_entity=entity, date="2026-01-01",
         number="JV-TEST-0002", status=JournalEntry.Status.POSTED,
+        produced_by=JournalEntry.ProducedBy.MANUAL,
     )
 
     with pytest.raises(CommandError):
@@ -77,6 +79,7 @@ def test_force_with_reason_archives_anyway_and_logs_it():
     entry = JournalEntry.objects.create(
         tenant=tenant, legal_entity=entity, date="2026-01-01",
         number="JV-TEST-0003", status=JournalEntry.Status.POSTED,
+        produced_by=JournalEntry.ProducedBy.MANUAL,
     )
 
     call_command("archive_smoke_tenants", force=True, reason="owner-authorized debt, see sprint 7.0.2 audit")
@@ -114,10 +117,12 @@ def test_a_tenant_with_a_cleanly_reversed_entry_still_archives_without_force():
     original = JournalEntry.objects.create(
         tenant=tenant, legal_entity=entity, date="2026-01-01",
         number="JV-TEST-0004", status=JournalEntry.Status.REVERSED,
+        produced_by=JournalEntry.ProducedBy.MANUAL,
     )
     JournalEntry.objects.create(
         tenant=tenant, legal_entity=entity, date="2026-01-02",
         number="JV-TEST-0004-R", status=JournalEntry.Status.POSTED, reverses=original,
+        produced_by=JournalEntry.ProducedBy.MANUAL,
     )
 
     call_command("archive_smoke_tenants")

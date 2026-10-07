@@ -862,6 +862,9 @@ export interface JournalEntry {
   // branch on ("did an automated process produce this entry") —
   // content_type/object_id answer "which record", never that
   // question. source_type/source_id stay here read-only, frozen.
+  // Never blank (owner decision 2026-10-07) — a genuine manual entry
+  // is the literal string "manual", not an absence; DB-enforced via a
+  // CheckConstraint restricting the column to the ProducedBy enum.
   produced_by: string;
   content_type: string | null;
   object_id: string | null;

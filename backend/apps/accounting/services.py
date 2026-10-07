@@ -720,7 +720,7 @@ def post_invoice_journal_entry(invoice):
         # list didn't name (it predates produced_by's own existence).
         # Left blank here, every new invoice entry would read as
         # "manual" to site 2's !entry.produced_by check.
-        produced_by="invoice",
+        produced_by=JournalEntry.ProducedBy.INVOICE,
         content_type=ContentType.objects.get_for_model(Invoice),
         object_id=invoice.id,
         currency=invoice.currency,
@@ -771,7 +771,7 @@ def void_invoice_journal_entry(invoice):
         source_type="invoice_void",
         source_id=invoice.id,
         # Sprint 7.2.7 (§8.7): same gap as post_invoice_journal_entry above.
-        produced_by="invoice_void",
+        produced_by=JournalEntry.ProducedBy.INVOICE_VOID,
         content_type=original.content_type,
         object_id=original.object_id,
         currency=original.currency,
@@ -857,6 +857,10 @@ def create_manual_journal_entry(
         currency=currency,
         exchange_rate=exchange_rate,
         is_control_override=bool(control_lines),
+        # Sprint 7.2.7 (§8.7, owner decision 2026-10-07): produced_by
+        # is never blank — a genuine manual entry gets the declared
+        # "manual" member, not an absence.
+        produced_by=JournalEntry.ProducedBy.MANUAL,
     )
     lines = build_journal_lines_with_fx_rounding(tenant, entry, line_specs, exchange_rate)
     _require_fc_balance_if_single_currency(entry, lines)
@@ -1071,7 +1075,7 @@ def reverse_journal_entry(entry, user, reason, date=None):
     # confirmed on dev (2026-10-06): 86/86 recurring rows have
     # produced_by="recurring" but content_type/object_id still NULL on
     # all 86. object_id would silently never match here.
-    if entry.produced_by == "recurring":
+    if entry.produced_by == JournalEntry.ProducedBy.RECURRING:
         from .models import RecurringEntry
 
         if RecurringEntry.objects.filter(id=entry.source_id, kind=RecurringEntry.Kind.DEPRECIATION).exists():
@@ -1104,6 +1108,15 @@ def reverse_journal_entry(entry, user, reason, date=None):
         object_id=entry.object_id,
         currency=entry.currency,
         exchange_rate=entry.exchange_rate,
+        # Sprint 7.2.7 (§8.7, owner decision 2026-10-07): this is the
+        # second of the two remaining writers that used to leave
+        # produced_by blank — preserves the pre-existing semantics
+        # exactly (under the old blank=manual scheme, every reversal
+        # this function created, for every caller including
+        # apps.vouchers.services.reverse_voucher, was already
+        # implicitly "manual"; nothing about that classification
+        # changes here, it's just spelled out now).
+        produced_by=JournalEntry.ProducedBy.MANUAL,
     )
     JournalLine.objects.bulk_create(
         [

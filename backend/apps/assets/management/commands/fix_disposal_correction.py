@@ -66,7 +66,7 @@ class Command(BaseCommand):
         # thing that would collide with the §8.7 freeze if it ever ran
         # after produced_by existed but before this site converted.
         already_corrected = JournalEntry.objects.filter(
-            tenant=tenant, produced_by="asset_disposal_correction", object_id=asset.id
+            tenant=tenant, produced_by=JournalEntry.ProducedBy.ASSET_DISPOSAL_CORRECTION, object_id=asset.id
         ).exists()
         if already_corrected:
             self.stdout.write(self.style.WARNING(f"Asset {asset_code} was already corrected — nothing to do."))
@@ -138,7 +138,7 @@ class Command(BaseCommand):
                 # trail (never delete a column) — produced_by/content_type/
                 # object_id are the live mechanism going forward.
                 source_type="asset_disposal_correction", source_id=asset.id,
-                produced_by="asset_disposal_correction",
+                produced_by=JournalEntry.ProducedBy.ASSET_DISPOSAL_CORRECTION,
                 content_type=ContentType.objects.get_for_model(Asset), object_id=asset.id,
             )
             # total_accum_diff > 0 means ACCUM_DEPRECIATION was

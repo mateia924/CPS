@@ -98,7 +98,9 @@ def test_posting_to_a_parent_account_is_rejected(db):
     seed_chart_of_accounts(tenant)
     entity = LegalEntityFactory(tenant=tenant)
     parent_account = Account.objects.get(tenant=tenant, code="1000")  # has children -> not a leaf
-    entry = JournalEntry.objects.create(tenant=tenant, legal_entity=entity, date="2026-01-01")
+    entry = JournalEntry.objects.create(
+        tenant=tenant, legal_entity=entity, date="2026-01-01", produced_by=JournalEntry.ProducedBy.MANUAL
+    )
 
     with pytest.raises(ValidationError):
         build_journal_lines_with_fx_rounding(
@@ -116,7 +118,9 @@ def test_posting_to_a_leaf_with_allow_posting_false_is_rejected(db):
     leaf = Account.objects.get(tenant=tenant, system_key="SALES")
     leaf.allow_posting = False
     leaf.save(update_fields=["allow_posting"])
-    entry = JournalEntry.objects.create(tenant=tenant, legal_entity=entity, date="2026-01-01")
+    entry = JournalEntry.objects.create(
+        tenant=tenant, legal_entity=entity, date="2026-01-01", produced_by=JournalEntry.ProducedBy.MANUAL
+    )
 
     with pytest.raises(ValidationError):
         build_journal_lines_with_fx_rounding(
@@ -262,7 +266,9 @@ def test_deleting_an_account_with_a_journal_line_returns_409(tenant_a, client_a)
         tenant=tenant_a, code="9999", name="Test Leaf", type=Account.Type.ASSET
     )
     cash = Account.objects.get(tenant=tenant_a, system_key="CASH")
-    entry = JournalEntry.objects.create(tenant=tenant_a, legal_entity=entity, date="2026-01-01")
+    entry = JournalEntry.objects.create(
+        tenant=tenant_a, legal_entity=entity, date="2026-01-01", produced_by=JournalEntry.ProducedBy.MANUAL
+    )
     # Sprint 5.7 (C1): the deferred balance trigger now enforces Σdebit
     # = Σcredit per entry at commit — a second, offsetting line keeps
     # this fixture's entry valid; the test itself only cares that
@@ -281,7 +287,9 @@ def test_changing_type_of_an_account_with_posted_lines_returns_400(tenant_a, cli
         tenant=tenant_a, code="9998", name="Test Leaf 2", type=Account.Type.ASSET
     )
     cash = Account.objects.get(tenant=tenant_a, system_key="CASH")
-    entry = JournalEntry.objects.create(tenant=tenant_a, legal_entity=entity, date="2026-01-01")
+    entry = JournalEntry.objects.create(
+        tenant=tenant_a, legal_entity=entity, date="2026-01-01", produced_by=JournalEntry.ProducedBy.MANUAL
+    )
     # Sprint 5.7 (C1): see the identical note above.
     JournalLine.objects.create(entry=entry, account=account, debit=Decimal("10.00"), debit_fc=Decimal("10.00"))
     JournalLine.objects.create(entry=entry, account=cash, credit=Decimal("10.00"), credit_fc=Decimal("10.00"))
@@ -317,7 +325,9 @@ def test_creating_a_child_under_an_account_with_posted_lines_is_rejected(tenant_
     entity = LegalEntityFactory(tenant=tenant_a)
     parent = Account.objects.create(tenant=tenant_a, code="9000", name="Parent", type=Account.Type.ASSET)
     cash = Account.objects.get(tenant=tenant_a, system_key="CASH")
-    entry = JournalEntry.objects.create(tenant=tenant_a, legal_entity=entity, date="2026-01-01")
+    entry = JournalEntry.objects.create(
+        tenant=tenant_a, legal_entity=entity, date="2026-01-01", produced_by=JournalEntry.ProducedBy.MANUAL
+    )
     JournalLine.objects.create(entry=entry, account=parent, debit=Decimal("10.00"), debit_fc=Decimal("10.00"))
     JournalLine.objects.create(entry=entry, account=cash, credit=Decimal("10.00"), credit_fc=Decimal("10.00"))
 
@@ -335,7 +345,9 @@ def test_moving_an_account_under_a_posted_parent_is_rejected(tenant_a, client_a)
     entity = LegalEntityFactory(tenant=tenant_a)
     parent = Account.objects.create(tenant=tenant_a, code="9010", name="Parent", type=Account.Type.ASSET)
     cash = Account.objects.get(tenant=tenant_a, system_key="CASH")
-    entry = JournalEntry.objects.create(tenant=tenant_a, legal_entity=entity, date="2026-01-01")
+    entry = JournalEntry.objects.create(
+        tenant=tenant_a, legal_entity=entity, date="2026-01-01", produced_by=JournalEntry.ProducedBy.MANUAL
+    )
     JournalLine.objects.create(entry=entry, account=parent, debit=Decimal("10.00"), debit_fc=Decimal("10.00"))
     JournalLine.objects.create(entry=entry, account=cash, credit=Decimal("10.00"), credit_fc=Decimal("10.00"))
     standalone = Account.objects.create(tenant=tenant_a, code="9011", name="Standalone", type=Account.Type.ASSET)
@@ -355,7 +367,9 @@ def test_editing_an_account_that_already_has_that_parent_is_not_reblocked(tenant
     entity = LegalEntityFactory(tenant=tenant_a)
     parent = Account.objects.create(tenant=tenant_a, code="9020", name="Parent", type=Account.Type.ASSET)
     cash = Account.objects.get(tenant=tenant_a, system_key="CASH")
-    entry = JournalEntry.objects.create(tenant=tenant_a, legal_entity=entity, date="2026-01-01")
+    entry = JournalEntry.objects.create(
+        tenant=tenant_a, legal_entity=entity, date="2026-01-01", produced_by=JournalEntry.ProducedBy.MANUAL
+    )
     JournalLine.objects.create(entry=entry, account=parent, debit=Decimal("10.00"), debit_fc=Decimal("10.00"))
     JournalLine.objects.create(entry=entry, account=cash, credit=Decimal("10.00"), credit_fc=Decimal("10.00"))
     # This child predates the rule (created directly via the ORM, same
@@ -373,7 +387,9 @@ def test_chart_check_flags_grandfathered_parent_with_movements(tenant_a, client_
     entity = LegalEntityFactory(tenant=tenant_a)
     parent = Account.objects.create(tenant=tenant_a, code="9030", name="Parent", type=Account.Type.ASSET)
     cash = Account.objects.get(tenant=tenant_a, system_key="CASH")
-    entry = JournalEntry.objects.create(tenant=tenant_a, legal_entity=entity, date="2026-01-01")
+    entry = JournalEntry.objects.create(
+        tenant=tenant_a, legal_entity=entity, date="2026-01-01", produced_by=JournalEntry.ProducedBy.MANUAL
+    )
     JournalLine.objects.create(entry=entry, account=parent, debit=Decimal("10.00"), debit_fc=Decimal("10.00"))
     JournalLine.objects.create(entry=entry, account=cash, credit=Decimal("10.00"), credit_fc=Decimal("10.00"))
     Account.objects.create(tenant=tenant_a, code="9031", name="Old Child", type=Account.Type.ASSET, parent=parent)

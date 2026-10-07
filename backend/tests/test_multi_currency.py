@@ -95,7 +95,9 @@ def test_fx_rounding_helper_adds_no_line_when_exactly_balanced(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
     entity = LegalEntityFactory(tenant=tenant)
-    entry = JournalEntry.objects.create(tenant=tenant, legal_entity=entity, date=date(2026, 1, 1))
+    entry = JournalEntry.objects.create(
+        tenant=tenant, legal_entity=entity, date=date(2026, 1, 1), produced_by=JournalEntry.ProducedBy.MANUAL
+    )
     from apps.accounting.models import Account
 
     ar = Account.objects.get(tenant=tenant, system_key="CASH")
@@ -124,7 +126,9 @@ def test_fx_rounding_helper_adds_a_rounding_line_when_gap_is_within_tolerance(db
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
     entity = LegalEntityFactory(tenant=tenant)
-    entry = JournalEntry.objects.create(tenant=tenant, legal_entity=entity, date=date(2026, 1, 1))
+    entry = JournalEntry.objects.create(
+        tenant=tenant, legal_entity=entity, date=date(2026, 1, 1), produced_by=JournalEntry.ProducedBy.MANUAL
+    )
     from apps.accounting.models import Account
 
     ar = Account.objects.get(tenant=tenant, system_key="CASH")
@@ -179,7 +183,9 @@ def test_fx_rounding_helper_raises_when_gap_exceeds_tolerance(db):
     tenant = TenantFactory()
     seed_chart_of_accounts(tenant)
     entity = LegalEntityFactory(tenant=tenant)
-    entry = JournalEntry.objects.create(tenant=tenant, legal_entity=entity, date=date(2026, 1, 1))
+    entry = JournalEntry.objects.create(
+        tenant=tenant, legal_entity=entity, date=date(2026, 1, 1), produced_by=JournalEntry.ProducedBy.MANUAL
+    )
     from apps.accounting.models import Account
 
     ar = Account.objects.get(tenant=tenant, system_key="CASH")

@@ -158,7 +158,7 @@ def test_manually_inserted_unbalanced_lines_fail_at_commit_not_per_row(db):
         with transaction.atomic():
             entry = JournalEntry.objects.create(
                 tenant=tenant, legal_entity=entity, date=date(2026, 1, 1), status="draft",
-                currency="SAR", exchange_rate=Decimal("1"),
+                currency="SAR", exchange_rate=Decimal("1"), produced_by=JournalEntry.ProducedBy.MANUAL,
             )
             # Both inserts succeed individually (the trigger only fires
             # at commit) — the mismatch (40 debit vs 30 credit) is only

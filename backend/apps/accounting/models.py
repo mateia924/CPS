@@ -144,6 +144,27 @@ class Account(TenantScopedModel, SoftDeleteModelMixin):
         super().save(*args, **kwargs)
 
 
+# Module-level, not nested in JournalEntry (unlike TaxCode.Kind/
+# TaxPeriod.Status above) — Meta.constraints below needs to reference
+# its values, and a nested class's body has no visibility into its
+# enclosing class body's locals (only JournalEntry's own body, and the
+# module's globals; Meta's body is neither). JournalEntry.ProducedBy
+# aliases this immediately below so every external reference
+# (JournalEntry.ProducedBy.X, used throughout apps.accounting/apps.
+# assets/apps.vouchers) is unaffected.
+class _JournalEntryProducedBy(models.TextChoices):
+    RECURRING = "recurring", _("Recurring entry")
+    VOUCHER_PAYMENT = "voucher_payment", _("Payment voucher")
+    VOUCHER_RECEIPT = "voucher_receipt", _("Receipt voucher")
+    VOUCHER_SETTLEMENT = "voucher_settlement", _("Settlement voucher")
+    INVOICE = "invoice", _("Invoice")
+    INVOICE_VOID = "invoice_void", _("Invoice void")
+    ASSET_DISPOSAL = "asset_disposal", _("Asset disposal")
+    ASSET_DISPOSAL_CORRECTION = "asset_disposal_correction", _("Asset disposal correction")
+    OPENING_BALANCE = "opening_balance", _("Opening balance")
+    MANUAL = "manual", _("Manual")
+
+
 class JournalEntry(TenantScopedModel, DocumentStateMixin, SoftDeleteModelMixin):
     # Same 3-step migration story as Invoice.legal_entity — see
     # apps/accounting/migrations/0002-0004.
@@ -186,15 +207,35 @@ class JournalEntry(TenantScopedModel, DocumentStateMixin, SoftDeleteModelMixin):
     # "asset_disposal_correction" named both a process AND, via
     # source_id, a target) — found exactly because that one value's
     # target (Asset) doesn't share its own name, a lossless split was
-    # impossible without a third field. produced_by is that field:
-    # blank = a genuine manual entry; non-empty = the named automated
-    # process that created it (recurring/voucher_payment/
-    # voucher_receipt/invoice/invoice_void/asset_disposal/
-    # asset_disposal_correction today — the exact 7 source_type values
-    # in use, carried over with zero loss). Any reader asking "is this
+    # impossible without a third field. produced_by is that field: now
+    # (owner decision 2026-10-07) NEVER blank — "manual" is a real,
+    # declared member, not an absence. Any reader asking "is this
     # system-generated" or "which specific process" reads this field,
     # never content_type.
-    produced_by = models.CharField(_("produced by"), max_length=50, blank=True)
+    #
+    # ProducedBy is a real Django TextChoices (same pattern as
+    # TaxCode.Kind/TaxPeriod.Status above) because `choices=` alone is
+    # validation-only, never DB-enforced — the actual enforcement is
+    # the CheckConstraint in Meta.constraints below. Two failure modes,
+    # two guards: a forgotten writer leaves produced_by="" (not a
+    # declared member → the constraint rejects it, IntegrityError, not
+    # a silent "manual" misread); an invented/mistyped value that isn't
+    # one of the declared members is rejected the same way. The
+    # motivating case for the second guard specifically: the voucher
+    # writer (apps/vouchers/services.py) used to build this value with
+    # f"voucher_{voucher.voucher_type}" — a dynamically-constructed
+    # string that survived three separate completeness searches (the
+    # original 7-site search, the 5-extra-writer search, and the dry
+    # report's own static value enumeration) specifically because it
+    # was never written as a literal anywhere grep could match. VOUCHER_
+    # SETTLEMENT is declared even though zero rows on live carry it
+    # today (apps.vouchers.models.Voucher.VoucherType has a third
+    # member, SETTLEMENT, and apps.vouchers.services._actually_post is
+    # generic over all three — the value space is the code's, not
+    # today's data's; see §8.7's "fifth category" for the same lesson
+    # applied to source_type).
+    ProducedBy = _JournalEntryProducedBy
+    produced_by = models.CharField(_("produced by"), max_length=50, choices=ProducedBy.choices)
     content_type = models.ForeignKey(
         ContentType, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
@@ -240,7 +281,18 @@ class JournalEntry(TenantScopedModel, DocumentStateMixin, SoftDeleteModelMixin):
                 fields=["tenant", "number"],
                 name="unique_journal_entry_number_per_tenant",
                 condition=~models.Q(number="") & models.Q(legacy_duplicate_number=False),
-            )
+            ),
+            # Sprint 7.2.7 (§8.7, owner decision 2026-10-07): `choices=`
+            # on produced_by above is validation-only (Django never
+            # enforces it at the DB layer) — this is the actual
+            # enforcement. One constraint, two jobs: "" isn't a declared
+            # ProducedBy member, so a forgotten writer is rejected the
+            # same way an invented/mistyped value would be — both are
+            # just "not in the enum" to Postgres.
+            models.CheckConstraint(
+                check=models.Q(produced_by__in=_JournalEntryProducedBy.values),
+                name="accounting_journalentry_produced_by_valid",
+            ),
         ]
         # Sprint 6.6.3 (item 2): trial balance/ledger/close-checklist
         # hot paths filter by tenant+entity+date or tenant+status —
