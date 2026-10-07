@@ -96,3 +96,4 @@
 2026-10-07T12:42:10+03:00	e48dc02	cps-db-20261007-124209.sql.gz.gpg	staging_refresh.sh --code-only
 2026-10-07T16:03:31+03:00	23ae86b	cps-db-20261007-160330.sql.gz.gpg	staging refresh — pre-7.2.7a rehearsal, fresh live snapshot
 2026-10-07T16:50:07+03:00	59eb1e2	cps-db-20261007-165006.sql.gz.gpg	deploy.sh prep — 7.2.7a (أ) live deploy, fresh backup independent of noon's
+2026-10-07T16:51:12+03:00	0f16822	cps-db-20261007-165111.sql.gz.gpg	deploy.sh 0f168224568c16e65580b7b334b19000f43a7427
