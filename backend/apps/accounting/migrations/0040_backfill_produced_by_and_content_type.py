@@ -1,46 +1,53 @@
-# Sprint 7.2.7 (§8.7, owner decision 2026-10-06): the two-part data
-# transfer — (a) source_type's string value to produced_by, verbatim,
-# for every row that has one (82 rows on live at the time this was
-# written: the 24 "old-only" plus the 58 already dual-written with
-# content_type/object_id — those 58 need produced_by too, they never
-# had it); (b) content_type/object_id for the four rows that never got
-# either mechanism's reference half (asset_disposal x2 -> AssetDisposal,
-# opening_balance x1 -> OpeningBalanceEntry, asset_disposal_correction
-# x1 -> Asset — NOT a model of the same name; confirmed by reading
-# apps/assets/management/commands/fix_disposal_correction.py:64,130,
-# which writes source_id=asset.id, not a disposal id).
+# Sprint 7.2.7 (§8.7, owner decision 2026-10-06): produced_by <-
+# source_type, verbatim, for every row that has one (82 rows on live
+# at the time this was written: the 24 "old-only" plus the 58 already
+# dual-written with content_type/object_id — those 58 need produced_by
+# too, they never had it).
 #
 # Deliberately idempotent (dry-report §8.7 test requirement): re-
 # running this is a safe no-op for rows already carrying the target
-# value — every write below is unconditional on the SOURCE value
-# matching, not on the destination being empty, so running it twice
-# just re-derives the same result.
+# value.
+#
+# REMOVED 2026-10-07 (owner decision, after a real failure on
+# staging): this migration originally had a second part ("نقل ب") —
+# backfilling content_type/object_id for the four old-only rows that
+# never got either mechanism's reference half (asset_disposal x2,
+# opening_balance x1, asset_disposal_correction x1). It was a direct
+# .update(content_type=..., object_id=...) against existing
+# JournalEntry rows. For any row already POSTED — which is virtually
+# all of them, these are terminal, audited documents — that is an
+# UPDATE on a posted journal entry, something this project forbids
+# categorically and has since 0019_posted_entry_protection_triggers
+# (SYSTEM_ANALYSIS.md, 2026-09-23 decision: no field on a POSTED entry
+# is ever modified directly, not even incidentally; a correction is a
+# reversal and a new posting, never a direct update). The trigger
+# (protect_posted_journal_entry()) caught this on staging's real,
+# live-shaped data with a ProgrammingError — dev's own data has no
+# POSTED row matching those three source_type values with content_type
+# still null, so it silently ran as a no-op there and the bug was
+# invisible until the step-4 staging walkthrough (replacing a 24-hour
+# time-based wait with this exact kind of real check is what caught
+# it — see §11, 2026-10-07).
+#
+# The trigger did not reject a valid migration; it rejected an
+# operation this project had already forbidden itself from doing. The
+# correct fix is not a workaround around the trigger (disabling it,
+# even for one migration, is itself forbidden — §0 rule 1) but
+# abandoning transfer ب entirely: these four rows' content_type/
+# object_id stay permanently null, exactly like recurring's 20/86 rows
+# already do (recurring was excluded from transfer ب from the start,
+# for an unrelated reason — it just happened to sidestep this same
+# trigger). produced_by (this migration's own transfer أ, unaffected —
+# it only ever touches produced_by/source_type, never an already-
+# posted row's content_type/object_id) plus the frozen source_type/
+# source_id trail are the only record of what these old rows were.
 from django.db import migrations
 from django.db.models import F
 
 
 def backfill(apps, schema_editor):
     JournalEntry = apps.get_model("accounting", "JournalEntry")
-    ContentType = apps.get_model("contenttypes", "ContentType")
-
-    # (a) produced_by <- source_type, verbatim, for every row with one.
     JournalEntry.objects.exclude(source_type="").update(produced_by=F("source_type"))
-
-    # (b) content_type/object_id for the four rows missing the
-    # reference half entirely.
-    asset_disposal_ct = ContentType.objects.get_for_model(apps.get_model("assets", "AssetDisposal"))
-    opening_balance_ct = ContentType.objects.get_for_model(apps.get_model("accounting", "OpeningBalanceEntry"))
-    asset_ct = ContentType.objects.get_for_model(apps.get_model("assets", "Asset"))
-
-    JournalEntry.objects.filter(source_type="asset_disposal", content_type__isnull=True).update(
-        content_type=asset_disposal_ct, object_id=F("source_id")
-    )
-    JournalEntry.objects.filter(source_type="opening_balance", content_type__isnull=True).update(
-        content_type=opening_balance_ct, object_id=F("source_id")
-    )
-    JournalEntry.objects.filter(source_type="asset_disposal_correction", content_type__isnull=True).update(
-        content_type=asset_ct, object_id=F("source_id")
-    )
 
 
 def noop(apps, schema_editor):
@@ -51,14 +58,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("accounting", "0039_journalentry_produced_by"),
-        # Found running the full test suite's --create-db from scratch
-        # (2026-10-06): apps.get_model("assets", ...) below needs an
-        # explicit dependency on that app, or a fresh migrate can
-        # order this node before any assets migration has run at all
-        # — "No installed app with label 'assets'". Applying straight
-        # to an existing DB (most migrations already applied) never
-        # exposed this; only a from-zero replay does.
-        ("assets", "0010_assetdisposal_deleted_at_assetdisposal_deleted_by"),
     ]
 
     operations = [
