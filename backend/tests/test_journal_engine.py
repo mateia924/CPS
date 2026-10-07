@@ -3,6 +3,7 @@ ARCH_REVIEW_1.md §3.2 debts #4/#5/#6): journal engine — states,
 GenericFK source, reversal, reconciliation fields, cost-center split.
 """
 
+import uuid
 from datetime import date
 from decimal import Decimal
 
@@ -706,3 +707,48 @@ def test_concurrent_post_requests_only_one_succeeds():
     assert len(errors) == 1
     entry.refresh_from_db()
     assert entry.status == "posted"
+
+
+@pytest.mark.django_db
+def test_historical_rows_keep_content_type_null_forever(db):
+    """Sprint 7.2.7 (§8.7, owner decision 2026-10-07): "نقل ب" was
+    scrapped entirely — content_type/object_id are never backfilled
+    for a historical row whose produced_by is one of the four values
+    "نقل ب" used to try to cover (recurring/asset_disposal/
+    opening_balance/asset_disposal_correction). The real reason: that
+    backfill was a direct UPDATE on an already-POSTED JournalEntry —
+    forbidden categorically by protect_posted_journal_entry()
+    (0019_posted_entry_protection_triggers) — and the trigger caught
+    it for real on staging before it ever reached production (§11,
+    2026-10-07).
+
+    This test guards the decision positively, not by absence: it
+    builds rows in exactly the historical shape (produced_by set,
+    source_type/source_id the frozen pre-7.2.7a trail, content_type/
+    object_id null, status POSTED) and asserts the schema accepts
+    them as a legitimate, permanent state. If anyone later tries to
+    "complete" the reference — a new CheckConstraint, a NOT NULL on
+    content_type, a trigger requiring it whenever produced_by is one
+    of these four — creating a row in this shape starts failing
+    immediately, in this test, in CI. Not discovered later on staging
+    or production.
+    """
+    tenant = TenantFactory()
+    _company, entity = create_default_legal_entities(tenant, tenant.name)
+
+    historical_values = [
+        JournalEntry.ProducedBy.RECURRING,
+        JournalEntry.ProducedBy.ASSET_DISPOSAL,
+        JournalEntry.ProducedBy.OPENING_BALANCE,
+        JournalEntry.ProducedBy.ASSET_DISPOSAL_CORRECTION,
+    ]
+    for value in historical_values:
+        entry = JournalEntry.objects.create(
+            tenant=tenant, legal_entity=entity, date=date(2026, 1, 1),
+            status=JournalEntry.Status.POSTED, produced_by=value,
+            source_type=value, source_id=uuid.uuid4(),
+        )
+        entry.refresh_from_db()
+        assert entry.produced_by == value
+        assert entry.content_type is None
+        assert entry.object_id is None
