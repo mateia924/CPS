@@ -348,3 +348,38 @@ def test_transfer_tenant_isolation(tenant_a, client_a):
         amount_fc="100.00",
     )
     assert response.status_code == 400, response.data
+
+
+@pytest.mark.django_db
+def test_internal_transfer_journal_entry_produced_by_is_voucher_settlement(tenant_a, client_a):
+    """Sprint 7.2.7 (§8.7, owner instruction 2026-10-07): voucher_
+    settlement has zero rows on live — nothing real ever exercises
+    this path, so the only coverage possible is an explicit assertion
+    here, not a staging walkthrough (staging mirrors live's real
+    activity; inventing a settlement voucher there would test
+    something live never actually does). A transfer voucher is
+    SETTLEMENT/INTERNAL_TRANSFER under the hood (apps.vouchers.
+    services.create_internal_transfer_voucher) — this is the one real
+    path that produces that value, and the only test in the whole
+    suite that checks produced_by against a concrete expected value
+    for any of the three voucher sub-types."""
+    cash_box = _make_cash_box(client_a, tenant_a)
+    _fund_cash_box(client_a, tenant_a, cash_box, amount="1000.00")
+    bank = _make_bank(client_a, tenant_a)
+
+    response = _transfer(
+        client_a,
+        legal_entity=str(_branch(tenant_a).id), date="2026-09-23",
+        treasury_kind="cash_box", treasury_id=cash_box["id"],
+        counter_treasury_kind="bank", counter_treasury_id=bank["id"],
+        amount_fc="200.00",
+    )
+    assert response.status_code == 201, response.data
+    voucher = _post(client_a, response.data["id"])
+    assert voucher.status_code == 200, voucher.data
+    assert voucher.data["status"] == "posted"
+
+    entry = JournalEntry.objects.get(id=voucher.data["journal_entry_id"])
+    assert entry.produced_by == JournalEntry.ProducedBy.VOUCHER_SETTLEMENT
+    assert entry.content_type.model == "voucher"
+    assert str(entry.object_id) == response.data["id"]
