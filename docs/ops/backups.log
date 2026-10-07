@@ -87,3 +87,12 @@
 2026-10-05T12:02:32+03:00	b878001	cps-db-20261005-120231.sql.gz.gpg	pre-migration backup before applying 7.2.5 (D11) migration to cps-dev
 2026-10-05T16:56:13+03:00	dc3e689	cps-db-20261005-165612.sql.gz.gpg	pre-migration backup — 7.2.6 StockDocument/StockDocumentLine
 2026-10-05T21:33:06+03:00	dc3e689	cps-db-20261005-213304.sql.gz.gpg	pre-migration backup — 7.2.6 protect_posted_stock_document trigger
+2026-10-06T03:00:05+03:00	b60ae0b	cps-db-20261006-030001.sql.gz.gpg	
+2026-10-06T22:17:52+03:00	8347182	cps-db-20261006-221750.sql.gz.gpg	pre-migration backup — 7.2.7 phase 1: produced_by field + backfill (dev)
+2026-10-06T22:18:39+03:00	8347182	cps-db-20261006-221838.sql.gz.gpg	pre-migration backup — 7.2.7 phase 1: produced_by field + backfill (live)
+2026-10-07T03:00:04+03:00	78af658	cps-db-20261007-030001.sql.gz.gpg	
+2026-10-07T11:12:49+03:00	cd62f1b	cps-db-20261007-111248.sql.gz.gpg	make migrate
+2026-10-07T11:59:23+03:00	c640bb2	cps-db-20261007-115922.sql.gz.gpg	staging_refresh.sh --code-only
+2026-10-07T12:42:10+03:00	e48dc02	cps-db-20261007-124209.sql.gz.gpg	staging_refresh.sh --code-only
+2026-10-07T16:03:31+03:00	23ae86b	cps-db-20261007-160330.sql.gz.gpg	staging refresh — pre-7.2.7a rehearsal, fresh live snapshot
+2026-10-07T16:50:07+03:00	59eb1e2	cps-db-20261007-165006.sql.gz.gpg	deploy.sh prep — 7.2.7a (أ) live deploy, fresh backup independent of noon's
