@@ -802,6 +802,68 @@ posted && produced_by==="manual"` → خطأ بصواب، لأن الحالة `d
 التجميد نفسه، لو أُلغي لاحقًا، يحتاج نشره مُلغيًا للحارس، لا مجرد
 عكس كود.
 
+---
+
+## إغلاق نشرة (ب) — 2026-10-08
+
+**الشرط الأول الذي سبق أي حارس (بأمر المالك): صفر كاتب متبقٍّ هو
+شرط التجميد، لا نتيجته.** جرد كامل (القاعدة 29، الأمر والنطاق):
+`grep -rn "source_type=\|source_id=" --include=*.py apps/` مستثنيًا
+`/migrations/`و`/tests/`، مقابَلًا بأنماط إضافية (`.source_type =`،
+`setattr`، تحديث بمفتاح ديناميكي `**{...}`) — صفر نتيجة إضافية.
+**سبعة كتّاب حقيقيون** (استبعاد موضعَي قراءة كاذَبين طابقا النمط
+نصًّا: عرض `apps/sales/serializers.py` و`.get()` داخل
+`void_invoice_journal_entry`): `apps/vouchers/services.py`،
+`apps/accounting/opening_balances.py`، `apps/accounting/recurring.py`،
+`apps/accounting/services.py` (موضعان: الفاتورة وإلغاؤها)،
+`apps/assets/disposal.py`، `apps/assets/management/commands/
+fix_disposal_correction.py`. **السبعة حُوِّلوا جميعًا لوقف الكتابة
+كليًا على `source_type`/`source_id`** قبل أي حارس.
+
+**البند ٢ (`fix_disposal_correction.py`): كاتب فعلًا، لا قارئ فقط —
+مؤكَّد بالسطر 140 (`JournalEntry.objects.create(...,
+source_type=..., source_id=...)`)، بخلاف السطر 64 الذي يقرأ
+`produced_by` بالفعل منذ ليلة أمس. حُوِّل قبل نشر الحارس.**
+
+**عطلان حقيقيان وُجدا بتشغيل المجموعة الكاملة، لا بالقراءة:**
+`void_invoice_journal_entry` (`apps/accounting/services.py`) كانت
+تبحث عن القيد الأصلي بـ`source_type="invoice"` — تعطّلت فورًا بمجرد
+توقّف الكاتب عن كتابتها؛ وكذلك عرض رقم القيد على شاشة الفاتورة
+(`apps/sales/serializers.py`). كلاهما حُوِّل لـ`content_type`/
+`object_id`، وكلاهما كان يملك القيمة الصحيحة أصلًا دون استخدامها.
+كما احتاج `recurring` إضافة `content_type`/`object_id` فعليًا للصفوف
+الجديدة (لم تكن تُكتب من قبل) لأن حارسَي فحص قسط الإهلاك
+(`reverse_journal_entry`، `JournalEntryViewSet.reverse`) كانا يعتمدان
+`source_id` — المحظور كتابته الآن — فصارا يقرآن `object_id` أولًا ثم
+`source_id` للصفوف الـ86 التاريخية فقط.
+
+**الحارس: مُشغِّل Postgres حقيقي** (هجرة `0042_freeze_source_type_
+source_id.py`، نفس نمط `0019_posted_entry_protection_triggers`
+حرفيًا — `RunSQL`/`plpgsql`). شرط الإطلاق الدقيق: INSERT بقيمة غير
+فارغة في أيٍّ من العمودين → رفض؛ UPDATE يغيّر أيًّا منهما
+(`IS DISTINCT FROM`، لا `<>`) → رفض؛ UPDATE لا يمسّهما → سماح.
+
+**ثلاثة اختبارات جديدة** (`tests/test_db_triggers.py`): رفض
+الإدراج، رفض تعديل صفّ تاريخي (مزروع عبر `session_replication_role
+= replica` — الطريقة الوحيدة المتبقية لبناء هذا الشكل التاريخي بعد
+التجميد نفسه)، وسماح تعديل لا يمسّ الحقلين. **إثبات القاعدة 11 فعليًا
+على `test_cps`:** عطَّلت المُشغِّل مباشرة (`ALTER TABLE ... DISABLE
+TRIGGER`)، أعدت تشغيل الاختبار النافي وحده، سقط مُسمِّيًا
+`DID NOT RAISE DatabaseError` حرفيًا، أعدت تفعيل المُشغِّل
+(`ENABLE TRIGGER`)، أعدت تشغيل الملف كاملًا: 10/10 أخضر.
+
+**`ci-local` كاملة قبل النشر:** `2026-10-08T15:51:33`، أخضر، رمز
+خروج حقيقي مباشر (`0`) لا عبر أنبوب — pytest الكامل وe2e كلاهما OK.
+
+**النشر الحي: الكوميت `ac2aa10`.** `scripts/deploy.sh` الثماني
+كاملة، `check_chart_health --fail-on-findings`: 0 findings، smoke
+نجح. الأرقام المرجعية الأربعة قبل/بعد مطابقة حرفيًا، مدين=دائن
+للثلاثة مستأجرين. **تحقّق فعلي إضافي على الحي نفسه بعد النشر:**
+محاولة إدراج حقيقية بـ`source_type` داخل `transaction.atomic()`
+(متراجَعة تلقائيًا، صفر أثر) رُفضت بنفس رسالة الحارس حرفيًا.
+
+**نشرة (ب) مغلقة. 7.2.7 مغلقة بكتلتيها.**
+
 1. **نقل — نقل واحد، لا نقلان (تصحيح 2026-10-07، بعد شطب «نقل ب»
    بالكامل — انظر القرار أدناه):**
    - **نقل أ (القيمة النصية → `produced_by`):** كل القيم السبع
