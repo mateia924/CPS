@@ -732,7 +732,19 @@ def test_historical_rows_keep_content_type_null_forever(db):
     of these four — creating a row in this shape starts failing
     immediately, in this test, in CI. Not discovered later on staging
     or production.
+
+    Updated 2026-10-08 (Deploy ب): the freeze
+    (0042_freeze_source_type_source_id) now rejects any INSERT that
+    sets source_type/source_id at all — by design, that's its whole
+    job. Seeding this test's own historical-shaped fixture needs the
+    same bypass used to prove the freeze itself
+    (test_db_triggers.py): session_replication_role = replica for the
+    one seeding statement, reset immediately after. This is the only
+    way left to construct the exact shape real pre-freeze rows are
+    in — which is exactly why the freeze protects it.
     """
+    from django.db import connection
+
     tenant = TenantFactory()
     _company, entity = create_default_legal_entities(tenant, tenant.name)
 
@@ -746,9 +758,18 @@ def test_historical_rows_keep_content_type_null_forever(db):
         entry = JournalEntry.objects.create(
             tenant=tenant, legal_entity=entity, date=date(2026, 1, 1),
             status=JournalEntry.Status.POSTED, produced_by=value,
-            source_type=value, source_id=uuid.uuid4(),
         )
+        with connection.cursor() as cursor:
+            cursor.execute("SET session_replication_role = replica")
+            try:
+                cursor.execute(
+                    "UPDATE accounting_journalentry SET source_type = %s, source_id = %s WHERE id = %s",
+                    [value, str(uuid.uuid4()), str(entry.id)],
+                )
+            finally:
+                cursor.execute("SET session_replication_role = DEFAULT")
         entry.refresh_from_db()
         assert entry.produced_by == value
+        assert entry.source_type == value
         assert entry.content_type is None
         assert entry.object_id is None

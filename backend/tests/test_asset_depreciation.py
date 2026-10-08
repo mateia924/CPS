@@ -354,7 +354,9 @@ def test_generate_first_installment_posts_journal_entry_with_cost_center(tenant_
     # installment up to "today" in one call — several months' worth,
     # since the test clock is well past January 2026 — so pick the
     # first one deterministically rather than assuming there's only one.
-    entry = JournalEntry.objects.filter(source_type="recurring", lines__account=expense).order_by("date").first()
+    entry = JournalEntry.objects.filter(
+        produced_by=JournalEntry.ProducedBy.RECURRING, lines__account=expense
+    ).order_by("date").first()
     assert entry is not None
     assert entry.date == _period(tenant_a, 1).end_date
     assert entry.status == JournalEntry.Status.POSTED
@@ -414,7 +416,9 @@ def test_reversing_depreciation_installment_returns_409(tenant_a, owner_client):
     generate_due_installments(tenant=tenant_a)
 
     expense = _account(tenant_a, "DEPRECIATION_EXPENSE")
-    entry = JournalEntry.objects.filter(source_type="recurring", lines__account=expense).order_by("date").first()
+    entry = JournalEntry.objects.filter(
+        produced_by=JournalEntry.ProducedBy.RECURRING, lines__account=expense
+    ).order_by("date").first()
     assert entry is not None
     response = owner_client.post(f"/api/journal-entries/{entry.id}/reverse/", {"reason": "test"}, format="json")
     assert response.status_code == 409, response.data

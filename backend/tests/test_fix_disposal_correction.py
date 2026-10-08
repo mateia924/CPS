@@ -116,7 +116,9 @@ def test_dry_run_reports_correct_diagnosis_without_posting(tenant_a, user_a):
     output = out.getvalue()
     assert "total accum_share over-posted: 2814.00" in output
     assert "no entry posted" in output
-    assert not JournalEntry.objects.filter(tenant=tenant_a, source_type="asset_disposal_correction").exists()
+    assert not JournalEntry.objects.filter(
+        tenant=tenant_a, produced_by=JournalEntry.ProducedBy.ASSET_DISPOSAL_CORRECTION
+    ).exists()
 
 
 @pytest.mark.django_db
@@ -138,7 +140,9 @@ def test_posts_a_real_correcting_entry_that_fixes_the_gl_balances(tenant_a, user
     output = out.getvalue()
     assert "Posted correction JournalEntry" in output
 
-    correction = JournalEntry.objects.get(tenant=tenant_a, source_type="asset_disposal_correction", source_id=asset.id)
+    correction = JournalEntry.objects.get(
+        tenant=tenant_a, produced_by=JournalEntry.ProducedBy.ASSET_DISPOSAL_CORRECTION, object_id=asset.id
+    )
     assert correction.status == JournalEntry.Status.POSTED
     assert correction.number
 
@@ -160,4 +164,6 @@ def test_posts_a_real_correcting_entry_that_fixes_the_gl_balances(tenant_a, user
     out2 = StringIO()
     call_command("fix_disposal_correction", "--tenant", tenant_a.subdomain, "--asset", asset.code, stdout=out2)
     assert "already corrected" in out2.getvalue()
-    assert JournalEntry.objects.filter(tenant=tenant_a, source_type="asset_disposal_correction").count() == 1
+    assert JournalEntry.objects.filter(
+        tenant=tenant_a, produced_by=JournalEntry.ProducedBy.ASSET_DISPOSAL_CORRECTION
+    ).count() == 1

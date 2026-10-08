@@ -97,7 +97,12 @@ def test_void_after_period_closed_reverses_at_today(tenant_a, client_a, user_a):
 
     response = client_a.post(f"/api/invoices/{invoice['id']}/void/")
     assert response.status_code == 200, response.data
-    reversal = JournalEntry.objects.get(tenant=tenant_a, source_type="invoice_void", source_id=invoice["id"])
+    from django.contrib.contenttypes.models import ContentType
+
+    reversal = JournalEntry.objects.get(
+        tenant=tenant_a, produced_by=JournalEntry.ProducedBy.INVOICE_VOID,
+        content_type=ContentType.objects.get_for_model(Invoice), object_id=invoice["id"],
+    )
     assert reversal.date == timezone.localdate()
     assert reversal.status == JournalEntry.Status.POSTED
 

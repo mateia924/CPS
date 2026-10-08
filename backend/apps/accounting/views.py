@@ -465,11 +465,10 @@ class JournalEntryViewSet(
                 {"detail": str(_("لا يمكن عكس قيد افتتاحي مُرحَّل — صحّحه بمستند تعديل جديد بدلًا من ذلك."))},
                 status=409,
             )
-        # Sprint 7.2.7 (§8.7, site 6 of 7): produced_by replaces
+        # Sprint 7.2.7 (§8.7, Deploy ب): produced_by replaces
         # source_type for the operation check below. The id lookup
-        # stays on source_id — see reverse_journal_entry's own comment
-        # in services.py (migration 0040 never backfills content_type/
-        # object_id for recurring rows; confirmed on dev 2026-10-06).
+        # checks object_id first, falling back to source_id — see
+        # reverse_journal_entry's own comment in services.py.
         if entry.produced_by == JournalEntry.ProducedBy.RECURRING:
             # Decision 12: checked before the generic produced_by guard
             # below, same reasoning as is_opening above — a depreciation
@@ -477,7 +476,8 @@ class JournalEntryViewSet(
             # ordinary recurring installment's generic 400.
             from .models import RecurringEntry
 
-            if RecurringEntry.objects.filter(id=entry.source_id, kind=RecurringEntry.Kind.DEPRECIATION).exists():
+            recurring_entry_id = entry.object_id or entry.source_id
+            if RecurringEntry.objects.filter(id=recurring_entry_id, kind=RecurringEntry.Kind.DEPRECIATION).exists():
                 return Response(
                     {
                         "detail": str(

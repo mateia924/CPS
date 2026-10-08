@@ -134,10 +134,10 @@ class Command(BaseCommand):
                 number=next_document_number(tenant, "journal_entry", asset.legal_entity, today),
                 status=JournalEntry.Status.POSTED,
                 currency=asset.legal_entity.base_currency, exchange_rate=Decimal("1"),
-                # source_type/source_id: frozen, kept for the historical
-                # trail (never delete a column) — produced_by/content_type/
-                # object_id are the live mechanism going forward.
-                source_type="asset_disposal_correction", source_id=asset.id,
+                # Sprint 7.2.7 (§8.7, Deploy ب): this was the one writer
+                # that would collide with the freeze if converted in
+                # the wrong order (§8.7's own mandatory test target) —
+                # source_type/source_id stop being written here now.
                 produced_by=JournalEntry.ProducedBy.ASSET_DISPOSAL_CORRECTION,
                 content_type=ContentType.objects.get_for_model(Asset), object_id=asset.id,
             )

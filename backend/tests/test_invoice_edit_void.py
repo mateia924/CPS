@@ -96,8 +96,8 @@ def test_void_issued_invoice_posts_balanced_reversing_entry(tenant_a, client_a):
     entries = client_a.get("/api/journal-entries/").data["results"]
     assert len(entries) == 2
 
-    original = next(e for e in entries if e["source_type"] == "invoice")
-    reversal = next(e for e in entries if e["source_type"] == "invoice_void")
+    original = next(e for e in entries if e["produced_by"] == "invoice")
+    reversal = next(e for e in entries if e["produced_by"] == "invoice_void")
 
     def totals(entry):
         debit = sum(Decimal(line["debit"]) for line in entry["lines"])

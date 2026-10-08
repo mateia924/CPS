@@ -71,7 +71,14 @@ def test_void_invoice_reversal_entry_has_arabic_memo(tenant_a, client_a):
     voided = client_a.post(f"/api/invoices/{invoice['id']}/void/")
     assert voided.status_code == 200, voided.data
 
-    reversal = JournalEntry.objects.get(source_type="invoice_void", source_id=invoice["id"])
+    from django.contrib.contenttypes.models import ContentType
+
+    from apps.sales.models import Invoice
+
+    reversal = JournalEntry.objects.get(
+        produced_by=JournalEntry.ProducedBy.INVOICE_VOID,
+        content_type=ContentType.objects.get_for_model(Invoice), object_id=invoice["id"],
+    )
     assert reversal.memo.startswith("إلغاء فاتورة ")
 
 

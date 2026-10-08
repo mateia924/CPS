@@ -12,7 +12,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-from django.db import DatabaseError, transaction
+from django.db import DatabaseError, connection, transaction
 
 from apps.access.services import seed_default_roles
 from apps.accounting.models import Account, JournalEntry, JournalLine
@@ -174,3 +174,91 @@ def test_manually_inserted_unbalanced_lines_fail_at_commit_not_per_row(db):
 
     # The failed transaction rolled back entirely — nothing persisted.
     assert not JournalEntry.objects.filter(tenant=tenant, legal_entity=entity).exists()
+
+
+# Sprint 7.2.7 (§8.7, Deploy ب, owner decision 2026-10-08): the freeze
+# — apps/accounting/migrations/0042_freeze_source_type_source_id.py.
+# Launch condition is NOT "reject non-blank": rule 31's historical
+# rows legitimately carry a non-blank source_type/source_id forever.
+# The real invariant: no INSERT may ever set either column, and no
+# UPDATE may ever change either column's value on an existing row —
+# an UPDATE touching neither is always allowed.
+
+
+@pytest.mark.django_db(transaction=True)
+def test_insert_with_source_type_or_source_id_is_rejected_by_the_database():
+    tenant = TenantFactory()
+    seed_chart_of_accounts(tenant)
+    entity = LegalEntityFactory(tenant=tenant)
+
+    with pytest.raises(DatabaseError):
+        with transaction.atomic():
+            JournalEntry.objects.create(
+                tenant=tenant, legal_entity=entity, date=date(2026, 1, 1),
+                produced_by=JournalEntry.ProducedBy.ASSET_DISPOSAL, source_type="asset_disposal",
+            )
+
+    with pytest.raises(DatabaseError):
+        with transaction.atomic():
+            JournalEntry.objects.create(
+                tenant=tenant, legal_entity=entity, date=date(2026, 1, 1),
+                produced_by=JournalEntry.ProducedBy.ASSET_DISPOSAL, source_id=tenant.id,
+            )
+
+
+@pytest.mark.django_db(transaction=True)
+def test_update_changing_a_historical_rows_source_type_is_rejected_by_the_database():
+    tenant = TenantFactory()
+    seed_chart_of_accounts(tenant)
+    entity = LegalEntityFactory(tenant=tenant)
+    entry = JournalEntry.objects.create(
+        tenant=tenant, legal_entity=entity, date=date(2026, 1, 1),
+        produced_by=JournalEntry.ProducedBy.RECURRING,
+    )
+    # Seeds the historical shape (source_type populated) that no
+    # writer may produce anymore — the only way to do this at all now
+    # is bypassing the trigger for this one seeding statement, exactly
+    # because real historical rows predate the freeze and can never be
+    # reconstructed through it. session_replication_role is
+    # connection-session-scoped, reset immediately after, never a
+    # schema change.
+    with connection.cursor() as cursor:
+        cursor.execute("SET session_replication_role = replica")
+        try:
+            cursor.execute(
+                "UPDATE accounting_journalentry SET source_type = %s WHERE id = %s",
+                ["recurring", str(entry.id)],
+            )
+        finally:
+            cursor.execute("SET session_replication_role = DEFAULT")
+    entry.refresh_from_db()
+    assert entry.source_type == "recurring"
+
+    with pytest.raises(DatabaseError):
+        with transaction.atomic():
+            JournalEntry.objects.filter(pk=entry.pk).update(source_type="opening_balance")
+
+
+@pytest.mark.django_db(transaction=True)
+def test_update_not_touching_source_type_or_source_id_is_allowed():
+    tenant = TenantFactory()
+    seed_chart_of_accounts(tenant)
+    entity = LegalEntityFactory(tenant=tenant)
+    entry = JournalEntry.objects.create(
+        tenant=tenant, legal_entity=entity, date=date(2026, 1, 1),
+        produced_by=JournalEntry.ProducedBy.RECURRING,
+    )
+    with connection.cursor() as cursor:
+        cursor.execute("SET session_replication_role = replica")
+        try:
+            cursor.execute(
+                "UPDATE accounting_journalentry SET source_type = %s WHERE id = %s",
+                ["recurring", str(entry.id)],
+            )
+        finally:
+            cursor.execute("SET session_replication_role = DEFAULT")
+
+    JournalEntry.objects.filter(pk=entry.pk).update(memo="تعديل لا يمسّ الإسناد التاريخي")
+    entry.refresh_from_db()
+    assert entry.memo == "تعديل لا يمسّ الإسناد التاريخي"
+    assert entry.source_type == "recurring"

@@ -73,11 +73,11 @@ def test_transfer_between_branches_of_same_company_keeps_generated_untouched(
     assert asset.depreciation_entry.legal_entity_id == branch_b.id
 
     # Already-generated installments' JournalEntries keep the OLD entity.
-    old_entries = JournalEntry.objects.filter(source_type="recurring", legal_entity=branch_a)
+    old_entries = JournalEntry.objects.filter(produced_by=JournalEntry.ProducedBy.RECURRING, legal_entity=branch_a)
     assert old_entries.count() == 3
 
     generate_due_installments(tenant=tenant_a, as_of=date(2026, 4, 30))  # month 4, not yet generated before
-    new_entries = JournalEntry.objects.filter(source_type="recurring", legal_entity=branch_b)
+    new_entries = JournalEntry.objects.filter(produced_by=JournalEntry.ProducedBy.RECURRING, legal_entity=branch_b)
     assert new_entries.count() == 1
 
 
@@ -127,7 +127,7 @@ def test_cost_center_transfer_affects_next_installment(tenant_a, owner_client, b
     from apps.accounting.models import Account
 
     expense = Account.objects.get(tenant=tenant_a, system_key="DEPRECIATION_EXPENSE")
-    lines = expense.journal_lines.filter(entry__source_type="recurring").order_by("entry__date")
+    lines = expense.journal_lines.filter(entry__produced_by=JournalEntry.ProducedBy.RECURRING).order_by("entry__date")
     assert lines[0].cost_center_id == old_cc.id
     assert lines[1].cost_center_id == new_cc.id
 

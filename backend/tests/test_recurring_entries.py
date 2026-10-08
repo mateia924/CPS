@@ -125,7 +125,7 @@ def test_generate_due_posts_single_entry_with_correct_lines(tenant_a, owner_clie
     je = installment.journal_entry
     assert je.status == JournalEntry.Status.POSTED
     assert je.date == period1_end
-    assert je.source_type == "recurring"
+    assert je.produced_by == JournalEntry.ProducedBy.RECURRING
     lines = {line.account.code: line for line in je.lines.all()}
     assert lines["5100"].debit == Decimal("1000.00")
     assert lines["1900"].credit == Decimal("1000.00")
@@ -143,7 +143,9 @@ def test_generate_due_twice_does_not_duplicate(tenant_a, owner_client):
     assert second["generated"] == 0
 
     entry = RecurringEntry.objects.get(id=entry_id)
-    assert JournalEntry.objects.filter(tenant=tenant_a, source_type="recurring", source_id=entry.id).count() == 1
+    assert JournalEntry.objects.filter(
+        tenant=tenant_a, produced_by=JournalEntry.ProducedBy.RECURRING, object_id=entry.id
+    ).count() == 1
 
 
 def test_closed_period_skips_then_regenerate_after_reopen(tenant_a, owner_client, user_a):

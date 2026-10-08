@@ -13,6 +13,7 @@ silently) if that period is CLOSED/LOCKED by then.
 from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
@@ -205,13 +206,19 @@ def _generate_one(installment):
         ),
         number=next_document_number(entry.tenant, "journal_entry", entry.legal_entity, installment.due_date),
         status=JournalEntry.Status.POSTED,
-        source_type="recurring", source_id=entry.id,
-        # Sprint 7.2.7 (§8.7): produced_by for new rows going forward —
-        # content_type/object_id deliberately NOT set here, mirroring
-        # migration 0040's own scope (نقل ب never backfills recurring's
-        # reference half; confirmed on dev 2026-10-06: 86/86 recurring
-        # rows have content_type still NULL).
+        # Sprint 7.2.7 (§8.7, Deploy ب): source_type/source_id stop
+        # being written — the freeze (migration 0042) rejects any new
+        # row that still sets them, so this can no longer stay the
+        # depreciation-guard's lookup field either (see
+        # reverse_journal_entry's own comment: it now reads object_id
+        # on new rows, source_id on the 86 historical ones that
+        # predate this). content_type/object_id start being set here
+        # for exactly that reason — the "نقل ب never backfills
+        # recurring" note from last night was about the migration's
+        # historical-data scope, not a reason to withhold it from new
+        # rows forever.
         produced_by=JournalEntry.ProducedBy.RECURRING,
+        content_type=ContentType.objects.get_for_model(RecurringEntry), object_id=entry.id,
         currency=entry.legal_entity.base_currency, exchange_rate=Decimal("1"),
     )
     JournalLine.objects.bulk_create(

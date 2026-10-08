@@ -746,14 +746,10 @@ def _actually_post(voucher, user, request=None):
         reference=voucher.reference,
         number=next_document_number(voucher.tenant, "journal_entry", voucher.legal_entity, voucher.date),
         status=JournalEntry.Status.POSTED,
-        # source_type kept as the plain-text marker every existing
-        # check reads (e.g. JournalEntryViewSet.reverse() refusing to
-        # reverse a system-generated entry directly); content_type/
-        # object_id is the real GenericFK alongside it, same dual
-        # pattern already used for invoices (4.4). Frozen — never the
-        # live mechanism again after 7.2.7 (§8.7).
-        source_type=f"voucher_{voucher.voucher_type}",
-        source_id=voucher.id,
+        # Sprint 7.2.7 (§8.7, Deploy ب): source_type/source_id (used to
+        # be built as f"voucher_{voucher.voucher_type}") stop being
+        # written entirely — produced_by/content_type/object_id are the
+        # only mechanism for every row created from this point on.
         # Sprint 7.2.7 (§8.7, owner decision 2026-10-07): produced_by
         # from the enum member, never an f-string — this exact
         # dynamically-built source_type value (above) is what survived

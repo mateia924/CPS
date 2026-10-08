@@ -509,11 +509,9 @@ def _post_opening_balance(entry, user):
         created_by=user,
         currency=entry.legal_entity.base_currency,
         exchange_rate=Decimal("1"),
-        source_type="opening_balance",
-        source_id=entry.id,
-        # Sprint 7.2.7 (§8.7): produced_by + content_type/object_id for
-        # new rows going forward, mirroring migration 0040's نقل ب
-        # target for this value (OpeningBalanceEntry, clean 1:1 mapping).
+        # Sprint 7.2.7 (§8.7, Deploy ب): source_type/source_id stop
+        # being written — produced_by + content_type/object_id are the
+        # only mechanism now (OpeningBalanceEntry, clean 1:1 mapping).
         produced_by=JournalEntry.ProducedBy.OPENING_BALANCE,
         content_type=ContentType.objects.get_for_model(OpeningBalanceEntry), object_id=entry.id,
         is_opening=True,

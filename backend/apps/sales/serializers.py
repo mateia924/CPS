@@ -145,9 +145,14 @@ class InvoiceSerializer(serializers.ModelSerializer):
         from apps.accounting.models import JournalEntry
 
         if not hasattr(obj, "_cached_journal_entry"):
+            # Sprint 7.2.7 (§8.7, Deploy ب): source_type="invoice" used
+            # to be an extra filter here — stopped matching the moment
+            # post_invoice_journal_entry stopped writing it.
+            # content_type/object_id alone already uniquely identifies
+            # this invoice's own entry.
             obj._cached_journal_entry = JournalEntry.objects.filter(
                 tenant_id=obj.tenant_id, content_type=ContentType.objects.get_for_model(Invoice),
-                object_id=obj.id, source_type="invoice",
+                object_id=obj.id,
             ).first()
         return obj._cached_journal_entry
 

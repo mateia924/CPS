@@ -713,13 +713,12 @@ def post_invoice_journal_entry(invoice):
         memo=f"فاتورة {invoice.number}",
         number=next_document_number(tenant, "journal_entry", invoice.legal_entity, invoice.issue_date),
         status=JournalEntry.Status.POSTED,
-        source_type="invoice",
-        source_id=invoice.id,
-        # Sprint 7.2.7 (§8.7): found while converting the 7 named sites
-        # — this create() call is an active writer the owner's site
-        # list didn't name (it predates produced_by's own existence).
-        # Left blank here, every new invoice entry would read as
-        # "manual" to site 2's !entry.produced_by check.
+        # Sprint 7.2.7 (§8.7, Deploy ب): source_type/source_id stop
+        # being written here — produced_by/content_type/object_id are
+        # the only mechanism for every row created from this point on.
+        # Historical rows written before this change keep their frozen
+        # source_type/source_id untouched (rule 31, never backfilled,
+        # never re-written).
         produced_by=JournalEntry.ProducedBy.INVOICE,
         content_type=ContentType.objects.get_for_model(Invoice),
         object_id=invoice.id,
@@ -750,8 +749,14 @@ def void_invoice_journal_entry(invoice):
     an exclusion — see DocumentStateMixin/REPORTABLE_STATUSES) and the
     new entry is created directly at POSTED, linked back via `reverses`.
     """
+    from apps.sales.models import Invoice
+
+    # Sprint 7.2.7 (§8.7, Deploy ب): looked up by source_type="invoice"
+    # before — stopped matching the moment post_invoice_journal_entry
+    # stopped writing it. content_type/object_id is the live mechanism,
+    # already what the reversal below copies from `original` anyway.
     original = JournalEntry.objects.get(
-        tenant=invoice.tenant, source_type="invoice", source_id=invoice.id
+        tenant=invoice.tenant, content_type=ContentType.objects.get_for_model(Invoice), object_id=invoice.id
     )
     # Same exception as reverse_journal_entry: gated on today's date,
     # not the original invoice's (often-closed) issue_date.
@@ -768,9 +773,7 @@ def void_invoice_journal_entry(invoice):
         ),
         status=JournalEntry.Status.POSTED,
         reverses=original,
-        source_type="invoice_void",
-        source_id=invoice.id,
-        # Sprint 7.2.7 (§8.7): same gap as post_invoice_journal_entry above.
+        # Sprint 7.2.7 (§8.7, Deploy ب): same as post_invoice_journal_entry above.
         produced_by=JournalEntry.ProducedBy.INVOICE_VOID,
         content_type=original.content_type,
         object_id=original.object_id,
@@ -1067,18 +1070,20 @@ def reverse_journal_entry(entry, user, reason, date=None):
         raise OpeningEntryReversalRejected(
             str(_("A posted opening balance entry can never be reversed — correct it with a new adjustment instead."))
         )
-    # Sprint 7.2.7 (§8.7, site 6 of 7): produced_by replaces source_type
-    # for the operation check. The id lookup stays on source_id, not
-    # object_id — migration 0040 (نقل ب) deliberately backfills
-    # content_type/object_id for only 4 rows (asset_disposal/
-    # opening_balance/asset_disposal_correction), never recurring;
-    # confirmed on dev (2026-10-06): 86/86 recurring rows have
-    # produced_by="recurring" but content_type/object_id still NULL on
-    # all 86. object_id would silently never match here.
+    # Sprint 7.2.7 (§8.7, Deploy ب): produced_by replaces source_type
+    # for the operation check. The id lookup checks object_id first,
+    # falling back to source_id: migration 0040 (نقل ب) never
+    # backfilled content_type/object_id for recurring's 86 historical
+    # rows (those still carry it only in the now-frozen source_id),
+    # but apps.accounting.recurring._generate_one starts setting
+    # object_id for every new row from this deploy on — the freeze
+    # (migration 0042) forbids writing source_id to a new row at all,
+    # so it can no longer be where new rows carry this.
     if entry.produced_by == JournalEntry.ProducedBy.RECURRING:
         from .models import RecurringEntry
 
-        if RecurringEntry.objects.filter(id=entry.source_id, kind=RecurringEntry.Kind.DEPRECIATION).exists():
+        recurring_entry_id = entry.object_id or entry.source_id
+        if RecurringEntry.objects.filter(id=recurring_entry_id, kind=RecurringEntry.Kind.DEPRECIATION).exists():
             raise DepreciationEntryReversalRejected(
                 str(_("قيد قسط الإهلاك لا يُعكس فرديًا — التصحيح بإضافة إلى الأصل أو استبعاده فقط."))
             )

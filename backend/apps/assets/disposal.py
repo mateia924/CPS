@@ -137,10 +137,9 @@ def _post_disposal_entry(disposal, user):
         number=next_document_number(tenant, "journal_entry", asset.legal_entity, disposal.date),
         status=JournalEntry.Status.POSTED, created_by=user,
         currency=asset.legal_entity.base_currency, exchange_rate=Decimal("1"),
-        source_type="asset_disposal", source_id=disposal.id,
-        # Sprint 7.2.7 (§8.7): produced_by + content_type/object_id for
-        # new rows going forward, mirroring migration 0040's نقل ب
-        # target for this value (AssetDisposal, clean 1:1 mapping).
+        # Sprint 7.2.7 (§8.7, Deploy ب): source_type/source_id stop
+        # being written — produced_by + content_type/object_id are the
+        # only mechanism now (AssetDisposal, clean 1:1 mapping).
         produced_by=JournalEntry.ProducedBy.ASSET_DISPOSAL,
         content_type=ContentType.objects.get_for_model(AssetDisposal), object_id=disposal.id,
     )
