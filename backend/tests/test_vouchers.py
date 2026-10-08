@@ -772,3 +772,23 @@ def test_posted_voucher_journal_entry_memo_has_number_and_description(tenant_a, 
     entry = JournalEntry.objects.get(id=posted.data["journal_entry_id"])
     assert posted.data["number"] in entry.memo
     assert "إيجار سبتمبر" in entry.memo
+
+
+def test_every_voucher_type_has_a_produced_by_mapping():
+    """Sprint 7.2.7 (§8.7, owner instruction 2026-10-08): makes this
+    failure class impossible going forward, not merely checked once.
+    apps.vouchers.services._actually_post indexes _VOUCHER_PRODUCED_BY
+    with `[voucher.voucher_type]` (KeyError on a missing key, by
+    design — loud, not a silent wrong-but-valid string). But a KeyError
+    only fires the first time someone actually posts that voucher type
+    in production; this test fires the moment a new VoucherType member
+    is added with no matching entry, in CI, before any deploy. Without
+    it, adding a fourth voucher type months from now silently breaks
+    posting for that type alone, and nothing connects the failure back
+    to this sprint.
+    """
+    from apps.vouchers.models import Voucher
+    from apps.vouchers.services import _VOUCHER_PRODUCED_BY
+
+    missing = [value for value, _label in Voucher.VoucherType.choices if value not in _VOUCHER_PRODUCED_BY]
+    assert not missing, f"Voucher.VoucherType member(s) with no _VOUCHER_PRODUCED_BY entry: {missing}"
