@@ -43,6 +43,15 @@ media/
 node_modules/
 .next/
 
+# Sprint 7.2.8 (2026-10-10): defensive pattern only — the real
+# Hostinger DNS API token file lives entirely outside this repo tree
+# (/etc/cps-secrets/, root:root 600), so this entry has no effect on
+# it. Added anyway, before the file exists, in case anyone ever
+# creates a local copy or symlink under the repo by mistake.
+secrets/
+*hostinger*token*
+*.token
+
 # E2E (sprint 6.5.8) — browser session/token state and Playwright's own
 # run artifacts, never the spec files or config themselves.
 frontend/e2e/.auth/
