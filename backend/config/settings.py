@@ -36,6 +36,22 @@ DEBUG = env("DJANGO_DEBUG", default=False)
 
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 
+# Sprint 7.2.8 (real domain + TLS, phase 1): CSRF_TRUSTED_ORIGINS is
+# separate from ALLOWED_HOSTS (Django checks the Origin header against
+# this list specifically for unsafe methods) — omitting it breaks
+# every POST login once the domain is live, with a CSRF error that
+# looks unrelated to the host change that actually caused it.
+CSRF_TRUSTED_ORIGINS = env.list("DJANGO_CSRF_TRUSTED_ORIGINS", default=[])
+
+# The new nginx vhost (§8.8 phase 2) terminates TLS and forwards
+# X-Forwarded-Proto: https — without this, Django believes every
+# request arrived over plain HTTP behind the proxy, so it generates
+# http:// links and treats the connection as insecure (redirect loops,
+# mixed content). Hardcoded, not env-gated: safe to leave on for any
+# deployment, since the header is only ever trusted coming from our
+# own nginx.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 # ---------------------------------------------------------------------------
 # Applications
 # ---------------------------------------------------------------------------
