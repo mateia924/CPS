@@ -1697,6 +1697,67 @@ match_the_tokens_own_tenant` مُسمِّيًا، أُعيد الشرط، أخض
 
 ---
 
+## سؤال المالك الحاسم: المسار المشتقّ من المضيف — مُثبَت تجريبيًا الآن، لا بالقراءة
+
+**المالك رصد فجوة حقيقية:** إثبات الحارس (ج) عبر الحقل اليدوي
+يغطّي فقط المسار الذي **لا** يسلكه الإنتاج (حيث النطاق الفرعي
+يُشتَقّ من المضيف والحقل مخفي). staging (IP-only) لا تستطيع تغطية
+هذا المسار أصلًا — لا بديل عنه بتاتًا في مسار أ-٧.
+
+**١) ماذا يُرسَل حين يكون `subdomainFromHost` موجودًا والحقل غير
+معروض؟** `frontend/src/app/reset-password/page.tsx:47-52`:
+```ts
+const fromHost = subdomainFromHostname(window.location.hostname);
+if (fromHost) {
+  setSubdomainFromHost(fromHost);
+  setSubdomain(fromHost);
+}
+```
+`setSubdomain(fromHost)` تُنفَّذ **دومًا** مع `setSubdomainFromHost`
+في نفس اللحظة — حالة `subdomain` نفسها التي يقرؤها جسم الطلب
+(`onSubmit`, سطر 63: `{ subdomain, token, new_password: newPassword
+}`) تُعبَّأ بالقيمة المُشتقَّة من المضيف **قبل** أي تفاعل مستخدم
+ممكن أصلًا (الحقل نفسه غير معروض، فلا طريقة لتفريغها يدويًا). لا
+قيمة فاضية، لا `undefined`.
+
+**٢) تعريف الحقل في المُسلسِل — مطلوب، مُقتبَس حرفيًا**
+(`backend/apps/accounts/serializers.py:266`):
+```python
+subdomain = serializers.CharField()
+```
+`CharField()` بلا `required=False` = **مطلوب** افتراضيًا في DRF.
+بما أن (١) يؤكّد أنه يصل معبَّأ دومًا على المسار المُشتَق من
+المضيف، فلا ينطبق سيناريو "مطلوب ولم يُرسَل" المتوقَّع في حال
+العطل.
+
+**٣) اختبار مخصَّص للمسار المُشتَقّ من المضيف تحديدًا — لا قراءة
+كود، تنفيذ فعلي:** `frontend/e2e/10-reset-password-subdomain-from-
+host.spec.ts` (ملف جديد مستقل، نمط "لا كل سيناريو يحتاج الطورين"
+المُعلَن في `scripts/e2e.sh`). يتنقّل إلى `http://fatma.localhost:
+3002/reset-password?token=...` (`fatma.localhost` يُحلّ إلى
+loopback بلا أي إعداد — RFC 6761، نفس منطق تعليق `subdomain.ts`
+نفسه)، يعترض `/api/auth/password-reset/confirm/` بـ`page.route()`
+(نمط `07-voucher-insufficient-balance-message.spec.ts` نفسه، بلا
+حاجة لخادم حقيقي)، ويتحقّق من جسم الطلب الفعلي. **نُفِّذ فعليًا،
+لا نظريًا:**
+```
+Running 1 test using 1 worker
+  ✓  1 10-reset-password-subdomain-from-host.spec.ts:19:5 › host-derived subdomain reaches the confirm request even though the field is hidden (21.2s)
+  1 passed (23.5s)
+```
+يؤكّد أيضًا أن حقل `subdomain` **غير معروض إطلاقًا** في هذا المسار
+(`expect(page.locator('[data-field="subdomain"]')).toHaveCount(0)`)
+— إثبات مزدوج: الحقل مخفي **و**القيمة تصل مع ذلك.
+
+**٤) تصريح صريح في المواصفة:** مسار أ-٧ على staging **يغطّي المسار
+اليدوي وحده** (الحقل معروض هناك دائمًا، IP-only). **المسار المُشتَقّ
+من المضيف — وهو ما يسلكه الإنتاج فعليًا — مُغطًّى بـ`frontend/e2e/
+10-reset-password-subdomain-from-host.spec.ts` وحده، تنفيذًا فعليًا
+لا نظريًا، منفصل كليًا عن أ-٧.** الكتلة الآن مغطّاة بمسارين
+مستقلّين كاملين، لا مسار واحد يُفترَض أنه يمثّل الاثنين.
+
+---
+
 ## ملحق — ما كان مكتوبًا هنا قبل هذه المواصفة (مرجع، لا يُنفَّذ بذاته)
 
 تحقيقان سابقان (2026-10-10، فحص فقط، لم يُلمَس أي حساب) شكَّلا بعض
