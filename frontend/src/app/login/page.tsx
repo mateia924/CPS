@@ -142,6 +142,9 @@ export default function LoginPage() {
         <FormField name="password" label={t("password")} required error={errors.password}>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
         </FormField>
+        <p style={{ margin: "-0.5rem 0 1rem", fontSize: "0.85rem" }}>
+          <Link href="/forgot-password">{t("forgotPassword")}</Link>
+        </p>
         {needsTotpCode && (
           <FormField name="totp_code" label={t("totpCodeLabel")} required>
             <input
