@@ -36,6 +36,14 @@ services:
 
   nginx:
     ports:
-      - "${HTTP_PORT:-3000}:80"
+      # Sprint 7.2.8 (§8.8 item 3, 2026-10-10): 7.2.8 replaced the
+      # plain-HTTP IP address with a real encrypted domain for every
+      # tenant — this closes the surface, not redirects it. A redirect
+      # still accepts the unencrypted request first (a POST body can
+      # carry a password before the 301 ever gets a chance to apply);
+      # binding to loopback only refuses the connection before it's
+      # accepted at all. scripts/smoke.sh calls localhost:${HTTP_PORT}
+      # from inside this same host, so it is unaffected.
+      - "127.0.0.1:${HTTP_PORT:-3000}:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro,Z
