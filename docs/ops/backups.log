@@ -108,3 +108,4 @@
 2026-10-10T14:27:50+03:00	09f079c	cps-db-20261010-142748.sql.gz.gpg	deploy.sh 09f079c8dbbb4eb11369609adec3e0016c558304
 2026-10-10T15:16:55+03:00	b15041c	cps-db-20261010-151652.sql.gz.gpg	deploy.sh b15041ca391bec97bd75111f40bd59173581072a
 2026-10-10T16:06:38+03:00	2637807	cps-db-20261010-160637.sql.gz.gpg	make migrate
+2026-10-10T17:17:18+03:00	b6b8234	cps-db-20261010-171717.sql.gz.gpg	staging_refresh.sh full — satisfy migrate guard after refresh interrupted it
