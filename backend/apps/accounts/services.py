@@ -5,6 +5,7 @@ copied (neither depends on which model owns the secret, both take
 plain strings)."""
 
 import base64
+import re
 import secrets
 from datetime import timedelta
 from io import BytesIO
@@ -24,6 +25,9 @@ from .models import BackupCode, UserSession
 BACKUP_CODE_COUNT = 10
 
 
+_IPV4_HOST_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
+
+
 def build_tenant_url(tenant, path):
     """Sprint 7.2.9 (R-7.2.9.5): a per-tenant link, never
     `settings.FRONTEND_BASE_URL` alone. `apps.approvals.tasks.
@@ -32,8 +36,22 @@ def build_tenant_url(tenant, path):
     leaves the user on a page with no idea which tenant it's for.
     Inserts the tenant's own subdomain in front of
     `FRONTEND_BASE_URL`'s host, same shape
-    `frontend/src/lib/subdomain.ts` expects to parse back out."""
+    `frontend/src/lib/subdomain.ts` expects to parse back out.
+
+    Mirrors that same file's own `IPV4_PATTERN` exemption: staging
+    today has no domain of its own at all (served by raw IP on 3001,
+    §8.9's own staging note) — `fatma.154.41.209.222` is not a
+    resolvable hostname, prepending a subdomain label to an IP address
+    produces a dead link, not a per-tenant one. An IP-shaped host
+    (checked on the hostname alone, stripped of its port — unlike the
+    frontend's `window.location.hostname`, `netloc` here still carries
+    one) gets the bare host back, unprefixed, exactly the "no company
+    identifier" case subdomain.ts already treats as its own
+    no-subdomain branch."""
     scheme, netloc = urlsplit(settings.FRONTEND_BASE_URL)[:2]
+    host = netloc.split(":")[0]
+    if _IPV4_HOST_RE.match(host):
+        return f"{scheme}://{netloc}{path}"
     return f"{scheme}://{tenant.subdomain}.{netloc}{path}"
 
 

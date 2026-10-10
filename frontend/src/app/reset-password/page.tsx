@@ -19,7 +19,8 @@ export default function ResetPasswordPage() {
 
   const [token, setToken] = useState<string | null>(null);
   const [tokenMissing, setTokenMissing] = useState(false);
-  const [subdomain, setSubdomain] = useState<string | null>(null);
+  const [subdomain, setSubdomain] = useState("");
+  const [subdomainFromHost, setSubdomainFromHost] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [generalErrorText, setGeneralErrorText] = useState<string | null>(null);
@@ -29,10 +30,14 @@ export default function ResetPasswordPage() {
   // Sprint 7.2.9 (R-7.2.9.5/.6): read via window.location directly, not
   // useSearchParams — same reasoning as login/page.tsx's own
   // session_expired flag (sprint 6.5.10, UAT note 7): this page needs
-  // no Suspense boundary just for a one-time read on mount. The
-  // subdomain always comes from the HOST this link was built for
-  // (apps.accounts.services.build_tenant_url) — never a manual field,
-  // since a per-tenant link already carries it.
+  // no Suspense boundary just for a one-time read on mount. On a real
+  // per-tenant domain the subdomain always comes from the HOST this
+  // link was built for (apps.accounts.services.build_tenant_url). On
+  // staging today (IP-only, §8.9's own staging note — no domain of
+  // its own, so build_tenant_url sends no subdomain prefix at all)
+  // subdomainFromHostname correctly returns null for a raw IP, same
+  // as login/page.tsx's own fallback — the manual field below is that
+  // same fallback, not a new pattern.
   useEffect(() => {
     const fromQuery = new URLSearchParams(window.location.search).get("token");
     if (!fromQuery) {
@@ -40,7 +45,11 @@ export default function ResetPasswordPage() {
       return;
     }
     setToken(fromQuery);
-    setSubdomain(subdomainFromHostname(window.location.hostname));
+    const fromHost = subdomainFromHostname(window.location.hostname);
+    if (fromHost) {
+      setSubdomainFromHost(fromHost);
+      setSubdomain(fromHost);
+    }
   }, []);
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -95,6 +104,16 @@ export default function ResetPasswordPage() {
         </>
       ) : (
         <form onSubmit={onSubmit}>
+          {!subdomainFromHost && (
+            <FormField name="subdomain" label={t("companyUrlName")} required error={errors.subdomain}>
+              <input
+                value={subdomain}
+                onChange={(e) => setSubdomain(e.target.value)}
+                placeholder="fatma"
+                required
+              />
+            </FormField>
+          )}
           <FormField name="new_password" label={t("newPassword")} required error={errors.new_password}>
             <input
               type="password"
