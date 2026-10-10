@@ -136,6 +136,40 @@ def test_request_enqueues_the_task_without_doing_any_lookup_itself():
 
 
 @pytest.mark.django_db
+def test_request_runs_zero_account_dependent_database_queries_on_the_response_path(django_assert_num_queries):
+    """R-7.2.9.3, encoded as a hard assertion rather than a sentence in
+    a docstring: any query the VIEW OR SERIALIZER ever adds to this
+    path in the future trips this immediately and by name — no
+    flakiness, no timing measurement, the exact failure mode a timing
+    side-channel on this endpoint would otherwise need a
+    statistics-based test to catch at all.
+
+    The baseline is 3, not 0 — verified with -v before picking this
+    number: `SAVEPOINT` / `SET LOCAL cps.tenant_id = DEFAULT` /
+    `RELEASE SAVEPOINT`, all three from apps.tenants.middleware.
+    RLSTenantMiddleware, which unconditionally wraps EVERY `/api/...`
+    request (authenticated or not — `clear_local_tenant_id` is exactly
+    what runs here, since this request carries no JWT) in its own
+    transaction.atomic(). That's universal per-request overhead this
+    view has no control over and that every other `/api/` endpoint
+    pays too, not account-existence-dependent work — asserting 0 would
+    make this test permanently red, catching nothing real on top of a
+    pre-existing fact."""
+    tenant, user = _setup_locked_out_user()
+    client = APIClient()
+
+    with patch("apps.accounts.views.send_password_reset_email_task.delay"):
+        with django_assert_num_queries(3):
+            response = client.post(
+                "/api/auth/password-reset/request/",
+                {"subdomain": tenant.subdomain, "email": user.email},
+                format="json",
+            )
+
+    assert response.status_code == 200
+
+
+@pytest.mark.django_db
 def test_request_with_malformed_body_is_a_plain_400_not_a_leak():
     client = APIClient()
     response = client.post("/api/auth/password-reset/request/", {"subdomain": "x"}, format="json")
@@ -296,6 +330,38 @@ def test_confirm_rejects_a_token_issued_for_a_different_tenant():
     client = APIClient()
     response = client.post(
         "/api/auth/password-reset/confirm/",
+        {"subdomain": tenant_b.subdomain, "token": raw_token, "new_password": NEW_PASSWORD},
+        format="json",
+    )
+    assert response.status_code == 400
+    assert "token" in response.data
+    user_a.refresh_from_db()
+    assert user_a.check_password(PASSWORD)
+
+
+@pytest.mark.django_db
+def test_confirm_rejects_a_manually_entered_subdomain_that_does_not_match_the_tokens_own_tenant():
+    """R-7.2.9.7-ج, specifically through the manual company-name field
+    (frontend/src/app/reset-password/page.tsx's fallback for an
+    IP-only host like staging, where subdomainFromHostname returns
+    null and there is no auto-detected subdomain at all to be
+    confused with). The backend cannot tell a manually typed value
+    from an auto-detected one — both arrive as the same `subdomain`
+    POST field — so this is the one test proving the guard holds on
+    that exact channel: a real token issued for tenant A, submitted
+    with a DIFFERENT tenant B typed into the field by hand, must be
+    rejected exactly as it would be via a mismatched host."""
+    tenant_a, user_a = _setup_locked_out_user()
+    tenant_b, _user_b = _setup_locked_out_user()
+    _issue_token(user_a, tenant_a)
+    raw_token = _raw_token_from_outbox()
+
+    client = APIClient()
+    response = client.post(
+        "/api/auth/password-reset/confirm/",
+        # tenant_b.subdomain stands in for whatever a user typed into
+        # the manual field — the token itself is the only thing that
+        # actually names tenant_a.
         {"subdomain": tenant_b.subdomain, "token": raw_token, "new_password": NEW_PASSWORD},
         format="json",
     )

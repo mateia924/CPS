@@ -1652,6 +1652,51 @@ reset-password?token=…`) بلا أي بادئة نطاق فرعي، وشاشة
 
 ---
 
+## تشغيلة المجموعة الكاملة النظيفة (المنفردة) — نتيجتها الحقيقية وإصلاحاها
+
+**ملخّص الناتج الحرفي (لا `REAL_EXIT_CODE` عبر أنبوب — قُرئ ملف
+الناتج مباشرة):** `3 failed, 754 passed, 2 deselected, 2 warnings,
+2 errors`. **انحرافان حقيقيان ناتجان عن هذه الكتلة، وفئة ثالثة
+بيئية بلا علاقة:**
+
+1. **`test_request_runs_zero_database_queries_on_the_response_path`
+   سقط: "Expected to perform 0 queries but 3 were done."** بـ`-v`:
+   `SAVEPOINT` / `SET LOCAL cps.tenant_id = DEFAULT` / `RELEASE
+   SAVEPOINT` — ثلاثتها من `apps.tenants.middleware.
+   RLSTenantMiddleware` نفسها، التي تُغلِّف **كل** طلب `/api/...`
+   (مصادَق عليه أو لا) بمعاملتها الخاصة دون شرط — `clear_local_
+   tenant_id` تحديدًا هو ما يُنفَّذ هنا لأن الطلب بلا JWT أصلًا.
+   هذا عبء مشترك لكل نقطة نهاية API، لا عمل خاص بواجهتي — صفر
+   مستحيل بنيويًا لأي شيء تحت `/api/`. **أُعيدت تسمية الاختبار
+   وتصحيح الرقم إلى 3 (مضبوط `exact`، لا "0 أو أقل")**، مع تعليق
+   يوثّق المصدر الثلاثي حرفيًا — يبقى الاختبار حارسًا حقيقيًا: أي
+   استعلام **إضافي** فوق هذا الأساس المشترك يُسقطه فورًا.
+2. **`test_every_registered_view_is_classified`/`test_every_tenant_
+   data_view_is_tenant_scoped_or_exempted_with_a_reason` سقطا:**
+   `PasswordResetRequestView`/`PasswordResetConfirmView` الجديدتان
+   لم تُصنَّفا في `tests/test_structural_isolation.py`. أُضيفتا إلى
+   `NOT_TENANT_DATA` — نفس فئة `LoginView`/`RegisterView` تمامًا
+   (مستخدم بلا سياق مستأجر مصادَق عليه أصلًا؛ `Confirm` يحلّ مستأجره
+   من التوكن لا من `request.user`، الذي لا وجود له هنا).
+3. **`test_deploy_sh_guards.py`'س اختباران أعطيا `ERROR`:**
+   `FileNotFoundError: No such file or directory: 'git'` — **بيئي
+   بحت**، لا علاقة له بهذه الكتلة: ثنائي `git` غير مُثبَّت داخل
+   حاوية `cps-dev-backend-1` أصلًا (هذان الاختباران يستدعيان `git
+   worktree` فعليًا). لم يُلمَس.
+
+**بعد الإصلاحين الحقيقيين:** `tests/test_password_reset.py` + `tests/
+test_structural_isolation.py` معًا: **19/19 أخضر.** وإثبات القاعدة
+11 للحارس (ج) عبر الحقل اليدوي تحديدًا (بطلب المالك): عُطِّل
+`if record.tenant.subdomain != attrs["subdomain"]...` فعليًا، سقط
+`test_confirm_rejects_a_manually_entered_subdomain_that_does_not_
+match_the_tokens_own_tenant` مُسمِّيًا، أُعيد الشرط، أخضر —
+`tests/test_password_reset.py` وحده: **16/16**.
+
+**تشغيلة كاملة نظيفة ثانية، منفردة، جارية الآن** للتأكّد النهائي
+قبل أ-٧ — لا شيء آخر يلمس `test_cps` في أثنائها.
+
+---
+
 ## ملحق — ما كان مكتوبًا هنا قبل هذه المواصفة (مرجع، لا يُنفَّذ بذاته)
 
 تحقيقان سابقان (2026-10-10، فحص فقط، لم يُلمَس أي حساب) شكَّلا بعض

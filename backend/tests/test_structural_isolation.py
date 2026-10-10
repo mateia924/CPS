@@ -67,6 +67,14 @@ NOT_TENANT_DATA = {
     "apps.accounts.views.LoginView",
     "apps.accounts.views.LogoutView",
     "apps.accounts.views.MeView",
+    # Sprint 7.2.9 (§8.9): a user who cannot log in has no tenant
+    # context at all — same shape as LoginView/RegisterView above.
+    # PasswordResetRequestView does zero DB lookup on its own response
+    # path by design (R-7.2.9.3); PasswordResetConfirmView resolves its
+    # tenant from the token hash alone, never from request.user (there
+    # is none).
+    "apps.accounts.views.PasswordResetRequestView",
+    "apps.accounts.views.PasswordResetConfirmView",
     # Sprint 6.6.2 (items 1/2/4): every one of these acts only on
     # request.user's own row (password, TOTP secret, sessions) — never
     # a tenant-wide queryset, so TenantScopedViewSet doesn't apply.

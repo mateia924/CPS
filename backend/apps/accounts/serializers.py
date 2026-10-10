@@ -273,6 +273,18 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
 
         generic_error = {"token": [str(_("This reset link is invalid or has expired."))]}
 
+        # 2026-10-10 (owner review): the token is the only lookup key,
+        # always — `attrs["subdomain"]` never appears in this (or any)
+        # .filter()/.get() call above. The tenant comes from
+        # `record.tenant`, resolved from the token hash alone; the
+        # submitted subdomain (manual field or auto-detected host — the
+        # backend can't tell which) is only ever COMPARED against it
+        # below, never used to look anything up. Letting a
+        # user-supplied value pick which row gets checked would hand
+        # an attacker a free key, the exact mistake already caught and
+        # fixed once in this same block for the confirm endpoint's own
+        # rate-limit key (PasswordResetConfirmView keys on IP alone,
+        # never the attacker-controlled token guess).
         token_hash = PasswordResetToken.hash_token(attrs["token"])
         record = (
             PasswordResetToken.objects.select_related("user", "tenant").filter(token_hash=token_hash).first()
