@@ -128,3 +128,33 @@ class UserSession(models.Model):
 
     def __str__(self):
         return f"session {self.jti} for {self.user_id}"
+
+
+class PasswordResetToken(models.Model):
+    """Sprint 7.2.9 (§8.9, R-7.2.9.2): self-service "forgot password"
+    for a user who CANNOT log in — distinct from ChangePasswordView
+    (already-authenticated self-service) and apps.access.views'
+    reset_password (admin picks the value, forbidden for this flow by
+    owner decision). Same hashed-not-plaintext principle as
+    BackupCode.code_hash above: a database leak must not hand out a
+    usable credential. `tenant` is denormalized from `user.tenant` at
+    creation time (not derived at check time) specifically so a
+    confirm request scoped to the WRONG tenant's subdomain can be
+    rejected by a plain field comparison, with no risk of a stale
+    `user.tenant_id` read racing a tenant transfer that doesn't exist
+    in this codebase anyway — explicit beats implicit here."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="password_reset_tokens")
+    tenant = models.ForeignKey("tenants.Tenant", on_delete=models.CASCADE, related_name="+")
+    token_hash = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    @staticmethod
+    def hash_token(raw_token):
+        return hashlib.sha256(raw_token.encode()).hexdigest()
+
+    def __str__(self):
+        return f"password reset token for {self.user_id} ({'used' if self.used_at else 'unused'})"

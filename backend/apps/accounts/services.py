@@ -8,10 +8,12 @@ import base64
 import secrets
 from datetime import timedelta
 from io import BytesIO
+from urllib.parse import urlsplit
 
 import pyotp
 import qrcode
 import qrcode.image.svg
+from django.conf import settings
 from django.utils import timezone
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 
@@ -20,6 +22,19 @@ from apps.platform.services import generate_totp_secret, verify_totp  # noqa: F4
 from .models import BackupCode, UserSession
 
 BACKUP_CODE_COUNT = 10
+
+
+def build_tenant_url(tenant, path):
+    """Sprint 7.2.9 (R-7.2.9.5): a per-tenant link, never
+    `settings.FRONTEND_BASE_URL` alone. `apps.approvals.tasks.
+    _item_link` makes exactly that mistake today (registered, unfixed,
+    out of this block's scope) — a link that lands on the bare domain
+    leaves the user on a page with no idea which tenant it's for.
+    Inserts the tenant's own subdomain in front of
+    `FRONTEND_BASE_URL`'s host, same shape
+    `frontend/src/lib/subdomain.ts` expects to parse back out."""
+    scheme, netloc = urlsplit(settings.FRONTEND_BASE_URL)[:2]
+    return f"{scheme}://{tenant.subdomain}.{netloc}{path}"
 
 
 def totp_provisioning_uri(user, secret):

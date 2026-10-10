@@ -464,3 +464,8 @@ DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@cps-erp.com")
 # API. Dev default matches this host's own frontend port (README
 # "Reserved ports"); the prod host sets it to the real domain.
 FRONTEND_BASE_URL = env("FRONTEND_BASE_URL", default="http://localhost:3000")
+
+# Sprint 7.2.9 (§8.9, R-7.2.9.2): how long a password-reset token
+# stays valid after issuance — same unit any admin reading this file
+# expects, overridable without a code change.
+PASSWORD_RESET_TOKEN_TTL_MINUTES = env.int("PASSWORD_RESET_TOKEN_TTL_MINUTES", default=30)

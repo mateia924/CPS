@@ -240,3 +240,59 @@ class ChangePasswordSerializer(serializers.Serializer):
             raise serializers.ValidationError(_("The new password cannot be your email address."))
         validate_password(value, user=user)
         return value
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    """Sprint 7.2.9 (R-7.2.9.3): shape validation ONLY — deliberately
+    performs zero account lookup. The view enqueues
+    apps.accounts.tasks.send_password_reset_email_task unconditionally
+    for any serializer that validates, and returns 200 immediately
+    either way; any DB lookup done here would make the response itself
+    (status or timing) an oracle for whether an account exists."""
+
+    subdomain = serializers.CharField()
+    email = serializers.EmailField()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    """Sprint 7.2.9 (R-7.2.9.4/.7-ج): `subdomain` here is not for a
+    credential lookup (the token alone already names its own user) —
+    it enforces the cross-tenant guard: a token minted for tenant A's
+    user must be rejected when the confirm request is scoped to a
+    different tenant B, exactly the leak this field exists to close.
+    One generic error for every rejection reason (not found / used /
+    expired / wrong tenant) — distinguishing them would hand an
+    attacker more than "this token doesn't work right now"."""
+
+    subdomain = serializers.CharField()
+    token = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        from .models import PasswordResetToken
+
+        generic_error = {"token": [str(_("This reset link is invalid or has expired."))]}
+
+        token_hash = PasswordResetToken.hash_token(attrs["token"])
+        record = (
+            PasswordResetToken.objects.select_related("user", "tenant").filter(token_hash=token_hash).first()
+        )
+        if record is None:
+            raise serializers.ValidationError(generic_error)
+        if record.used_at is not None:
+            raise serializers.ValidationError(generic_error)
+        if record.expires_at <= timezone.now():
+            raise serializers.ValidationError(generic_error)
+        if record.tenant.subdomain != attrs["subdomain"].strip().lower():
+            raise serializers.ValidationError(generic_error)
+
+        user = record.user
+        if attrs["new_password"].lower() == user.email.lower():
+            raise serializers.ValidationError(
+                {"new_password": [str(_("The new password cannot be your email address."))]}
+            )
+        validate_password(attrs["new_password"], user=user)
+
+        attrs["record"] = record
+        attrs["user"] = user
+        return attrs

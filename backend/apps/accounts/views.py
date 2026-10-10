@@ -19,11 +19,14 @@ from apps.tenants.models import TenantFeatures
 
 from .serializers import (
     ChangePasswordSerializer,
+    PasswordResetConfirmSerializer,
+    PasswordResetRequestSerializer,
     RegisterSerializer,
     TenantLoginSerializer,
     TenantSerializer,
     UserSerializer,
 )
+from .tasks import send_password_reset_email_task
 from .services import (
     consume_backup_code,
     generate_backup_codes,
@@ -226,6 +229,75 @@ class ChangePasswordView(APIView):
             actor_type=AuditLog.ActorType.TENANT_USER,
             actor_id=user.id,
             action="tenant_user.change_password",
+            target_type="accounts.User",
+            target_id=user.id,
+            tenant_id=user.tenant_id,
+            request=request,
+        )
+        return Response(status=204)
+
+
+class PasswordResetRequestView(APIView):
+    """Sprint 7.2.9 (§8.9, R-7.2.9.3): "forgot password" for a user who
+    cannot log in at all — distinct from ChangePasswordView above
+    (already authenticated) and apps.access.views.UserViewSet.
+    reset_password (admin picks the value; forbidden for this flow by
+    owner decision, 2026-10-08). Always 200 with the identical body,
+    whether or not the account exists — the actual lookup+send is
+    enqueued on Celery unconditionally (apps.accounts.tasks.
+    send_password_reset_email_task) so account existence can never be
+    inferred from this response's status OR timing."""
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        limited = check_auth_ratelimit(request, "password-reset-request", request.data.get("email"))
+        if limited:
+            return limited
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        send_password_reset_email_task.delay(
+            serializer.validated_data["subdomain"], serializer.validated_data["email"]
+        )
+        return Response(
+            {"detail": _("إن وُجد حساب بهذا البريد، فستصلك رسالة تحتوي رابط الاسترجاع.")},
+            status=200,
+        )
+
+
+class PasswordResetConfirmView(APIView):
+    """Sprint 7.2.9 (§8.9, R-7.2.9.4): the token alone already names
+    its user — unlike ChangePasswordView, there is no authenticated
+    `request.user` here at all, by definition (this exists for a user
+    who cannot log in)."""
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        # IP alone, not IP+token: the attacker controls/varies the
+        # token guess itself, so keying on it (like the email key
+        # elsewhere) would give every distinct guess its own counter
+        # bucket and rate-limit nothing — the one dimension that
+        # actually caps brute-forcing the token space is the caller's
+        # IP.
+        limited = check_auth_ratelimit(request, "password-reset-confirm", None)
+        if limited:
+            return limited
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        record = serializer.validated_data["record"]
+        user = serializer.validated_data["user"]
+
+        user.set_password(serializer.validated_data["new_password"])
+        user.must_change_password = False
+        user.save(update_fields=["password", "must_change_password"])
+        record.used_at = timezone.now()
+        record.save(update_fields=["used_at"])
+        invalidate_all_sessions(user)
+        log_action(
+            actor_type=AuditLog.ActorType.TENANT_USER,
+            actor_id=user.id,
+            action="tenant_user.password_reset",
             target_type="accounts.User",
             target_id=user.id,
             tenant_id=user.tenant_id,
