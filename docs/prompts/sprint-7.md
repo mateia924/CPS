@@ -1012,6 +1012,18 @@ POSTED) للأربعة قيم التي كانت "نقل ب" تحاول تغطي�
       كلمة سر، `PermitRootLogin` مقيَّد، `fail2ban` — مرتبطة مباشرة
       بوجود هذا التوكن على هذا الخادم، لا تحسينًا عامًّا منفصلًا.
 
+15. **بند تشغيلي مسجَّل (حادثة المالك 2026-10-10): صفوف `docs/ops/
+    backups.log` الليلية تتراكم غير مُلتزَمة فتوقف أول نشرة صباحية
+    بعدها.** `backup.sh` يُلحِق سطرًا بالملف في كل نسخة احتياطية
+    (بما فيها التلقائية الليلية عبر `cron`)، لكن لا شيء يلتزم هذا
+    التعديل بنفسه — فيتراكم تغيير غير مُودَع في شجرة العمل حتى يُصادف
+    أحدٌ أول أمر `deploy.sh`/`git push` بعده فيُفاجَأ بشجرة متسخة.
+    **الحل أحد اثنين، لم يُنفَّذ بعد:** (أ) التزامه دوريًا يدويًا (ما
+    يحدث الآن، بلا انتظام)، أو (ب) **الأفضل:** يُضيف `backup.sh`
+    نفسه `git add`+`commit` لسطره الخاص فور الإلحاق به مباشرة — نفس
+    روح القاعدة 30 (ملف الهجرة يُضاف في لحظة توليده، لا كخطوة لاحقة
+    يسهل نسيانها). بلا هذا، يتكرّر هذا الحاجز قبل كل نشرة صباحية.
+
 **تحديث 2026-10-10: التوكن وصل** (`/etc/cps-secrets/hostinger_dns_
 api_token`، `600`، `root:root`، 49 بايت — موجود، لم تُقرأ قيمته إلا
 داخل سكربت التنفيذ لاحقًا). **التنفيذ يبدأ الآن، بحدود صريحة من
@@ -1099,6 +1111,91 @@ docker exec infra-frontend-1 grep -rl "localhost" /app/.next/static/chunks/*.js
 
 commit (مرحلة ٤): `Sprint 7.2.8 phase 4: relative API base + real
 domain env vars (NEXT_PUBLIC_APP_DOMAIN/FRONTEND_BASE_URL/DOMAIN_NAME)`
+
+**تصحيح جوهري 2026-10-10: القمة `cps-oracle.com` ليست لنا — موقع
+الشركة المستقل، لا CPS.** اكتُشف بعد نشر المرحلة 1 فعليًا (شذوذ
+404 المرصود أعلاه كان أثره المبكر). الانتقال الكامل إلى
+`app.cps-oracle.com` بدلًا من القمة، بترتيب يحافظ على مسار عامل في
+كل خطوة:
+
+**١) لقطة «قبل» — ثلاثة مضيفين، http وhttps، رمز الحالة والحجم:**
+```
+http://cps-oracle.com/        → 301  (795 bytes)
+https://cps-oracle.com/       → 200  (37483 bytes) — موقع الشركة
+                                  الحقيقي، IP: 91.108.103.99/
+                                  185.77.97.122 — ليس خادمنا.
+http://saas.cps-oracle.com/   → 301  (185 bytes)
+https://saas.cps-oracle.com/  → فشل مصافحة TLS: "certificate has
+                                  expired" (نفس عطل 5 أكتوبر، بلا
+                                  تغيير — خارج نطاق هذه الكتلة).
+http://app.cps-oracle.com/    → تعذّر حلّ الاسم (DNS: صفر سجل A).
+https://app.cps-oracle.com/   → نفس تعذّر الحلّ.
+```
+`dig` مباشرة لكل مضيف على حدة (لا مُجمَّعة — جولة أولى مُجمَّعة
+أعطت قراءة خاطئة مُصحَّحة فورًا قبل أي اعتماد عليها): `cps-oracle.
+com` → IP غير خادمنا؛ `saas.cps-oracle.com` → `154.41.209.222`
+(خادمنا)؛ `app.cps-oracle.com` → صفر سجل (`SOA` فقط، لا `A`).
+
+**٢) شهادة جديدة لـ`app.cps-oracle.com` + `*.app.cps-oracle.com`،
+إنتاج مباشرة بلا تجريبي (بأمر المالك — الآلية مُثبَتة اليوم بإصدار
+ناجح سابق، ومضيف جديد = رصيد تحقّقات Let's Encrypt مستقل):**
+```
+acme.sh --issue --server letsencrypt --dns dns_hostinger \
+  -d 'app.cps-oracle.com' -d '*.app.cps-oracle.com'
+```
+نجح (exit 0). **سطر المُصدِر:**
+```
+issuer=C = US, O = Let's Encrypt, CN = YE2
+subject=CN = app.cps-oracle.com
+notAfter=Jan  8 10:08:32 2027 GMT
+```
+لا `STAGING`، `O = Let's Encrypt` صريحًا. ثُبِّتت إلى نفس المسار
+الثابت `/etc/ssl/cps/{privkey,fullchain}.pem` (استبدال محتوى، نفس
+الأسماء — هذا الدليل مخصَّص لمادة TLS الخاصة بـCPS عمومًا، لا بالقمة
+تحديدًا).
+
+**٣) `/etc/nginx/conf.d/cps.conf` أُعيد كتابته — ملاحظة شفافية: كان
+**غائبًا بالكامل** من `conf.d/` وقت التحرير (فحص مباشر: الملف الوحيد
+الموجود كان `saas-cps.conf`)، فكُتب من الصفر لا "أُعيد كتابته" حرفيًا
+— لم يُحدَّد سبب غيابه. المحتوى الجديد:** `server_name
+app.cps-oracle.com *.app.cps-oracle.com;` **بلا `cps-oracle.com`
+إطلاقًا** (القمة ليست لنا)، بمساري الشهادة الجديدة أعلاه، نفس بنية
+التحويل 80→443 وترويسات `proxy_pass` كما في النسخة الأولى. **لم
+يُشغَّل `nginx -t` ولا `reload` — بأمر المالك، يُطبَّقان من قِبله.**
+
+**٤) فحص عمق CSRF_TRUSTED_ORIGINS — تحقَّق فعليًا، لا افتراضًا
+(بكود Django الحقيقي داخل الحاوية الحية):**
+```python
+is_same_domain('fatma.app.cps-oracle.com', '.cps-oracle.com')  # => True
+```
+**نعم، يطابق فعليًا.** السبب: نمط `*.` في `CSRF_TRUSTED_ORIGINS`
+يتحوّل داخليًا إلى بادئة نقطة (`.cps-oracle.com`) تُفحَص بـ
+`str.endswith()` — وهذا يطابق **أي عمق من النطاقات الفرعية**، لا
+مستوى واحدًا فقط (`fatma.app.cps-oracle.com` ينتهي حرفيًا بـ
+`.cps-oracle.com`). **لا إضافة مطلوبة الآن** — القيمة الحالية
+(`https://*.cps-oracle.com,https://cps-oracle.com`) تكفي. **تبعية
+يجب تذكّرها:** هذا يعمل فقط بينما يبقى مدخل `*.cps-oracle.com` في
+`CSRF_TRUSTED_ORIGINS` — إن أُزيل مستقبلًا (تناسقًا مع ترك القمة
+كليًا)، يلزم عندها `https://*.app.cps-oracle.com` صريحًا.
+
+**٥) `.env` الحي عُدِّل:**
+```
+NEXT_PUBLIC_APP_DOMAIN=app.cps-oracle.com
+FRONTEND_BASE_URL=https://app.cps-oracle.com
+DOMAIN_NAME=app.cps-oracle.com
+NEXT_PUBLIC_API_URL=/api   (بلا تغيير — نسبي، يخدم أي مضيف أصلًا)
+```
+
+**٦) الشهادة القديمة (`cps-oracle.com` + `*.cps-oracle.com`) أُزيلت
+من `acme.sh` كليًا** (`--remove` + حذف المجلد فعليًا) بعد نجاح
+الجديدة — `acme.sh --list` يسرد `app.cps-oracle.com` فقط الآن.
+
+**لم يُشغَّل nginx ولا deploy — بأمر المالك. الأوامر المطلوبة منه:**
+```
+nginx -t
+systemctl reload nginx
+cd /opt/cps && ./scripts/deploy.sh
+```
 
 ### 8.9 الكتلة 7.2.9 — مسار استرجاع كلمة السر الذاتي (قبل 7.3، بعد 7.2.8)
 
