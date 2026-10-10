@@ -159,7 +159,7 @@ def test_request_runs_zero_account_dependent_database_queries_on_the_response_pa
     client = APIClient()
 
     with patch("apps.accounts.views.send_password_reset_email_task.delay"):
-        with django_assert_num_queries(3):
+        with django_assert_num_queries(3) as context:
             response = client.post(
                 "/api/auth/password-reset/request/",
                 {"subdomain": tenant.subdomain, "email": user.email},
@@ -167,6 +167,19 @@ def test_request_runs_zero_account_dependent_database_queries_on_the_response_pa
             )
 
     assert response.status_code == 200
+
+    # Content, not just count (owner review, 2026-10-10): the guard's
+    # actual purpose is "no account search on the response path," not
+    # "exactly 3 statements" — a content check stays correct even if
+    # the middleware baseline's own query count ever changes, and
+    # names the real failure instead of reporting a different number.
+    # None of the 3 baseline queries above may reference the users
+    # table or the tenant table — if one ever does, that IS the
+    # account-existence lookup this test exists to forbid.
+    executed_sql = [q["sql"].lower() for q in context.captured_queries]
+    for sql in executed_sql:
+        assert "accounts_user" not in sql, f"query touched the users table: {sql}"
+        assert "tenants_tenant" not in sql, f"query touched the tenant table: {sql}"
 
 
 @pytest.mark.django_db
