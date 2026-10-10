@@ -101,3 +101,5 @@
 2026-10-08T15:24:39+03:00	f065161	cps-db-20261008-152438.sql.gz.gpg	make migrate
 2026-10-08T15:52:00+03:00	ec799f8	cps-db-20261008-155159.sql.gz.gpg	deploy.sh prep — 7.2.7b (ب) freeze, fresh live snapshot before a trigger change on an accounting table
 2026-10-08T15:52:27+03:00	ac2aa10	cps-db-20261008-155227.sql.gz.gpg	deploy.sh ac2aa10b5feeaebe742e0fe4d91361b2e334ae05
+2026-10-09T03:00:05+03:00	21a23f2	cps-db-20261009-030001.sql.gz.gpg	
+2026-10-10T03:00:04+03:00	23b83a4	cps-db-20261010-030001.sql.gz.gpg	
