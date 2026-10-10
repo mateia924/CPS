@@ -1228,6 +1228,43 @@ DOMAIN`) داخل الرابط نفسه. بناء هذه الكتلة قبل إ�
    التأكد أن الاختبار السلبي يسقط، إعادته، أخضر)؛ **اختبار يؤكد أن
    الرابط المُرسَل يحمل `APP_DOMAIN` الحي الحقيقي لا `localhost`.**
 
+**٦) تحقّق مُسجَّل قبل بناء هذه الكتلة (فحص فقط، 2026-10-10 — لم
+يُنفَّذ شيء، لم يُلمَس أي حساب):** لا يوجد مسار مدعوم اليوم لضبط
+`must_change_password=True` على مستخدم **قائم فعليًا** بلا اختيار
+كلمة سر جديدة له من أحد — بحث شامل في كل كتابة للحقل:
+- `apps/access/serializers.py:110` (`UserCreateSerializer.create`):
+  يضبطه فقط عند **إنشاء مستخدم جديد**، ويتطلّب حتمًا كلمة سر مُدخَلة
+  في نفس النداء — لا ينطبق على حساب قائم.
+- `apps/access/views.py:208-209` (`reset_password`، صلاحية
+  `roles.manage`): يتطلّب `ResetPasswordSerializer.new_password` —
+  شخص آخر يختار القيمة ويسلّمها. الممنوع صراحة.
+- `UserSerializer` (`apps/accounts/serializers.py:41-49`):
+  `read_only_fields = fields` — **كل الحقول، بما فيها
+  `must_change_password`، للقراءة فقط عبر API، بلا استثناء.**
+- `UserViewSet` (`apps/access/views.py:96`):
+  `mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet` — **لا
+  `update`/`partial_update` إطلاقًا** على مستخدم قائم.
+- لا أمر إداري يفعل هذا (`create_platform_user.py`/`create_test_
+  user.py`: إنشاء لا تعديل؛ `anonymize_staging_users.py`: يُصفِّر
+  الحقل لا يضبطه، ولا يعمل على الحي أصلًا).
+**لا طريق ثالث. بند نطاق مضاف لـ7.2.9: إن احتاج تدوير §8.8 بند 11
+تفعيل `must_change_password` على حسابات دخلت عبر المسار المكشوف
+دون أن تختار هي نفسها كلمة سر جديدة فورًا، يلزم بناء مسار إداري
+مدعوم لهذا تحديدًا (لا كتابة ORM مباشرة على مستأجر حي).**
+
+**٧) لكن يوجد مسار آخر منفصل كليًا، موجود فعلًا وكافٍ لحالات
+كهذه — تغيير كلمة السر الذاتي لمستخدم مسجَّل دخوله بالفعل:**
+`POST /api/auth/change-password/` → `ChangePasswordView`
+(`apps/accounts/views.py:205-231`، `permission_classes =
+[IsAuthenticated]`) + `ChangePasswordSerializer`
+(`apps/accounts/serializers.py:221-240`) — يأخذ `current_password`+
+`new_password` **من المستخدم نفسه**، لا من أحد آخر، ولا يتطلّب علم
+`must_change_password` أصلًا (التعليق التوضيحي في الكود صريح: "also
+the ordinary self-service 'ملفي الشخصي' path any user can use any
+time"). **هذا هو المسار الذي تستخدمه فاطمة اليوم فعليًا لتدوير كلمة
+سرها بنفسها على العنوان المشفَّر** — لا ينتظر 7.2.9، ولا يحتاج بناء
+جديد.
+
 commit: `Sprint 7.2.9: self-service password reset — token-based reset flow on the real domain`
 
 ---
