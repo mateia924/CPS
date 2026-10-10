@@ -101,6 +101,16 @@ if [ "$CODE_ONLY" = "0" ]; then
   gpg --batch --yes --passphrase "$CPS_BACKUP_ENCRYPTION_PASSPHRASE" --decrypt "$LATEST_BACKUP" 2>/dev/null \
     | gunzip -c | $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 > /dev/null
 
+  # Rule 32 (docs/SYSTEM_ANALYSIS.md §4, item 32): rehearsal must run
+  # production's own gates — the migrate guard below requires a
+  # backups.log line newer than 15 minutes, same as deploy.sh's own
+  # live migrate step. --code-only already called this for exactly
+  # this reason; full mode did not, and on 2026-10-10 that gap failed
+  # a real run (last backup 69 minutes old) and crash-looped
+  # cps-staging-backend-1 until recovered by hand.
+  log "step 4.5/7: scripts/backup.sh (satisfies the migrate guard below; backs up live, not staging)"
+  "$REPO_DIR/scripts/backup.sh" "staging_refresh.sh --full (pre-migrate guard)"
+
   log "step 5/7: bringing backend/celery_worker back up and applying any pending migration"
   $COMPOSE up -d backend celery_worker
   $COMPOSE exec -T backend python manage.py migrate --noinput
