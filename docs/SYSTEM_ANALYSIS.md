@@ -818,4 +818,6 @@ CPS منصة SaaS متعددة المستأجرين لإدارة الأعمال�
 
 | 2026-10-10 | **7.2.8 مرحلة 1 (إعدادات Django) جاهزة بالكود، النشر محظور تلقائيًا.** `CSRF_TRUSTED_ORIGINS`/`SECURE_PROXY_SSL_HEADER` أُضيفا إضافةً لـ`config/settings.py` (كوميت `46a0ba3`)؛ `.env` الحي عُدِّل إضافةً أيضًا (`DJANGO_ALLOWED_HOSTS` += `.cps-oracle.com`، `DJANGO_CSRF_TRUSTED_ORIGINS=https://*.cps-oracle.com`) — عنوان IP القديم لم يُحذَف. **`scripts/deploy.sh` رفضه مصنِّف الوضع التلقائي ("Production Deploy") — لم يُنفَّذ، لم يُحاوَل تجاوزه.** بانتظار تشغيله يدويًا من المالك أو إذن صريح. التفاصيل الكاملة `docs/prompts/sprint-7.md` §8.8. | 7.2.8 مرحلة 1 جاهزة، النشر محظور — بانتظار المالك |
 
+| 2026-10-10 | **تصحيح قبل النشر: `DJANGO_CSRF_TRUSTED_ORIGINS` كان ناقصًا — البدل لا يغطّي القمة.** `https://*.cps-oracle.com` وحده يغطّي النطاقات الفرعية فقط؛ القمة (`cps-oracle.com` بلا بادئة) مدخل مستقل في Django، لا يُغطّى بالبدل. القيمة المصحَّحة على `.env` الحي: `https://*.cps-oracle.com,https://cps-oracle.com`. لم يُنشَر شيء بعد — لا يزال بانتظار تشغيل `scripts/deploy.sh` (محظور تلقائيًا، بانتظار المالك). | تصحيح قبل النشر — CSRF_TRUSTED_ORIGINS يحتاج مدخل القمة صريحًا |
+
 *(تُضاف القرارات الجديدة هنا مؤرَّخة مع مبرراتها.)*

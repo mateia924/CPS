@@ -1036,12 +1036,20 @@ commit: `Sprint 7.2.8: real live domain + acme.sh/dns_hostinger wildcard TLS, ne
 **المرحلة ١ (إعدادات Django، إضافة لا تعديل) — الكود جاهز، النشر
 محظور تلقائيًا:** `CSRF_TRUSTED_ORIGINS`/`SECURE_PROXY_SSL_HEADER`
 أُضيفا إلى `config/settings.py` (كوميت `46a0ba3`)؛ `.env` الحي عُدِّل
-إضافةً (`DJANGO_ALLOWED_HOSTS` += `.cps-oracle.com`، `DJANGO_CSRF_
-TRUSTED_ORIGINS=https://*.cps-oracle.com`) — **العنوان القديم (IP)
-لم يُحذَف، كما طُلب.** **لكن `scripts/deploy.sh` رفضه مصنِّف الوضع
-التلقائي صريحًا ("Production Deploy") — لم يُنفَّذ، لا تجاوز
-محاولًا.** بانتظار تشغيله يدويًا من المالك، أو إذن صريح بتشغيله من
-هنا.
+إضافةً (`DJANGO_ALLOWED_HOSTS` += `.cps-oracle.com`) — **العنوان
+القديم (IP) لم يُحذَف، كما طُلب.** **لكن `scripts/deploy.sh` رفضه
+مصنِّف الوضع التلقائي صريحًا ("Production Deploy") — لم يُنفَّذ، لا
+تجاوز محاولًا.** بانتظار تشغيله يدويًا من المالك، أو إذن صريح
+بتشغيله من هنا.
+
+**تصحيح المالك 2026-10-10 قبل أي نشر:** `DJANGO_CSRF_TRUSTED_ORIGINS
+=https://*.cps-oracle.com` وحده غير كافٍ — **البدل (`*.`) يغطّي
+النطاقات الفرعية فقط، لا القمة (`cps-oracle.com` بلا بادئة) —
+القمة مدخل مستقل في Django، لا يغطّيها البدل.** القيمة الصحيحة
+المطبَّقة الآن على `.env` الحي:
+```
+DJANGO_CSRF_TRUSTED_ORIGINS=https://*.cps-oracle.com,https://cps-oracle.com
+```
 
 ### 8.9 الكتلة 7.2.9 — مسار استرجاع كلمة السر الذاتي (قبل 7.3، بعد 7.2.8)
 
