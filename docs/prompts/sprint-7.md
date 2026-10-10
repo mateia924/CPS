@@ -909,13 +909,28 @@ POSTED) للأربعة قيم التي كانت "نقل ب" تحاول تغطي�
    توقَّع المالك (Let's Encrypt) — **سلوك أداة غير مقصود، لا قرار.**
    الشهادة الخاطئة أُزيلت فورًا (`acme.sh --remove` + حذف المجلد
    فعليًا، نفس نظافة إزالة التجريبية أعلاه) قبل أي لمسة nginx.
-   **الإصلاح المطلوب للإصدار التالي:** إضافة `--server letsencrypt`
-   صريحًا لأمر `--issue` الإنتاجي (`acme.sh --issue --server
-   letsencrypt --dns dns_hostinger -d cps-oracle.com -d
-   '*.cps-oracle.com'`) — لم يُنفَّذ بعد، بانتظار قرار المالك: يختار
-   Let's Encrypt صريحًا كما كان مقصودًا أصلًا، أم ZeroSSL (CA/B
-   Forum مُعتمَد أيضًا، شهادة حقيقية موثوقة بالمتصفحات لا تجريبية —
-   الفارق تفضيل مزوِّد لا صحة تقنية)؟
+   **الإصلاح نُفِّذ 2026-10-10 بأمر المالك: `--server letsencrypt`
+   صريحًا.** النتيجة: `Using CA: https://acme-v02.api.letsencrypt.org
+   /directory` (الإنتاج الحقيقي، لا `acme-staging-v02`)، exit 0،
+   تحدّيا DNS-01 نجحا بنظافة. **سطر المُصدِر الحرفي بعد الإصلاح:**
+   ```
+   issuer=C = US, O = Let's Encrypt, CN = YE2
+   subject=CN = cps-oracle.com
+   notAfter=Jan  8 08:21:08 2027 GMT
+   ```
+   لا `STAGING`، و`O = Let's Encrypt` صريحًا — الفحص المطلوب نجح.
+   **ملاحظة شفافية لا إخفاء:** الاسم `YE2` يختلف عن `E5`/`E6` اللذين
+   توقَّعهما المالك — Let's Encrypt تُدوِّر أسماء شهاداتها الوسيطة
+   دوريًا؛ المعيار الحاسم ليس الاسم نفسه بل `O = Let's Encrypt` +
+   عنوان ACME الإنتاجي الحقيقي (`acme-v02`، لا `staging`)، وكلاهما
+   مؤكَّد هنا.
+   **الشهادة ثُبِّتت (`acme.sh --install-cert`) إلى مسار ثابت خارج
+   دليل `acme.sh` نفسه (الذي يُحذِّر صراحةً من الإشارة إليه مباشرة —
+   ملفاته تتغيّر بين الإصدارات):** `/etc/ssl/cps/privkey.pem`
+   (`600`/`root:root`) و`/etc/ssl/cps/fullchain.pem`
+   (`644`/`root:root`)، مع `--reloadcmd "systemctl reload nginx"`
+   — نفَّذ `reload` بنجاح فورًا (لا تغيير فعلي على nginx بعد، فلا
+   كتلة تستخدم هذا المسار حتى الآن؛ الأمر نجح تقنيًا فقط).
 5. **قيد عزل الأدوات، صريح لا ضمني:** `acme.sh` **لا يلمس** شهادة
    `saas.cps-oracle.com` المُدارة بـ`certbot` — مساران منفصلان
    كليًا لمسارات الشهادات (`/etc/letsencrypt/` لـ`certbot` مقابل
