@@ -1051,6 +1051,55 @@ commit: `Sprint 7.2.8: real live domain + acme.sh/dns_hostinger wildcard TLS, ne
 DJANGO_CSRF_TRUSTED_ORIGINS=https://*.cps-oracle.com,https://cps-oracle.com
 ```
 
+**المرحلة ٤ — فحص آلية الوصول قبل أي تغيير (مُلزِم من المالك،
+2026-10-10):** `API_BASE` (`frontend/src/lib/api.ts:1`) — بحث شامل
+(القاعدة 29): كل استخدام لـ`API_BASE` نفسه (`api.ts:56,125`،
+`AttachmentPanel.tsx:4,118` — الاستخدام المباشر الوحيد خارج
+`api.ts`) يقع داخل ملفات `"use client"` حصرًا (`auth-context.tsx:1`؛
+`AttachmentPanel.tsx:1`)؛ `AttachmentPanel.tsx:118` يستخدمه فعليًا
+فقط داخل `window.open(...)` — مستحيل خادميًا بالتعريف. فحوصات سلبية
+مكمِّلة: صفر `route.ts`/`route.tsx` تحت `src/app`، صفر
+`getServerSideProps`/`getStaticProps`، صفر `"use server"`، لا
+`middleware.ts`، لا `rewrites` في `next.config.*`. الملف الوحيد
+بلا `"use client"` (`src/app/layout.tsx`) يستورد `AuthProvider`/
+`LocaleProvider` فقط (كلاهما `"use client"` بذاته)، لا `api.ts`
+مباشرة. **الحالة الأولى محسومة: عميل فقط — `NEXT_PUBLIC_API_URL=/api`
+(مسار نسبي) هو الصحيح.**
+
+**آلية وصول `NEXT_PUBLIC_*` لبناء الواجهة (فحص مُلزِم قبل التغيير):**
+`infra/docker-compose.yml:175-177` — `build.args:
+NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}`/`NEXT_PUBLIC_APP_DOMAIN:
+${NEXT_PUBLIC_APP_DOMAIN}` (قيم `.env` الحي عبر استيفاء Compose،
+لا ملف يُنسخ داخل الصورة). `frontend/Dockerfile:10-14`:
+`COPY . .` ثم `ARG`/`ENV` لكل متغيّر **بعدها وقبل**
+`RUN npm run build` (سطر 15). **الأثر على الكاش:** تغيّر قيمة `ARG`
+يُبطل طبقة ذلك التعليمة وكل ما بعدها في معمارية Docker القياسية —
+`npm run build` يُعاد تنفيذه بالقيم الجديدة تلقائيًا **من حيث
+المبدأ**، بلا حاجة إلى `--no-cache`؛ `deploy.sh:147` ينفّذ
+`$COMPOSE build` بلا `--no-cache` ولا `--build-arg` إضافي، معتمِدًا
+على هذه الآلية فقط. **لا يُعتمَد هذا نظريًا وحده — الفحص الفعلي
+بعد النشر (أدناه) هو الدليل، لا "deploy.sh: OK".**
+
+**القيم المطبَّقة الآن على `.env` الحي (لم يُنشَر بعد):**
+```
+NEXT_PUBLIC_API_URL=/api
+NEXT_PUBLIC_APP_DOMAIN=cps-oracle.com
+FRONTEND_BASE_URL=https://cps-oracle.com
+DOMAIN_NAME=cps-oracle.com
+```
+`DJANGO_ALLOWED_HOSTS` لم يُلمَس — `154.41.209.222` باقٍ فيه.
+
+**الفحص الحاسم بعد النشر (مُلزِم، لا يُستبدَل بـ"deploy.sh: OK"):**
+```
+docker exec infra-frontend-1 grep -rl "localhost" /app/.next/static/chunks/*.js
+```
+صفر نتيجة = البناء جرى بالقيم الجديدة فعليًا؛ أي ظهور لـ
+`localhost:3000`/`localhost:8000` = الكاش أعاد الحزمة القديمة، ويلزم
+إعادة البناء بـ`--no-cache` والنشر ثانية قبل إعلان المرحلة منتهية.
+
+commit (مرحلة ٤): `Sprint 7.2.8 phase 4: relative API base + real
+domain env vars (NEXT_PUBLIC_APP_DOMAIN/FRONTEND_BASE_URL/DOMAIN_NAME)`
+
 ### 8.9 الكتلة 7.2.9 — مسار استرجاع كلمة السر الذاتي (قبل 7.3، بعد 7.2.8)
 
 **تبعية صريحة على 7.2.8 — لا تُبنى قبلها:** روابط الاسترجاع ترسَل
