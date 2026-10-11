@@ -255,14 +255,16 @@ class PasswordResetRequestSerializer(serializers.Serializer):
 
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
-    """Sprint 7.2.9 (R-7.2.9.4/.7-ج): `subdomain` here is not for a
-    credential lookup (the token alone already names its own user) —
-    it enforces the cross-tenant guard: a token minted for tenant A's
-    user must be rejected when the confirm request is scoped to a
-    different tenant B, exactly the leak this field exists to close.
-    One generic error for every rejection reason (not found / used /
-    expired / wrong tenant) — distinguishing them would hand an
-    attacker more than "this token doesn't work right now"."""
+    """Sprint 7.2.9 (R-7.2.9.4/.7-ج) + 7.2.9-b: `subdomain` scopes the
+    lookup. It resolves the tenant whose RLS context is set BEFORE the
+    token is looked up — same pattern and same reason as
+    TenantLoginSerializer: this request is unauthenticated, so nothing
+    else can set `cps.tenant_id` — and the token is then searched only
+    inside that tenant: a token minted for tenant A simply does not
+    exist inside tenant B's context. One generic error for every
+    rejection reason (unknown tenant / not found / used / expired):
+    distinguishing them would reveal more than "this link doesn't work
+    right now"."""
 
     subdomain = serializers.CharField()
     token = serializers.CharField(write_only=True)
@@ -273,29 +275,35 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
 
         generic_error = {"token": [str(_("This reset link is invalid or has expired."))]}
 
-        # 2026-10-10 (owner review): the token is the only lookup key,
-        # always — `attrs["subdomain"]` never appears in this (or any)
-        # .filter()/.get() call above. The tenant comes from
-        # `record.tenant`, resolved from the token hash alone; the
-        # submitted subdomain (manual field or auto-detected host — the
-        # backend can't tell which) is only ever COMPARED against it
-        # below, never used to look anything up. Letting a
-        # user-supplied value pick which row gets checked would hand
-        # an attacker a free key, the exact mistake already caught and
-        # fixed once in this same block for the confirm endpoint's own
-        # rate-limit key (PasswordResetConfirmView keys on IP alone,
-        # never the attacker-controlled token guess).
+        # 7.2.9-b (staging A-7, 2026-10-10): resolve the tenant from the
+        # submitted subdomain and set the RLS context BEFORE the lookup —
+        # exactly as TenantLoginSerializer does (sprint 6.6.3, item 1),
+        # for exactly the same reason: with no JWT there is nothing for
+        # RLSTenantMiddleware to set `cps.tenant_id` from, so under the
+        # restricted role a lookup by token hash alone matched zero rows
+        # for every token, valid or not. The earlier "token is the only
+        # lookup key" reasoning (owner review, same day) was wrong here:
+        # the subdomain is not a free key, it is the context without
+        # which no row is visible at all — scoping the lookup to it is a
+        # stricter cross-tenant guard than comparing after the fact.
+        subdomain = attrs["subdomain"].strip().lower()
+        tenant = Tenant.objects.filter(subdomain=subdomain).first()
+        if tenant is None:
+            raise serializers.ValidationError(generic_error)
+        with connection.cursor() as cursor:
+            set_local_tenant_id(cursor, tenant.id)
+
         token_hash = PasswordResetToken.hash_token(attrs["token"])
         record = (
-            PasswordResetToken.objects.select_related("user", "tenant").filter(token_hash=token_hash).first()
+            PasswordResetToken.objects.select_related("user", "tenant")
+            .filter(tenant=tenant, token_hash=token_hash)
+            .first()
         )
         if record is None:
             raise serializers.ValidationError(generic_error)
         if record.used_at is not None:
             raise serializers.ValidationError(generic_error)
         if record.expires_at <= timezone.now():
-            raise serializers.ValidationError(generic_error)
-        if record.tenant.subdomain != attrs["subdomain"].strip().lower():
             raise serializers.ValidationError(generic_error)
 
         user = record.user

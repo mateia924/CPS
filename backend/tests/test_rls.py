@@ -216,3 +216,58 @@ def test_login_under_the_restricted_role_for_a_pre_existing_user(settings):
     finally:
         connection.close()
         connection.settings_dict.update(original)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_password_reset_confirm_under_the_restricted_role(settings):
+    """7.2.9-b (staging A-7, 2026-10-10): found on staging the same way
+    the login one above was found live. PasswordResetConfirmSerializer
+    looked the token up by its hash alone, with no `cps.tenant_id` set —
+    an unauthenticated request, so nothing for RLSTenantMiddleware to
+    set it from. Under the restricted role that SELECT matched zero rows
+    for every token, valid or not, so EVERY confirm failed with the
+    generic "invalid or expired" error — while the whole suite, manage.py
+    shell and dev (all on the superuser role) kept passing. Same shape as
+    test_login_under_the_restricted_role_for_a_pre_existing_user: a real
+    HTTP confirm on a swapped restricted-role connection, so the fix
+    (tenant resolved from the subdomain and `cps.tenant_id` set BEFORE
+    the lookup, the token then searched inside that tenant alone) can
+    never silently regress. On the pre-fix code this fails with exactly
+    the staging error."""
+    from django.core import mail
+    from django.test import Client as DjangoTestClient
+
+    from apps.accounts.tasks import send_password_reset_email_task
+
+    tenant = TenantFactory(subdomain="rls-reset-test")
+    user = UserFactory(tenant=tenant, email="owner@rls-reset-test.test", password="RlsResetOld!2026")
+    # Minted by the real task on the test's own default connection, before
+    # any restricted-role request exists — same convention as
+    # tests/test_password_reset.py (_issue_token / _raw_token_from_outbox).
+    send_password_reset_email_task(tenant.subdomain, user.email)
+    raw_token = mail.outbox[-1].body.split("token=")[1].split("\n")[0].strip()
+    new_password = "Correct-Horse-Battery-2026"
+
+    original = settings.DATABASES["default"].copy()
+    settings.DATABASES["default"]["USER"] = settings.POSTGRES_APP_USER
+    settings.DATABASES["default"]["PASSWORD"] = settings.POSTGRES_APP_PASSWORD
+    connection.close()
+    connection.settings_dict.update(settings.DATABASES["default"])
+    try:
+        client = DjangoTestClient()
+        confirm = client.post(
+            "/api/auth/password-reset/confirm/",
+            {"subdomain": "rls-reset-test", "token": raw_token, "new_password": new_password},
+            content_type="application/json",
+        )
+        assert confirm.status_code == 204, confirm.content
+
+        login = client.post(
+            "/api/auth/login/",
+            {"subdomain": "rls-reset-test", "email": "owner@rls-reset-test.test", "password": new_password},
+            content_type="application/json",
+        )
+        assert login.status_code == 200, login.json()
+    finally:
+        connection.close()
+        connection.settings_dict.update(original)
