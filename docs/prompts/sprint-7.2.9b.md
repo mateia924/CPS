@@ -87,3 +87,31 @@ record = PasswordResetToken.objects.select_related("user","tenant").filter(tenan
 ## 11. تقرير التنفيذ
 
 (يُلحق هنا: ناتج إثبات قاعدة 11، سطر ملخص الـsuite، SHA الـcommit، ناتج staging refresh، أكواد HTTP الخمسة للـA-7.)
+
+### 11.1 إثبات قاعدة 11 (dev، 11 أكتوبر 16:11)
+- على الكود قبل الباتش (`git stash push -- apps/accounts/serializers.py`):
+  `FAILED tests/test_rls.py::test_password_reset_confirm_under_the_restricted_role` —
+  `AssertionError: b'{"token":["This reset link is invalid or has expired."]}'` / `assert 400 == 204` — `1 failed, 6 passed`.
+- على الباتش: `7 passed`.
+
+### 11.2 الـsuite كاملة (dev)
+`759 passed, 2 deselected, 2 errors in 776.65s`. الخطآن: `tests/test_deploy_sh_guards.py` × 2 —
+`FileNotFoundError: No such file or directory: 'git'` — حاوية dev بلا git؛ بيئي، يتكرر بصفر تغييرات، مكانه الـhost (`ci_local.sh`).
+
+### 11.3 commit
+`feed71c` → `origin/main` (`d1187ca..feed71c`): serializer، test_rls، هذا الملف، سطر الربط في sprint-7.md.
+
+### 11.4 staging `--code-only` (18:50–18:51)
+RLS 49/49 · smoke: login/me/invoices/trial balance `105250.59` — ALL CHECKS PASSED.
+
+### 11.5 A-7 عبر nginx بـcurl (20:45)
+`login_old=200` · `reset_request=200` · `token_len=43` · **`confirm=204`** · `login_new=200` · `login_old_again=400` · `old_access=200` · `old_refresh=401`.
+
+### 11.6 إعادة كلمة UAT بنفس المسار (21:09)
+`restore_request=200` · `token_len=43` · `restore_confirm=204` · `login_uat=200`. المسار نُفِّذ مرتين كاملتين؛ staging في حالته الأصلية.
+
+### 11.7 ملاحظة مفتوحة جديدة — access token بعد الاسترجاع
+`old_access=200`: `invalidate_all_sessions` تُبطل الـrefresh tokens فقط؛ الـaccess token بلا حالة ويبقى صالحًا حتى انتهائه — `ACCESS_TOKEN_LIFETIME` = 30 دقيقة (`JWT_ACCESS_MINUTES`). نفس سلوك تغيير كلمة السر الحالي. التوصية: claim لنسخة كلمة السر يُفحص في `TenantAwareJWTAuthentication`، واختباره في `test_rls.py` بالدور المقيَّد (قاعدة 34). قرار مستقل عن 7.2.9-b.
+
+### 11.8 الوكيل
+جلسة سادسة أُنهيت بنفس الـsafeguard على برمنت التنفيذ (`req_011CfvUZCdbd2kQ3bBaHRLpk`) قبل أي أمر. كل ما سبق نُفِّذ يدويًا من Xshell.
