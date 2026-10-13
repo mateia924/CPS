@@ -99,7 +99,7 @@ record = PasswordResetToken.objects.select_related("user","tenant").filter(tenan
 `FileNotFoundError: No such file or directory: 'git'` — حاوية dev بلا git؛ بيئي، يتكرر بصفر تغييرات، مكانه الـhost (`ci_local.sh`).
 
 ### 11.3 commit
-`feed71c` → `origin/main` (`d1187ca..feed71c`): serializer، test_rls، هذا الملف، سطر الربط في sprint-7.md.
+`feed71c` → `origin/main` (`d1187ca..feed71c`): serializer، test_rls، هذا الملف، سطر الربط في sprint-7.md. التقرير: `8896e5e`.
 
 ### 11.4 staging `--code-only` (18:50–18:51)
 RLS 49/49 · smoke: login/me/invoices/trial balance `105250.59` — ALL CHECKS PASSED.
@@ -115,3 +115,6 @@ RLS 49/49 · smoke: login/me/invoices/trial balance `105250.59` — ALL CHECKS P
 
 ### 11.8 الوكيل
 جلسة سادسة أُنهيت بنفس الـsafeguard على برمنت التنفيذ (`req_011CfvUZCdbd2kQ3bBaHRLpk`) قبل أي أمر. كل ما سبق نُفِّذ يدويًا من Xshell.
+
+### 11.9 live
+`docs/ops/deploys.log` آخر نشر: `b15041c` (10 أكتوبر 15:17) = نهاية 7.2.8. **7.2.9 (المرحلة أ) و7.2.9-b ليسا على live.** لا شيء معطَّل على live؛ النشر قرار منفصل يشحنهما معًا من `main`.

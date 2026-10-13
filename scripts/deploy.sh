@@ -40,7 +40,16 @@ log() { echo "[deploy $(date -Iseconds)] $1"; }
 # hatch is explicit on both ends (never silent): set ALLOW_DIRTY_DEPLOY=1
 # AND DIRTY_DEPLOY_REASON="..." and rerun — both get logged into
 # deploys.log's own record of this run, not just printed and forgotten.
-DIRTY_STATUS="$(git -C "$REPO_DIR" status --porcelain)"
+# 7.2.9-c: scripts/backup.sh and this script append a line to
+# docs/ops/*.log on every run, so the PREVIOUS deploy's own log line
+# leaves the tree dirty and blocks the NEXT one — three deploys were
+# blocked this way. Those two files are append-only operational logs,
+# never code, so a modification to them alone is not a reason to refuse.
+# Filtered out here rather than auto-committed by the script: an
+# auto-commit would create a commit AFTER the one being deployed, so
+# deploys.log would record a SHA that is not what is running.
+# Anything else modified, and any untracked file, still blocks.
+DIRTY_STATUS="$(git -C "$REPO_DIR" status --porcelain | grep -v -E "^ ?M +docs/ops/[^/]+\\.log$" || true)"
 DIRTY_NOTE=""
 if [ -n "$DIRTY_STATUS" ]; then
   if [ "${ALLOW_DIRTY_DEPLOY:-}" = "1" ] && [ -n "${DIRTY_DEPLOY_REASON:-}" ]; then

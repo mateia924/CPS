@@ -2450,3 +2450,4 @@ commit (أ): `Sprint 7.2.7a: produced_by field, backfill migration, convert the 
 
 commit (ب): `Sprint 7.2.7b: freeze source_type/source_id — no new writer, negative-tested`
 - 7.2.9-b (2026-10-11): see docs/prompts/sprint-7.2.9b.md
+- 7.2.9-c (2026-10-13): see docs/prompts/sprint-7.2.9c.md
