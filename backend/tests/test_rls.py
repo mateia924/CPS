@@ -271,3 +271,109 @@ def test_password_reset_confirm_under_the_restricted_role(settings):
     finally:
         connection.close()
         connection.settings_dict.update(original)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_stock_receipt_posted_over_http_under_the_restricted_role(settings):
+    """Sprint 7.4 (rule 34): the first endpoints that drive the 7.3 engine —
+    which writes StockMove, ItemCost, StockLevel, StockDocumentLine.unit_cost
+    and a JournalEntry (+ lines), all RLS-protected, and takes FOR UPDATE row
+    locks (INSERT .. ON CONFLICT DO NOTHING first). Every engine test so far
+    ran as the superuser, which bypasses RLS. This posts a full receipt over
+    HTTP with a real JWT on a connection swapped to the restricted role —
+    the 7.2.9-b class of bug (a query that silently sees zero rows without
+    `cps.tenant_id`) would surface here as a failed step or missing rows."""
+    from datetime import date
+    from decimal import Decimal
+
+    from django.test import Client as DjangoTestClient
+
+    from apps.access.services import seed_default_roles
+    from apps.accounting.periods import seed_fiscal_year_for_tenant
+    from apps.accounting.services import seed_chart_of_accounts
+    from apps.inventory.models import Warehouse
+    from apps.organization.models import LegalEntity
+    from apps.organization.services import create_default_legal_entities
+    from apps.sales.models import Product
+    from apps.tenants.models import TenantFeatures
+
+    from .factories import ProductFactory
+
+    tenant = TenantFactory(subdomain="rls-stock-test")
+    create_default_legal_entities(tenant, tenant.name)
+    seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
+    TenantFeatures.objects.create(tenant_id=tenant.id, inventory=True)
+    owner = UserFactory(tenant=tenant, email="owner@rls-stock-test.test", password="RlsStockTest!2026")
+    owner.roles.add(seed_default_roles(tenant)["Owner"])
+    branch = LegalEntity.objects.get(tenant=tenant, code="MAIN-01")
+    warehouse = Warehouse.objects.create(tenant=tenant, legal_entity=branch, code="W1", name="مستودع")
+    item = ProductFactory(tenant=tenant, item_type=Product.ItemType.STOCK)
+    tenant_id = str(tenant.id)
+
+    original = settings.DATABASES["default"].copy()
+    settings.DATABASES["default"]["USER"] = settings.POSTGRES_APP_USER
+    settings.DATABASES["default"]["PASSWORD"] = settings.POSTGRES_APP_PASSWORD
+    connection.close()
+    connection.settings_dict.update(settings.DATABASES["default"])
+    try:
+        with connection.cursor() as cur:
+            cur.execute("SELECT current_user, rolbypassrls FROM pg_roles WHERE rolname = current_user")
+            assert cur.fetchone() == (settings.POSTGRES_APP_USER, False)  # really the restricted role
+        connection.close()
+        client = DjangoTestClient()
+        login = client.post(
+            "/api/auth/login/",
+            {"subdomain": "rls-stock-test", "email": "owner@rls-stock-test.test", "password": "RlsStockTest!2026"},
+            content_type="application/json",
+        )
+        assert login.status_code == 200, login.content
+        auth = {"HTTP_AUTHORIZATION": f"Bearer {login.json()['access']}"}
+
+        created = client.post(
+            "/api/stock-documents/",
+            {
+                "kind": "receipt", "legal_entity": str(branch.id), "warehouse": str(warehouse.id),
+                "date": "2026-06-10", "lines": [{"item": str(item.id), "qty": "10", "unit_cost": "100"}],
+            },
+            content_type="application/json", **auth,
+        )
+        assert created.status_code == 201, created.content
+        doc_id = created.json()["id"]
+        submitted = client.post(f"/api/stock-documents/{doc_id}/submit/", **auth)
+        assert submitted.status_code in (200, 202), submitted.content
+        if submitted.status_code == 202:  # the seeded Owner rule: the sole user may approve
+            approved = client.post(f"/api/stock-documents/{doc_id}/approve/", **auth)
+            assert approved.status_code == 200, approved.content
+        posted = client.post(f"/api/stock-documents/{doc_id}/post/", **auth)
+        assert posted.status_code == 200, posted.content
+        detail = client.get(f"/api/stock-documents/{doc_id}/", **auth).json()
+        assert detail["status"] == "posted" and detail["total_value"] == "1000.00", detail
+        assert len(detail["journal_entries"]) == 1, detail
+    finally:
+        connection.close()
+        connection.settings_dict.update(original)
+
+    with _app_role_connection() as conn:
+        with conn.cursor() as cur:
+            set_local_tenant_id(cur, tenant_id)
+            cur.execute("SELECT status FROM inventory_stockdocument WHERE id = %s", [doc_id])
+            assert cur.fetchone()[0] == "posted"
+            cur.execute("SELECT qty_base, value FROM inventory_stockmove WHERE document_id = %s", [doc_id])
+            assert cur.fetchall() == [(Decimal("10.00"), Decimal("1000.00"))]
+            cur.execute("SELECT qty_on_hand, total_value FROM inventory_itemcost WHERE item_id = %s", [str(item.id)])
+            assert cur.fetchall() == [(Decimal("10.00"), Decimal("1000.00"))]
+            cur.execute("SELECT qty_on_hand FROM inventory_stocklevel WHERE warehouse_id = %s", [str(warehouse.id)])
+            assert cur.fetchall() == [(Decimal("10.00"),)]
+            cur.execute(
+                "SELECT count(*), sum(l.debit), sum(l.credit) FROM accounting_journalline l "
+                "JOIN accounting_journalentry e ON e.id = l.entry_id "
+                "WHERE e.object_id = %s AND e.status = 'posted' AND e.produced_by = 'stock_document'",
+                [doc_id],
+            )
+            assert cur.fetchone() == (2, Decimal("1000.00"), Decimal("1000.00"))
+            # And the same tenant's rows are invisible with a different tenant id set:
+            set_local_tenant_id(cur, "00000000-0000-0000-0000-000000000000")
+            cur.execute("SELECT count(*) FROM inventory_stockmove WHERE document_id = %s", [doc_id])
+            assert cur.fetchone()[0] == 0
+        conn.rollback()

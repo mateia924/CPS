@@ -957,7 +957,9 @@ export type ApprovalDocType =
   | "voucher_receipt" | "voucher_payment" | "voucher_settlement"
   | "iban_change" | "opening_balance"
   // Sprint 6.5 (decision 11).
-  | "asset_depreciation" | "asset_addition" | "asset_disposal";
+  | "asset_depreciation" | "asset_addition" | "asset_disposal"
+  // Sprint 7.4: stock documents (registered on the backend since 7.0).
+  | "stock_receipt" | "stock_issue" | "stock_transfer";
 
 // Sprint 6.3 (3.10/3.16.3): opening balances.
 export type OpeningBalanceKind = "initial" | "adjustment";
@@ -1257,7 +1259,9 @@ export type AttachmentTargetType =
   // Sprint 5.5: IBAN letter, imported statement file, cash count sheet.
   | "iban_change_request" | "bank_statement" | "cash_count"
   // Sprint 6.3: bank/cash-box readiness attachment on the entry itself.
-  | "opening_balance";
+  | "opening_balance"
+  // Sprint 7.4: stock document detail screen.
+  | "stock_document";
 
 export type AttachmentCategory =
   | "fatura_original" | "receipt" | "contract" | "bank_letter"
@@ -1400,4 +1404,72 @@ export interface Voucher {
   created_at: string;
   // Sprint 6.9.1 (item B): present on create/post responses only.
   warnings?: string[];
+}
+
+// Sprint 7.4: stock documents (SR/SI/ST) — every total is server-computed.
+export type StockDocumentKind = "receipt" | "issue" | "transfer";
+
+export interface StockDocumentLine {
+  id: string;
+  item: string;
+  item_name: string;
+  item_sku: string;
+  uom: string | null;
+  uom_name: string | null;
+  qty: string;
+  qty_base: string;
+  unit_cost: string;
+  cost_center: string | null;
+  cost_center_name: string | null;
+  batch: string | null;
+  batch_number: string | null;
+  batch_expiry: string | null;
+  serial_numbers: string[];
+}
+
+export interface StockDocument {
+  id: string;
+  kind: StockDocumentKind;
+  number: string;
+  date: string;
+  status: DocumentStatus;
+  legal_entity: string;
+  legal_entity_name: string;
+  warehouse: string;
+  warehouse_name: string;
+  to_warehouse: string | null;
+  to_warehouse_name: string | null;
+  to_legal_entity: string | null;
+  to_legal_entity_name: string | null;
+  party: string | null;
+  party_name: string | null;
+  account: string | null;
+  account_name: string | null;
+  reference: string;
+  notes: string;
+  reverses: string | null;
+  reversed_by_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  lines: StockDocumentLine[];
+  total_qty: string;
+  total_value: string;
+  total_is_estimate: boolean;
+  transfer_received: boolean;
+  journal_entries: { id: string; number: string; date: string }[];
+}
+
+export interface StockLevelRow {
+  id: string;
+  item: string;
+  item_name: string;
+  item_sku: string;
+  warehouse: string;
+  warehouse_name: string;
+  legal_entity: string;
+  legal_entity_name: string;
+  qty_on_hand: string;
+  qty_reserved: string;
+  avg_cost: string;
+  value: string;
 }

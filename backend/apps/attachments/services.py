@@ -44,6 +44,10 @@ ALLOWED_TARGETS = {
     "bank_statement": ("treasury", "bankstatement"),
     # Sprint 5.5 (block 5.5.3): the signed cash-count sheet photo.
     "cash_count": ("treasury", "cashcount"),
+    # Sprint 7.4: stock document (SR/SI/ST) detail screen — a supplier's
+    # delivery note, a signed handover sheet. Voided with the document when
+    # a draft is deleted (StockDocumentViewSet._after_soft_delete).
+    "stock_document": ("inventory", "stockdocument"),
 }
 
 # extension -> allowed MIME types (from magic bytes, never trusted from

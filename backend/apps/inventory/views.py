@@ -1,11 +1,21 @@
-from rest_framework import filters
+from decimal import Decimal
+
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.utils.translation import gettext_lazy as _
+from rest_framework import filters, mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.access.permissions import HasModulePermission, RequiresModuleFeature
-from apps.common.viewsets import EntityScopedViewSet, SoftDeleteViewSetMixin, TenantScopedViewSet
+from apps.common.viewsets import (
+    EntityScopedMixin,
+    EntityScopedViewSet,
+    SoftDeleteDocumentViewSetMixin,
+    SoftDeleteViewSetMixin,
+    TenantScopedViewSet,
+)
 from apps.tenants.services import TenantLimitExceeded, check_warehouse_limit
 
 from .models import (
@@ -13,6 +23,8 @@ from .models import (
     ItemBarcode,
     ItemCategory,
     ItemUoM,
+    StockDocument,
+    StockLevel,
     UnitOfMeasure,
     Warehouse,
     set_default_warehouse,
@@ -22,8 +34,24 @@ from .serializers import (
     ItemBarcodeSerializer,
     ItemCategorySerializer,
     ItemUoMSerializer,
+    StockDocumentInputSerializer,
+    StockDocumentReasonSerializer,
+    StockDocumentSerializer,
+    StockLevelSerializer,
     UnitOfMeasureSerializer,
     WarehouseSerializer,
+)
+from .services import (
+    StockDocumentLocked,
+    approve_stock_document,
+    confirm_transfer_receipt,
+    create_stock_document,
+    post_stock_document,
+    reject_stock_document,
+    reverse_stock_document,
+    submit_stock_document,
+    update_stock_document,
+    withdraw_stock_document,
 )
 
 
@@ -206,3 +234,349 @@ class WarehouseViewSet(SoftDeleteViewSetMixin, EntityScopedViewSet):
         warehouse = self.get_object()
         set_default_warehouse(warehouse)
         return Response(self.get_serializer(warehouse).data)
+
+
+def _error_detail(exc):
+    """A ValidationError's message(s) as {"detail": "..."} — the engine's
+    Arabic text verbatim, never a generic fallback."""
+    if hasattr(exc, "messages"):
+        return {"detail": " ".join(str(m) for m in exc.messages)}
+    return {"detail": str(exc)}
+
+
+class StockDocumentViewSet(
+    EntityScopedMixin, SoftDeleteDocumentViewSetMixin, mixins.CreateModelMixin, mixins.ListModelMixin,
+    mixins.RetrieveModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet,
+):
+    """Sprint 7.4: إذن إضافة/صرف/تحويل (SR/SI/ST) — same shape as
+    apps.vouchers.views.VoucherViewSet: `create` builds a DRAFT, every
+    transition is its own action, no financial logic here at all — post/
+    reverse/confirm-receipt call the 7.3 engine functions as they are.
+
+    Entity scope (404, never 403, for anything outside it): the source
+    entity, or — for a transfer only — the destination warehouse's entity,
+    so a receiving branch can see what's coming. Seeing a document is not
+    the right to act on it: every mutating action re-checks the SOURCE
+    entity (403), and confirm-receipt checks the DESTINATION entity (403).
+
+    Posted-immutability is enforced HERE (update/destroy refuse anything
+    past DRAFT with 409), not only by hiding buttons; 0006's trigger is
+    the database backstop under it."""
+
+    queryset = StockDocument.objects.select_related(
+        "legal_entity", "warehouse", "to_warehouse__legal_entity", "party", "account",
+    ).prefetch_related("lines__item", "lines__uom", "lines__cost_center", "lines__batch", "lines__serials")
+    serializer_class = StockDocumentSerializer
+    permission_classes = [IsAuthenticated, RequiresModuleFeature, HasModulePermission]
+    module_feature = "inventory"
+    permission_map = {
+        "list": "inventory.view",
+        "retrieve": "inventory.view",
+        "incoming": "inventory.view",
+        "transfer_destinations": "inventory.view",
+        "create": "inventory.manage",
+        "update": "inventory.manage",
+        "partial_update": "inventory.manage",
+        "destroy": "inventory.manage",
+        "submit": "inventory.manage",
+        "withdraw": "inventory.manage",
+        "approve": "inventory.post",
+        "reject": "inventory.post",
+        "post": "inventory.post",
+        "reverse": "inventory.post",
+        "confirm_receipt": "inventory.post",
+    }
+
+    def scope_to_accessible_entities(self, queryset):
+        from django.db.models import Q
+
+        from apps.organization.services import get_accessible_entity_ids
+
+        accessible = get_accessible_entity_ids(self.request.user)
+        return queryset.filter(
+            Q(legal_entity_id__in=accessible)
+            | Q(kind=StockDocument.Kind.TRANSFER, to_warehouse__legal_entity_id__in=accessible)
+        )
+
+    def get_queryset(self):
+        queryset = super().get_queryset().filter(tenant=self.request.user.tenant)
+        params = self.request.query_params
+        for param, lookup in (
+            ("kind", "kind"), ("status", "status"), ("legal_entity", "legal_entity_id"),
+            ("date_from", "date__gte"), ("date_to", "date__lte"),
+        ):
+            if params.get(param):
+                queryset = queryset.filter(**{lookup: params[param]})
+        if params.get("warehouse"):
+            from django.db.models import Q
+
+            queryset = queryset.filter(Q(warehouse_id=params["warehouse"]) | Q(to_warehouse_id=params["warehouse"]))
+        return queryset.order_by("-date", "-created_at")
+
+    # -- entity checks -------------------------------------------------
+
+    def _accessible(self):
+        from apps.organization.services import get_accessible_entity_ids
+
+        return get_accessible_entity_ids(self.request.user)
+
+    def _source_object(self):
+        document = self.get_object()
+        if document.legal_entity_id not in self._accessible():
+            raise PermissionDenied(_("This action belongs to the sending branch."))
+        return document
+
+    def _done(self, document, status_code=200):
+        document = self.get_queryset().get(pk=document.pk)
+        return Response(StockDocumentSerializer(document).data, status=status_code)
+
+    # -- create / edit / delete ----------------------------------------
+
+    def create(self, request, *args, **kwargs):
+        serializer = StockDocumentInputSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        data = dict(serializer.validated_data)
+        raw_lines = data.pop("lines")
+        try:
+            document = create_stock_document(
+                request.user.tenant, request.user, data, raw_lines, request=request
+            )
+        except (ValidationError, ValueError) as exc:
+            return Response(_error_detail(exc), status=400)
+        return self._done(document, status_code=201)
+
+    def update(self, request, *args, **kwargs):
+        # The draft-only refusal lives in ONE place, update_stock_document
+        # (StockDocumentLocked -> 409 below), under the row lock — not a
+        # second, unlocked pre-check here.
+        document = self._source_object()
+        serializer = StockDocumentInputSerializer(
+            data={**request.data, "kind": document.kind}, partial=kwargs.get("partial", False),
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        data = dict(serializer.validated_data)
+        raw_lines = data.pop("lines", None)
+        data.pop("kind", None)
+        try:
+            update_stock_document(document, request.user, data, raw_lines, request=request)
+        except StockDocumentLocked as exc:
+            return Response({"detail": str(exc)}, status=409)
+        except (ValidationError, ValueError) as exc:
+            return Response(_error_detail(exc), status=400)
+        return self._done(document)
+
+    def partial_update(self, request, *args, **kwargs):
+        return self.update(request, *args, partial=True, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        self._source_object()
+        return super().destroy(request, *args, **kwargs)
+
+    def _after_soft_delete(self, instance):
+        """A deleted draft takes its attachments with it: voided (the
+        project's only "delete" for an attachment), never left reachable
+        on a document that no longer exists."""
+        from django.contrib.contenttypes.models import ContentType
+        from django.utils import timezone
+
+        from apps.attachments.models import Attachment
+
+        Attachment.objects.filter(
+            tenant=instance.tenant, content_type=ContentType.objects.get_for_model(StockDocument),
+            object_id=instance.id, status=Attachment.Status.ACTIVE,
+        ).update(
+            status=Attachment.Status.VOIDED, void_reason="حُذف المستند المسودة",
+            voided_by=self.request.user, voided_at=timezone.now(),
+        )
+
+    # -- workflow --------------------------------------------------------
+
+    def _run(self, fn, *args, **kwargs):
+        try:
+            fn(*args, **kwargs)
+        except (ValidationError, ValueError) as exc:
+            return Response(_error_detail(exc), status=400)
+        except PermissionDenied as exc:
+            return Response({"detail": str(exc)}, status=403)
+        return None
+
+    @action(detail=True, methods=["post"])
+    def submit(self, request, pk=None):
+        document = self._source_object()
+        error = self._run(submit_stock_document, document, request.user, request=request)
+        if error:
+            return error
+        return self._done(document, status_code=200 if document.status == StockDocument.Status.APPROVED else 202)
+
+    @action(detail=True, methods=["post"])
+    def approve(self, request, pk=None):
+        document = self._source_object()
+        error = self._run(
+            approve_stock_document, document, request.user, request=request,
+            emergency_reason=request.data.get("emergency_reason", ""),
+        )
+        return error or self._done(document)
+
+    @action(detail=True, methods=["post"])
+    def reject(self, request, pk=None):
+        document = self._source_object()
+        error = self._run(reject_stock_document, document, request.user, request.data.get("reason", ""), request=request)
+        return error or self._done(document)
+
+    @action(detail=True, methods=["post"])
+    def withdraw(self, request, pk=None):
+        document = self._source_object()
+        error = self._run(withdraw_stock_document, document, request.user, request=request)
+        return error or self._done(document)
+
+    @action(detail=True, methods=["post"])
+    def post(self, request, pk=None):
+        document = self._source_object()
+        error = self._run(post_stock_document, document, request.user, request=request)
+        return error or self._done(document)
+
+    @action(detail=True, methods=["post"])
+    def reverse(self, request, pk=None):
+        document = self._source_object()
+        serializer = StockDocumentReasonSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            reversal = reverse_stock_document(
+                document, request.user, serializer.validated_data["reason"], request=request,
+                date=serializer.validated_data.get("date"),
+            )
+        except (ValidationError, ValueError) as exc:
+            return Response(_error_detail(exc), status=400)
+        return self._done(reversal, status_code=201)
+
+    @action(detail=True, methods=["post"], url_path="confirm-receipt")
+    def confirm_receipt(self, request, pk=None):
+        document = self.get_object()
+        if document.kind != StockDocument.Kind.TRANSFER or document.to_warehouse_id is None:
+            return Response({"detail": _("Only a transfer has a receipt to confirm.")}, status=400)
+        if document.to_warehouse.legal_entity_id not in self._accessible():
+            return Response(
+                {"detail": _("Only the receiving branch can confirm this transfer's receipt.")}, status=403
+            )
+        serializer = StockDocumentReasonSerializer(data=request.data, context={"reason_optional": True})
+        serializer.is_valid(raise_exception=True)
+        error = self._run(
+            confirm_transfer_receipt, document, request.user, date=serializer.validated_data.get("date"),
+            request=request,
+        )
+        return error or self._done(document)
+
+    @action(detail=False, methods=["get"], url_path="transfer-destinations")
+    def transfer_destinations(self, request):
+        """Warehouses a transfer from `?warehouse=` may go to: the same
+        company's other active warehouses — including a branch this user
+        can't otherwise see, since sending there is the source branch's
+        act (the destination confirms on its own side). Only id/code/name/
+        entity name — nothing else about the other branch is exposed."""
+        from apps.organization.models import LegalEntity
+        from apps.organization.services import company_entity_for
+
+        source = Warehouse.objects.filter(
+            tenant=request.user.tenant, id=request.query_params.get("warehouse"),
+            legal_entity_id__in=self._accessible(), deleted_at__isnull=True,
+        ).select_related("legal_entity").first()
+        if source is None:
+            return Response([])
+        company = company_entity_for(source.legal_entity)
+        entity_ids = [company.id, *LegalEntity.objects.filter(parent=company).values_list("id", flat=True)]
+        rows = (
+            Warehouse.objects.filter(
+                tenant=request.user.tenant, legal_entity_id__in=entity_ids, is_active=True, deleted_at__isnull=True,
+            )
+            .exclude(id=source.id)
+            .select_related("legal_entity")
+            .order_by("code")
+        )
+        return Response(
+            [
+                {"id": str(w.id), "code": w.code, "name": w.name, "legal_entity_name": w.legal_entity.name}
+                for w in rows
+            ]
+        )
+
+    @action(detail=False, methods=["get"])
+    def incoming(self, request):
+        """«تحويلات واردة بانتظار التأكيد» — posted, unreceived, not a
+        reversal, addressed to a warehouse whose entity this user holds."""
+        from django.db.models import Exists, F, OuterRef
+
+        from .models import StockMove
+
+        received = StockMove.objects.filter(
+            document=OuterRef("pk"), warehouse_id=OuterRef("to_warehouse_id"), qty_base__gt=0,
+        )
+        queryset = (
+            self.get_queryset()
+            .filter(
+                kind=StockDocument.Kind.TRANSFER, status=StockDocument.Status.POSTED, reverses__isnull=True,
+                to_warehouse__legal_entity_id__in=self._accessible(),
+            )
+            .exclude(Exists(received))
+            .exclude(to_warehouse_id=F("warehouse_id"))
+        )
+        return Response(StockDocumentSerializer(queryset, many=True).data)
+
+
+class StockLevelViewSet(EntityScopedMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+    """Sprint 7.4: «أرصدة المخزون» — read-only balances per item per
+    warehouse, entity-scoped through the warehouse. The value is computed
+    in SQL (no Python loop): the item's ItemCost for the warehouse's
+    company — a branch's parent, since a branch can never sit under a
+    branch (LegalEntity.clean)."""
+
+    queryset = StockLevel.objects.select_related("item", "warehouse__legal_entity")
+    serializer_class = StockLevelSerializer
+    permission_classes = [IsAuthenticated, RequiresModuleFeature, HasModulePermission]
+    module_feature = "inventory"
+    permission_map = {"list": "inventory.view"}
+    entity_lookup = "warehouse__legal_entity_id"
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["item__sku", "item__name"]
+
+    def get_queryset(self):
+        from django.db.models import (
+            Case,
+            DecimalField,
+            ExpressionWrapper,
+            F,
+            OuterRef,
+            Subquery,
+            Value,
+            When,
+        )
+        from django.db.models.functions import Coalesce
+
+        from .models import ItemCost
+
+        company_id = Case(
+            When(warehouse__legal_entity__entity_type="branch", then=F("warehouse__legal_entity__parent_id")),
+            default=F("warehouse__legal_entity_id"),
+        )
+        avg = Subquery(
+            ItemCost.objects.filter(item_id=OuterRef("item_id"), company_entity_id=OuterRef("company_id")).values(
+                "avg_cost"
+            )[:1]
+        )
+        queryset = (
+            super().get_queryset()
+            .filter(tenant=self.request.user.tenant)
+            .annotate(company_id=company_id)
+            .annotate(avg_cost=Coalesce(avg, Value(Decimal("0")), output_field=DecimalField()))
+            .annotate(value=ExpressionWrapper(F("qty_on_hand") * F("avg_cost"), output_field=DecimalField()))
+        )
+        params = self.request.query_params
+        if params.get("warehouse"):
+            queryset = queryset.filter(warehouse_id=params["warehouse"])
+        if params.get("legal_entity"):
+            queryset = queryset.filter(warehouse__legal_entity_id=params["legal_entity"])
+        if params.get("item"):
+            queryset = queryset.filter(item_id=params["item"])
+        if params.get("nonzero") == "true":
+            queryset = queryset.exclude(qty_on_hand=0)
+        return queryset.order_by("item__sku", "warehouse__code")

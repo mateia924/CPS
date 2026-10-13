@@ -146,6 +146,35 @@ docker run --rm --network host \
   "$PLAYWRIGHT_IMAGE" \
   sh -c "npx playwright test 09-asset-transfer-log-date-format.spec.ts --reporter=list"
 
+# Sprint 7.4: stock documents. Seeds only what no screen creates yet on a
+# fresh smoke tenant — the inventory module flag, one warehouse on the
+# branch, one stock item — and deactivates the tenant's seeded stock_*
+# approval rules: the Owner created the document and phase 3's second user
+# is still active, so the Owner couldn't approve their own (the approval
+# path is covered by backend tests). Never touches a real tenant.
+echo "[e2e] seeding inventory for the stock-documents scenario"
+docker exec cps-dev-backend-1 python manage.py shell -c "
+from apps.approvals.models import ApprovalRule
+from apps.inventory.models import Warehouse
+from apps.organization.models import LegalEntity
+from apps.sales.models import Product
+from apps.tenants.models import Tenant
+t = Tenant.objects.get(subdomain='$SUBDOMAIN')
+t.features.inventory = True
+t.features.save(update_fields=['inventory'])
+branch = LegalEntity.objects.get(tenant=t, code='MAIN-01')
+Warehouse.objects.get_or_create(tenant=t, code='E2E-W1', defaults={'legal_entity': branch, 'name': 'مستودع e2e'})
+Product.objects.get_or_create(tenant=t, sku='E2E-STK-1', defaults={'name': 'صنف مخزني e2e', 'unit_price': '150.00', 'tax_rate': '15.00', 'item_type': 'stock'})
+ApprovalRule.objects.filter(tenant=t, doc_type__startswith='stock_').update(is_active=False)
+"
+
+echo "[e2e] phase 11: stock receipt -> approve -> post -> balance on screen -> issue -> report"
+docker run --rm --network host \
+  -e E2E_BASE_URL="$BASE_URL" \
+  -v "$ROOT_DIR:/repo" -w /repo/frontend/e2e \
+  "$PLAYWRIGHT_IMAGE" \
+  sh -c "npx playwright test 11-stock-documents.spec.ts --reporter=list"
+
 echo "[e2e] archiving the smoke-* tenant this run created"
 docker exec cps-dev-backend-1 python manage.py archive_smoke_tenants \
   --force --reason "e2e.sh: disposable smoke tenant this run created, never meant to be reversed"

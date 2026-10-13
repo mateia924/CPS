@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
@@ -5,7 +7,17 @@ from apps.accounting.models import Account
 from apps.organization.models import CostCenter, LegalEntity
 from apps.sales.models import Product
 
-from .models import InventorySettings, ItemBarcode, ItemCategory, ItemUoM, UnitOfMeasure, Warehouse
+from .models import (
+    InventorySettings,
+    ItemBarcode,
+    ItemCategory,
+    ItemUoM,
+    StockDocument,
+    StockDocumentLine,
+    StockLevel,
+    UnitOfMeasure,
+    Warehouse,
+)
 
 
 class InventorySettingsSerializer(serializers.ModelSerializer):
@@ -168,3 +180,187 @@ class WarehouseSerializer(serializers.ModelSerializer):
                     )]}
                 )
         return attrs
+
+
+# ---------------------------------------------------------------------
+# Sprint 7.4: stock documents (SR/SI/ST). Read shape + raw input shape,
+# same split as apps.vouchers.serializers (VoucherSerializer /
+# VoucherCreateSerializer): every output total is computed server-side,
+# no total is ever accepted as input.
+# ---------------------------------------------------------------------
+
+
+class StockDocumentLineSerializer(serializers.ModelSerializer):
+    item_name = serializers.CharField(source="item.name", read_only=True)
+    item_sku = serializers.CharField(source="item.sku", read_only=True)
+    uom_name = serializers.CharField(source="uom.name_ar", read_only=True, default=None)
+    cost_center_name = serializers.CharField(source="cost_center.name", read_only=True, default=None)
+    batch_number = serializers.CharField(source="batch.number", read_only=True, default=None)
+    batch_expiry = serializers.DateField(source="batch.expiry", read_only=True, default=None)
+    serial_numbers = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StockDocumentLine
+        fields = (
+            "id", "item", "item_name", "item_sku", "uom", "uom_name", "qty", "qty_base", "unit_cost",
+            "cost_center", "cost_center_name", "batch", "batch_number", "batch_expiry", "serial_numbers",
+        )
+        read_only_fields = fields
+
+    def get_serial_numbers(self, obj):
+        return [s.serial for s in obj.serials.all()]
+
+
+class StockDocumentSerializer(serializers.ModelSerializer):
+    lines = StockDocumentLineSerializer(many=True, read_only=True)
+    legal_entity_name = serializers.CharField(source="legal_entity.name", read_only=True)
+    warehouse_name = serializers.CharField(source="warehouse.name", read_only=True)
+    to_warehouse_name = serializers.CharField(source="to_warehouse.name", read_only=True, default=None)
+    to_legal_entity = serializers.UUIDField(source="to_warehouse.legal_entity_id", read_only=True, default=None)
+    to_legal_entity_name = serializers.CharField(source="to_warehouse.legal_entity.name", read_only=True, default=None)
+    party_name = serializers.CharField(source="party.name", read_only=True, default=None)
+    account_name = serializers.SerializerMethodField()
+    total_qty = serializers.SerializerMethodField()
+    total_value = serializers.SerializerMethodField()
+    total_is_estimate = serializers.SerializerMethodField()
+    transfer_received = serializers.SerializerMethodField()
+    reversed_by_id = serializers.SerializerMethodField()
+    journal_entries = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StockDocument
+        fields = (
+            "id", "kind", "number", "date", "status", "legal_entity", "legal_entity_name",
+            "warehouse", "warehouse_name", "to_warehouse", "to_warehouse_name", "to_legal_entity",
+            "to_legal_entity_name", "party", "party_name", "account", "account_name", "reference", "notes",
+            "reverses", "reversed_by_id", "created_by", "created_at", "lines",
+            "total_qty", "total_value", "total_is_estimate", "transfer_received", "journal_entries",
+        )
+        read_only_fields = fields
+
+    def _totals(self, obj):
+        from .services import document_totals
+
+        cache = self.context.setdefault("_totals", {})
+        if obj.id not in cache:
+            cache[obj.id] = document_totals(obj)
+        return cache[obj.id]
+
+    def get_account_name(self, obj):
+        return f"{obj.account.code} — {obj.account.name}" if obj.account_id else None
+
+    def get_total_qty(self, obj):
+        return str(self._totals(obj)["total_qty"])
+
+    def get_total_value(self, obj):
+        return str(self._totals(obj)["total_value"])
+
+    def get_total_is_estimate(self, obj):
+        return self._totals(obj)["is_estimate"]
+
+    def get_transfer_received(self, obj):
+        from .services import _transfer_received
+
+        return obj.kind == "transfer" and _transfer_received(obj)
+
+    def get_reversed_by_id(self, obj):
+        reversal = obj.reversed_by.only("id").first()
+        return str(reversal.id) if reversal else None
+
+    def get_journal_entries(self, obj):
+        from django.contrib.contenttypes.models import ContentType
+
+        from apps.accounting.models import JournalEntry
+
+        rows = JournalEntry.objects.filter(
+            content_type=ContentType.objects.get_for_model(type(obj)), object_id=obj.id,
+        ).order_by("date", "created_at").values("id", "number", "date")
+        return [{"id": str(r["id"]), "number": r["number"], "date": r["date"]} for r in rows]
+
+
+class StockDocumentLineInputSerializer(serializers.Serializer):
+    item = serializers.UUIDField()
+    uom = serializers.UUIDField(required=False, allow_null=True)
+    qty = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
+    unit_cost = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False, allow_null=True, min_value=Decimal("0")
+    )
+    cost_center = serializers.UUIDField(required=False, allow_null=True)
+    batch = serializers.UUIDField(required=False, allow_null=True)
+    batch_number = serializers.CharField(required=False, allow_blank=True, max_length=50)
+    batch_expiry = serializers.DateField(required=False, allow_null=True)
+    serials = serializers.ListField(child=serializers.CharField(max_length=100), required=False, default=list)
+
+
+class StockDocumentInputSerializer(serializers.Serializer):
+    """Create (all fields) and draft edit (partial). `kind` is fixed at
+    creation — an edit can't turn a receipt into an issue."""
+
+    kind = serializers.ChoiceField(choices=[("receipt", "receipt"), ("issue", "issue"), ("transfer", "transfer")])
+    legal_entity = serializers.PrimaryKeyRelatedField(queryset=LegalEntity.objects.none())
+    warehouse = serializers.PrimaryKeyRelatedField(queryset=Warehouse.objects.none())
+    to_warehouse = serializers.PrimaryKeyRelatedField(queryset=Warehouse.objects.none(), required=False, allow_null=True)
+    date = serializers.DateField()
+    party = serializers.PrimaryKeyRelatedField(queryset=Account.objects.none(), required=False, allow_null=True)
+    account = serializers.PrimaryKeyRelatedField(queryset=Account.objects.none(), required=False, allow_null=True)
+    reference = serializers.CharField(required=False, allow_blank=True, default="", max_length=100)
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+    lines = StockDocumentLineInputSerializer(many=True)
+
+    def __init__(self, *args, **kwargs):
+        from apps.organization.services import get_accessible_entity_ids
+        from apps.parties.models import Party
+
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request is not None and request.user.is_authenticated:
+            tenant = request.user.tenant
+            accessible = get_accessible_entity_ids(request.user)
+            self.fields["legal_entity"].queryset = LegalEntity.objects.filter(tenant=tenant, id__in=accessible)
+            self.fields["warehouse"].queryset = Warehouse.objects.filter(
+                tenant=tenant, legal_entity_id__in=accessible, deleted_at__isnull=True, is_active=True,
+            )
+            # The destination may be a branch this user can't otherwise
+            # see — sending stock there is the source branch's act; the
+            # destination confirms it on its own side.
+            self.fields["to_warehouse"].queryset = Warehouse.objects.filter(
+                tenant=tenant, deleted_at__isnull=True, is_active=True,
+            )
+            self.fields["party"].queryset = Party.objects.filter(tenant=tenant)
+            self.fields["account"].queryset = Account.objects.filter(tenant=tenant)
+
+
+class StockDocumentReasonSerializer(serializers.Serializer):
+    """reverse (reason required) / confirm-receipt (no reason) — both take
+    an optional effective date; the engine defaults it to today."""
+
+    reason = serializers.CharField(required=False, allow_blank=True, default="")
+    date = serializers.DateField(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        if not self.context.get("reason_optional") and len(attrs.get("reason", "").strip()) < 3:
+            raise serializers.ValidationError({"reason": [_("A reason is required to reverse a stock document.")]})
+        return attrs
+
+
+class StockLevelSerializer(serializers.ModelSerializer):
+    """Sprint 7.4: «أرصدة المخزون» — read-only. avg_cost is the item's
+    company-wide moving average (D2); value = qty x that average, so a
+    warehouse's value is its share of the company total, not a separate
+    valuation."""
+
+    item_name = serializers.CharField(source="item.name", read_only=True)
+    item_sku = serializers.CharField(source="item.sku", read_only=True)
+    warehouse_name = serializers.CharField(source="warehouse.name", read_only=True)
+    legal_entity = serializers.UUIDField(source="warehouse.legal_entity_id", read_only=True)
+    legal_entity_name = serializers.CharField(source="warehouse.legal_entity.name", read_only=True)
+    avg_cost = serializers.DecimalField(max_digits=14, decimal_places=4, read_only=True)
+    value = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = StockLevel
+        fields = (
+            "id", "item", "item_name", "item_sku", "warehouse", "warehouse_name", "legal_entity",
+            "legal_entity_name", "qty_on_hand", "qty_reserved", "avg_cost", "value",
+        )
+        read_only_fields = fields

@@ -873,3 +873,262 @@ def reverse_stock_document(document, user, reason, request=None, date=None):
         request=request,
     )
     return reversal
+
+
+# ---------------------------------------------------------------------------
+# Sprint 7.4: the document layer the API sits on — create/edit a DRAFT,
+# the approval workflow (the shared apps.approvals engine, same as
+# vouchers), and server-side totals. Posting, reversal and transfer receipt
+# are the 7.3 engine functions above, called as they are.
+# ---------------------------------------------------------------------------
+
+
+class StockDocumentLocked(Exception):
+    """A non-draft document's header/lines can't be edited — the view maps
+    this to 409, same status SoftDeleteDocumentViewSetMixin gives a
+    non-draft delete. 0006's trigger is the DB-level backstop for a POSTED
+    one; this is the API-level refusal for every non-draft state."""
+
+
+def approval_doc_type(document):
+    return f"stock_{document.kind}"
+
+
+def resolve_stock_lines(tenant, kind, raw_lines):
+    """Raw API line dicts -> StockDocumentLine kwargs (+ serial ids). Every
+    id is looked up inside `tenant`. Receipt lines may name a new batch
+    (number + expiry) or new serials — those rows are created here; issue
+    and transfer lines may only reference what already exists. qty_base is
+    always computed server-side (convert_qty_to_base), never accepted."""
+    from apps.organization.models import CostCenter
+    from apps.sales.models import Product
+
+    from .models import UnitOfMeasure
+
+    is_receipt = kind == StockDocument.Kind.RECEIPT
+    seen_serials = {}
+    resolved = []
+    for index, raw in enumerate(raw_lines, start=1):
+        item = Product.objects.filter(tenant=tenant, id=raw["item"], deleted_at__isnull=True).first()
+        if item is None:
+            raise ValidationError(f"السطر {index}: الصنف غير موجود.")
+        if item.item_type != Product.ItemType.STOCK:
+            raise ValidationError(f"السطر {index}: الصنف «{item.name}» صنف خدمي ولا يدخل المخزون.")
+        uom = None
+        if raw.get("uom"):
+            uom = UnitOfMeasure.objects.filter(tenant=tenant, id=raw["uom"], deleted_at__isnull=True).first()
+            if uom is None:
+                raise ValidationError(f"السطر {index}: وحدة القياس غير موجودة.")
+        qty = raw["qty"]
+        qty_base = convert_qty_to_base(item, uom, qty)
+        cost_center = None
+        if raw.get("cost_center"):
+            cost_center = CostCenter.objects.filter(tenant=tenant, id=raw["cost_center"]).first()
+            if cost_center is None:
+                raise ValidationError(f"السطر {index}: مركز التكلفة غير موجود.")
+
+        batch = None
+        if raw.get("batch"):
+            batch = Batch.objects.filter(tenant=tenant, id=raw["batch"], item=item).first()
+            if batch is None:
+                raise ValidationError(f"السطر {index}: الدفعة غير موجودة لهذا الصنف.")
+        elif raw.get("batch_number"):
+            number = raw["batch_number"].strip()
+            batch = Batch.objects.filter(tenant=tenant, item=item, number=number).first()
+            if batch is None:
+                if not is_receipt:
+                    raise ValidationError(f"السطر {index}: الدفعة «{number}» غير مسجَّلة لهذا الصنف.")
+                batch = Batch.objects.create(
+                    tenant=tenant, item=item, number=number, expiry=raw.get("batch_expiry"),
+                )
+            elif raw.get("batch_expiry") and batch.expiry != raw["batch_expiry"]:
+                raise ValidationError(
+                    f"السطر {index}: الدفعة «{number}» مسجَّلة بتاريخ صلاحية {batch.expiry}، لا {raw['batch_expiry']}."
+                )
+
+        serial_ids = []
+        for text in raw.get("serials") or []:
+            serial = text.strip()
+            if not serial:
+                continue
+            key = (item.id, serial)
+            if key in seen_serials:
+                raise ValidationError(
+                    f"السيريال «{serial}» مكرر في المستند (السطر {seen_serials[key]} والسطر {index})."
+                )
+            seen_serials[key] = index
+            row = SerialNumber.objects.filter(tenant=tenant, item=item, serial=serial).first()
+            if row is None:
+                if not is_receipt:
+                    raise ValidationError(f"السطر {index}: السيريال «{serial}» غير مسجَّل للصنف «{item.name}».")
+                row = SerialNumber.objects.create(tenant=tenant, item=item, serial=serial, batch=batch)
+            serial_ids.append(row.id)
+
+        resolved.append(
+            {
+                "item": item, "uom": uom, "qty": qty, "qty_base": qty_base,
+                # Cost is entered only on a receipt; an issue/transfer's cost
+                # is fixed by the engine at posting (moving average).
+                "unit_cost": (raw.get("unit_cost") or Decimal("0")) if is_receipt else Decimal("0"),
+                "cost_center": cost_center, "batch": batch, "serial_ids": serial_ids,
+            }
+        )
+    return resolved
+
+
+def _validate_header(tenant, data):
+    kind = data["kind"]
+    warehouse = data["warehouse"]
+    if warehouse.legal_entity_id != data["legal_entity"].id:
+        raise ValidationError("المستودع لا يتبع الكيان المختار.")
+    if kind == StockDocument.Kind.TRANSFER:
+        to_warehouse = data.get("to_warehouse")
+        if to_warehouse is None:
+            raise ValidationError("التحويل يحتاج مستودع وجهة.")
+        if to_warehouse.id == warehouse.id:
+            raise ValidationError("مستودع الوجهة يجب أن يختلف عن مستودع المصدر.")
+        if company_entity_for(to_warehouse.legal_entity).id != company_entity_for(warehouse.legal_entity).id:
+            raise ValidationError("التحويل بين فروع الشركة نفسها فقط.")
+    elif data.get("to_warehouse") is not None:
+        raise ValidationError("مستودع الوجهة للتحويل فقط.")
+    account = data.get("account")
+    if account is not None and not account.can_post:
+        raise ValidationError(f"لا يمكن الترحيل على الحساب {account.code}.")
+
+
+def _write_lines(document, resolved_lines):
+    lines = StockDocumentLine.objects.bulk_create(
+        [
+            StockDocumentLine(
+                document=document, item=spec["item"], uom=spec["uom"], qty=spec["qty"],
+                qty_base=spec["qty_base"], unit_cost=spec["unit_cost"], cost_center=spec["cost_center"],
+                batch=spec["batch"],
+            )
+            for spec in resolved_lines
+        ]
+    )
+    for line, spec in zip(lines, resolved_lines):
+        if spec["serial_ids"]:
+            line.serials.set(spec["serial_ids"])
+
+
+_HEADER_FIELDS = ("kind", "legal_entity", "warehouse", "to_warehouse", "date", "party", "account", "reference", "notes")
+
+
+@transaction.atomic
+def create_stock_document(tenant, user, data, raw_lines, request=None):
+    """A new DRAFT, header + lines, in one transaction — including any
+    batch/serial rows resolve_stock_lines creates, so a rejected document
+    leaves none behind."""
+    _validate_header(tenant, data)
+    resolved_lines = resolve_stock_lines(tenant, data["kind"], raw_lines)
+    if not resolved_lines:
+        raise ValidationError("المستند يحتاج سطرًا واحدًا على الأقل.")
+    document = StockDocument.objects.create(
+        tenant=tenant, created_by=user, status=StockDocument.Status.DRAFT,
+        **{name: data.get(name) for name in _HEADER_FIELDS if name in data},
+    )
+    _write_lines(document, resolved_lines)
+    log_action(
+        actor_type=AuditLog.ActorType.TENANT_USER, actor_id=user.id, action="stock_document.created",
+        target_type="stock_document", target_id=document.id, tenant_id=tenant.id, request=request,
+    )
+    return document
+
+
+@transaction.atomic
+def update_stock_document(document, user, data, raw_lines, request=None):
+    """Full replace of a DRAFT's header and lines. Anything past DRAFT is
+    refused (StockDocumentLocked -> 409), whatever the client shows."""
+    document.status = StockDocument.objects.select_for_update().get(pk=document.pk).status
+    if document.status != StockDocument.Status.DRAFT:
+        raise StockDocumentLocked("لا يُعدَّل إلا المستند المسودة — هذا المستند مرحَّل أو قيد الاعتماد.")
+    if raw_lines is None:
+        raw_lines = [
+            {
+                "item": line.item_id, "uom": line.uom_id, "qty": line.qty, "unit_cost": line.unit_cost,
+                "cost_center": line.cost_center_id, "batch": line.batch_id,
+                "serials": [s.serial for s in line.serials.all()],
+            }
+            for line in document.lines.all()
+        ]
+    resolved_lines = resolve_stock_lines(document.tenant, document.kind, raw_lines)
+    data = {**{name: getattr(document, name) for name in _HEADER_FIELDS}, **data, "kind": document.kind}
+    _validate_header(document.tenant, data)
+    if not resolved_lines:
+        raise ValidationError("المستند يحتاج سطرًا واحدًا على الأقل.")
+    for name in _HEADER_FIELDS:
+        setattr(document, name, data.get(name))
+    document.save(update_fields=[name for name in _HEADER_FIELDS if name != "kind"])
+    document.lines.all().delete()
+    _write_lines(document, resolved_lines)
+    log_action(
+        actor_type=AuditLog.ActorType.TENANT_USER, actor_id=user.id, action="stock_document.updated",
+        target_type="stock_document", target_id=document.id, tenant_id=document.tenant_id, request=request,
+    )
+    return document
+
+
+def document_totals(document):
+    """Server-side totals — never accepted from a client.
+    - POSTED/REVERSED: the real value that left/entered the document's own
+      warehouse (Σ StockMove.value there), exact.
+    - Earlier states: a receipt's Σ qty_base x unit_cost (exact — the
+      user entered the cost); an issue/transfer's value at the CURRENT
+      company average, flagged `is_estimate` (the real cost is only fixed
+      at posting)."""
+    from django.db.models import DecimalField, ExpressionWrapper, Sum
+
+    total_qty = document.lines.aggregate(q=Sum("qty_base"))["q"] or Decimal("0")
+    if document.status in (StockDocument.Status.POSTED, StockDocument.Status.REVERSED):
+        moved = StockMove.objects.filter(document=document, warehouse_id=document.warehouse_id).aggregate(
+            v=Sum("value")
+        )["v"] or Decimal("0")
+        return {"total_qty": total_qty, "total_value": abs(moved), "is_estimate": False}
+    if document.kind == StockDocument.Kind.RECEIPT:
+        value = document.lines.aggregate(
+            v=Sum(ExpressionWrapper(F("qty_base") * F("unit_cost"), output_field=DecimalField()))
+        )["v"] or Decimal("0")
+        return {"total_qty": total_qty, "total_value": _money(value), "is_estimate": False}
+    company = company_entity_for(document.warehouse.legal_entity)
+    per_item = document.lines.values("item_id").annotate(q=Sum("qty_base"))
+    averages = dict(
+        ItemCost.objects.filter(company_entity=company, item_id__in=[r["item_id"] for r in per_item]).values_list(
+            "item_id", "avg_cost"
+        )
+    )
+    value = sum((r["q"] * averages.get(r["item_id"], Decimal("0")) for r in per_item), Decimal("0"))
+    return {"total_qty": total_qty, "total_value": _money(value), "is_estimate": True}
+
+
+def submit_stock_document(document, user, request=None):
+    """DRAFT -> PENDING_APPROVAL, auto-approved when no ApprovalRule
+    matches (apps.approvals.submit_for_approval). Returns True if it ended
+    APPROVED."""
+    from apps.approvals.services import submit_for_approval
+
+    if not document.lines.exists():
+        raise ValidationError("لا يُرسَل للاعتماد مستند بلا سطور.")
+    amount = document_totals(document)["total_value"]
+    return submit_for_approval(document, user, approval_doc_type(document), amount, request=request)
+
+
+@transaction.atomic
+def approve_stock_document(document, user, request=None, emergency_reason=""):
+    from apps.approvals.services import approve
+
+    amount = document_totals(document)["total_value"]
+    approve(document, user, approval_doc_type(document), amount, request=request, emergency_reason=emergency_reason)
+    return document
+
+
+def reject_stock_document(document, user, reason, request=None):
+    from apps.approvals.services import reject
+
+    return reject(document, user, approval_doc_type(document), reason, request=request)
+
+
+def withdraw_stock_document(document, user, request=None):
+    from apps.approvals.services import withdraw
+
+    return withdraw(document, user, approval_doc_type(document), request=request)

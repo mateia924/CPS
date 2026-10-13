@@ -6,6 +6,8 @@ from .views import (
     ItemBarcodeViewSet,
     ItemCategoryViewSet,
     ItemUoMViewSet,
+    StockDocumentViewSet,
+    StockLevelViewSet,
     UnitOfMeasureViewSet,
     WarehouseViewSet,
 )
@@ -16,6 +18,8 @@ router.register("inventory/units", UnitOfMeasureViewSet, basename="unit-of-measu
 router.register("inventory/item-uoms", ItemUoMViewSet, basename="item-uom")
 router.register("inventory/item-barcodes", ItemBarcodeViewSet, basename="item-barcode")
 router.register("warehouses", WarehouseViewSet, basename="warehouse")
+router.register("stock-documents", StockDocumentViewSet, basename="stock-document")
+router.register("stock-levels", StockLevelViewSet, basename="stock-level")
 
 urlpatterns = [
     path("inventory/settings/", InventorySettingsView.as_view(), name="inventory-settings"),

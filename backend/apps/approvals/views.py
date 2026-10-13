@@ -123,6 +123,16 @@ def _describe_emergency_document(doc_type, target_id):
                 "number": schedule.number, "description": schedule.description,
                 "amount_base": str(schedule.total_amount_base),
             }
+        if doc_type.startswith("stock_"):
+            from apps.inventory.models import StockDocument
+            from apps.inventory.services import document_totals
+
+            document = StockDocument.objects.select_related("warehouse").filter(id=target_id).first()
+            if document is not None:
+                return {
+                    "number": document.number, "description": document.warehouse.name,
+                    "amount_base": str(document_totals(document)["total_value"]),
+                }
         if doc_type == "asset_disposal":
             disposal = AssetDisposal.objects.select_related("asset").get(id=target_id)
             return {

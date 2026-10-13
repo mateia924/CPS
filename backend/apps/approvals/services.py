@@ -137,6 +137,34 @@ def list_pending_approvals(user, return_blocked=False):
                 }
             )
 
+    # Sprint 7.4: stock documents (SR/SI/ST) join the same inbox — 7.0
+    # already seeds a min_amount=0 rule for each, so every submitted one
+    # waits here. Amount = apps.inventory.services.document_totals (an
+    # issue/transfer is valued at the current company average, the same
+    # number submit_stock_document matched the rule against).
+    from apps.inventory.models import StockDocument
+    from apps.inventory.services import approval_doc_type, document_totals
+
+    for document in StockDocument.objects.filter(
+        tenant=tenant, status="pending_approval", deleted_at__isnull=True
+    ).select_related("warehouse__legal_entity"):
+        doc_type = approval_doc_type(document)
+        amount = document_totals(document)["total_value"]
+        rule = get_matching_rule(tenant, doc_type, amount)
+        if _eligible(rule):
+            results.append(
+                {
+                    "doc_type": doc_type,
+                    "id": str(document.id),
+                    "number": document.number,
+                    "date": document.date,
+                    "description": document.warehouse.name,
+                    "amount_base": str(amount),
+                    "created_by": str(document.created_by_id) if document.created_by_id else None,
+                    "can_approve": exempted or document.created_by_id != user.id,
+                }
+            )
+
     # Sprint 5.5 (block 5.5.0): IBAN change requests join the same
     # inbox — always min_amount=0, so any PENDING_APPROVAL row's
     # matching rule is the fixed one (required_role=Owner).

@@ -29,6 +29,9 @@ const DOC_TYPE_LABEL: Record<PendingApproval["doc_type"], string> = {
   asset_depreciation: "assetDepreciationDocType",
   asset_addition: "assetAdditionDocType",
   asset_disposal: "assetDisposalDocType",
+  stock_receipt: "stockReceiptDoc",
+  stock_issue: "stockIssueDoc",
+  stock_transfer: "stockTransferDoc",
 };
 
 // Sprint 6.3: fixes a pre-existing gap (sprint 5.5) — an "iban_change"
@@ -45,6 +48,9 @@ const DOC_TYPE_PATH: Record<PendingApproval["doc_type"], string> = {
   asset_depreciation: "depreciation-schedules",
   asset_addition: "depreciation-schedules",
   asset_disposal: "asset-disposals",
+  stock_receipt: "stock-documents",
+  stock_issue: "stock-documents",
+  stock_transfer: "stock-documents",
 };
 
 // Sprint 6.9.1 (item C): the emergency tab can show doc_types the
@@ -62,6 +68,9 @@ const EMERGENCY_DOC_TYPE_LABEL: Record<string, string> = {
   opening_balance: "openingBalanceDocType",
   recurring_entry: "recurringEntryDocType",
   asset_depreciation: "assetDepreciationDocType",
+  stock_receipt: "stockReceiptDoc",
+  stock_issue: "stockIssueDoc",
+  stock_transfer: "stockTransferDoc",
 };
 
 const EMERGENCY_DOC_TYPE_PATH: Record<string, string> = {
@@ -72,6 +81,9 @@ const EMERGENCY_DOC_TYPE_PATH: Record<string, string> = {
   voucher_settlement: "treasury/vouchers",
   opening_balance: "accounting/opening-balances",
   recurring_entry: "accounting/recurring-entries",
+  stock_receipt: "inventory/stock",
+  stock_issue: "inventory/stock",
+  stock_transfer: "inventory/stock",
 };
 
 export default function ApprovalInboxPage() {

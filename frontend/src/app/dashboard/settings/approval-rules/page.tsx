@@ -33,6 +33,9 @@ const DOC_TYPE_LABEL: Record<ApprovalDocType, string> = {
   asset_depreciation: "assetDepreciationDocType",
   asset_addition: "assetAdditionDocType",
   asset_disposal: "assetDisposalDocType",
+  stock_receipt: "stockReceiptDoc",
+  stock_issue: "stockIssueDoc",
+  stock_transfer: "stockTransferDoc",
 };
 
 export default function ApprovalRulesPage() {
