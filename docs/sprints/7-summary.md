@@ -260,3 +260,39 @@ fatma/acme/sprint15test منذ هجرة 0027)، التشخيص الدائم
 مؤجَّلة لـ7.2/7.3 (ترحيل مستندات المخزون) — تسلسل مُعلَن، لا دين.
 
 **الانحرافات عن قاعدة التجميد:** لا انحراف.
+
+## الكتلة 7.3 — محرك الحركات والتكلفة (بلا شاشات) ✅
+
+**وُجد جاهزًا ولم يُعَد بناؤه:** `company_entity_for` (أقرب سلف ليس فرعًا)،
+`ItemCost`/`StockLevel`/`BatchStock`/`SerialNumber`، هيكل `post_stock_document`/
+`reverse_stock_document` من 7.2.6 (الترقيم + الحالة + المستند المعاكس بسطور سالبة)،
+`StockDocumentReversalRejected` داخل `reverse_journal_entry` ومعالجة 409 في الـview،
+`get_required_system_account`، `build_journal_lines_with_fx_rounding`، `post_journal_entry`،
+`assert_open_period`، `is_batch_expired`، تريجر 0006 لحماية المستند المرحَّل.
+
+**ما بُني فوقه:**
+- `StockMove` (هجرة `inventory.0007`): غير قابل للتعديل على مستوى ORM — `save()` على صف
+  قائم، `delete()`، و`QuerySet.update()/.delete()` (ومعها `bulk_update`) كلها ترفض برسالة
+  عربية. RLS مفعَّل عليه (`setup_rls` على dev).
+- `JournalEntry.ProducedBy.STOCK_DOCUMENT` (هجرة `accounting.0043`: توسيع CheckConstraint فقط).
+- المحرك: `_run_moves` — أقفال → قاعدة التاريخ → المتاح (مستودع/دفعة/سيريال) → التكلفة →
+  `StockMove` → الأرصدة → القيد عبر `post_journal_entry` القائم مربوطًا بالمستند بـ
+  `content_type/object_id`. `confirm_transfer_receipt` جديدة للنصف الثاني من التحويل.
+
+**قرارات تفصيلية:**
+- **القفل قبل كل قراءة:** `_lock_balances` يُنشئ الصفوف الناقصة (`ON CONFLICT DO NOTHING`)
+  ثم `SELECT … FOR UPDATE` مرتَّبًا (item, warehouse) على ItemCost/StockLevel/BatchStock،
+  ويُستدعى قبل قاعدة التاريخ والمتاح وقراءة المتوسط — لا قبل قراءة المتوسط وحدها، لأن
+  التاريخ والمتاح يفسدان بالسباق نفسه.
+- **القيمة هي المرجع، والمتوسط عرض:** `avg_cost` بخانتين (`PRICE_DECIMAL_PLACES`)؛ الإخراج
+  يُقيَّم بـ`total_value/qty` بدقة كاملة لا بالمتوسط المقرَّب. لم يُوسَّع الحقل لأربع خانات
+  (AlterField ليست إضافية بحتة).
+- **بقايا التقريب:** إذا بلغت كمية الشركة صفرًا فالقيمة صفر بالضبط؛ الإخراج بالمتوسط يأخذ
+  القيمة المتبقية كلها (تذهب للتكلفة)، والإخراج بقيمة مثبَّتة مسبقًا (عكس) يرحّل الفرق إلى
+  `INVENTORY_ADJUSTMENT`.
+- **العكس:** كل سطر معاكس يُرجِع قيمة حركته الأصلية بالضبط (`StockMove.value`) لا المتوسط
+  الحالي. القيد الأصلي يبقى POSTED؛ للمستند المعاكس قيده الخاص.
+- **التحويل:** خروج → `GOODS_IN_TRANSIT` (كيان المستند)؛ التأكيد → المخزون (كيان مستودع
+  الوجهة) بالقيمة نفسها. التحويل بين شركتين مرفوض. عكس تحويل بعد تأكيد استلامه مرفوض.
+- **الحسابات:** تجاوز الصنف → افتراضي الفئة → تجاوز المستودع → حساب النظام.
+- **غير مدعوم بعد:** COUNT/OPENING (رسالة صريحة).

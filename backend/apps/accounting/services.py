@@ -1030,6 +1030,11 @@ class OpeningEntryReversalRejected(Exception):
     opening_balances), never a reversal of the posted entry itself."""
 
 
+STOCK_DOCUMENT_REVERSAL_MESSAGE = (
+    "هذا القيد مولَّد من مستند مخزني — العكس يتم من المستند نفسه (مستند معاكس)، لا من القيد."
+)
+
+
 class StockDocumentReversalRejected(Exception):
     """Sprint 7.2.6 (D5 spec, task 5): "reverse_journal_entry على قيد
     مخزني مباشرةً -> 409 «التصحيح بمستند معاكس»" — built now even
@@ -1064,7 +1069,7 @@ def reverse_journal_entry(entry, user, reason, date=None):
         raise ValidationError(_("Only a posted entry can be reversed."))
     if entry.content_type is not None and entry.content_type.model == "stockdocument":
         raise StockDocumentReversalRejected(
-            str(_("A stock-document-sourced entry is reversed via its own document, not reversed directly."))
+            str(_(STOCK_DOCUMENT_REVERSAL_MESSAGE))
         )
     if entry.is_opening:
         raise OpeningEntryReversalRejected(

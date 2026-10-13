@@ -29,6 +29,7 @@ from django.db import DatabaseError, transaction
 from apps.inventory.models import StockDocument, StockDocumentLine, Warehouse
 from apps.inventory.services import post_stock_document, reverse_stock_document
 from apps.organization.models import LegalEntity
+from apps.sales.models import Product
 
 from .factories import LegalEntityFactory, ProductFactory, TenantFactory, UserFactory
 
@@ -49,11 +50,18 @@ def _posted_document_with_line(item_qty=Decimal("10"), unit_cost=Decimal("0")):
     """Fresh tenant/entity/warehouse/user/item — never the tenant_a
     fixture, see this module's own docstring for why — with one posted
     document carrying one line, for the trigger tests below."""
+    from apps.accounting.periods import seed_fiscal_year_for_tenant
+    from apps.accounting.services import seed_chart_of_accounts
+
     tenant = TenantFactory()
     entity = LegalEntityFactory(tenant=tenant)
+    # Sprint 7.3: posting now runs the real engine — it needs the chart
+    # (INVENTORY/GRNI) and an open period, like any other posting.
+    seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
     warehouse = Warehouse.objects.create(tenant=tenant, legal_entity=entity, code="W1", name="مستودع")
     user = UserFactory(tenant=tenant)
-    item = ProductFactory(tenant=tenant)
+    item = ProductFactory(tenant=tenant, item_type=Product.ItemType.STOCK)
     document = _make_document(tenant, user, entity, warehouse, status=StockDocument.Status.DRAFT)
     line = StockDocumentLine.objects.create(
         document=document, item=item, qty=item_qty, qty_base=item_qty, unit_cost=unit_cost,
@@ -131,7 +139,7 @@ def test_the_one_allowed_transition_posted_to_reversed_still_works_via_the_orm()
     application's own reverse path must keep working exactly as
     before, same check test_db_triggers.py makes for JournalEntry."""
     _, user, _, document, _ = _posted_document_with_line()
-    reversal = reverse_stock_document(document, user, "trigger test reversal")
+    reversal = reverse_stock_document(document, user, "trigger test reversal", date=date(2026, 6, 15))
     assert reversal.status == StockDocument.Status.POSTED
     document.refresh_from_db()
     assert document.status == StockDocument.Status.REVERSED
@@ -148,7 +156,7 @@ def test_serials_association_on_a_posted_line_is_a_known_accepted_gap(tenant_a):
 
     user = UserFactory(tenant=tenant_a)
     entity, warehouse = _make_warehouse(tenant_a)
-    item = ProductFactory(tenant=tenant_a)
+    item = ProductFactory(tenant=tenant_a, item_type=Product.ItemType.STOCK)
     document = _make_document(tenant_a, user, entity, warehouse, status=StockDocument.Status.DRAFT)
     line = StockDocumentLine.objects.create(document=document, item=item, qty=Decimal("1"), qty_base=Decimal("1"))
     document.status = StockDocument.Status.APPROVED
@@ -164,8 +172,12 @@ def test_serials_association_on_a_posted_line_is_a_known_accepted_gap(tenant_a):
 def test_post_stock_document_assigns_the_real_number_for_its_kind(tenant_a):
     user = UserFactory(tenant=tenant_a)
     entity, warehouse = _make_warehouse(tenant_a)
+    item = ProductFactory(tenant=tenant_a, item_type=Product.ItemType.STOCK)
     receipt = _make_document(tenant_a, user, entity, warehouse, kind=StockDocument.Kind.RECEIPT, status=StockDocument.Status.APPROVED)
     issue = _make_document(tenant_a, user, entity, warehouse, kind=StockDocument.Kind.ISSUE, status=StockDocument.Status.APPROVED)
+    # Sprint 7.3: an empty document is no longer postable.
+    StockDocumentLine.objects.create(document=receipt, item=item, qty=Decimal("5"), qty_base=Decimal("5"), unit_cost=Decimal("10"))
+    StockDocumentLine.objects.create(document=issue, item=item, qty=Decimal("2"), qty_base=Decimal("2"))
 
     post_stock_document(receipt, user)
     post_stock_document(issue, user)
@@ -188,7 +200,7 @@ def test_post_stock_document_rejects_a_draft_document(tenant_a):
 def test_reverse_stock_document_creates_a_linked_opposite_document(tenant_a):
     user = UserFactory(tenant=tenant_a)
     entity, warehouse = _make_warehouse(tenant_a)
-    item = ProductFactory(tenant=tenant_a)
+    item = ProductFactory(tenant=tenant_a, item_type=Product.ItemType.STOCK)
     document = _make_document(tenant_a, user, entity, warehouse, status=StockDocument.Status.DRAFT)
     StockDocumentLine.objects.create(
         document=document, item=item, qty=Decimal("10"), qty_base=Decimal("10"), unit_cost=Decimal("25.50"),
@@ -197,7 +209,7 @@ def test_reverse_stock_document_creates_a_linked_opposite_document(tenant_a):
     document.save(update_fields=["status"])
     post_stock_document(document, user)
 
-    reversal = reverse_stock_document(document, user, "تصحيح كمية خاطئة")
+    reversal = reverse_stock_document(document, user, "تصحيح كمية خاطئة", date=date(2026, 6, 15))
 
     document.refresh_from_db()
     assert document.status == StockDocument.Status.REVERSED
@@ -230,19 +242,16 @@ def test_reverse_journal_entry_rejects_a_stock_document_sourced_entry(tenant_a):
 
     user = UserFactory(tenant=tenant_a)
     entity, warehouse = _make_warehouse(tenant_a)
+    item = ProductFactory(tenant=tenant_a, item_type=Product.ItemType.STOCK)
     document = _make_document(tenant_a, user, entity, warehouse, status=StockDocument.Status.APPROVED)
+    StockDocumentLine.objects.create(document=document, item=item, qty=Decimal("2"), qty_base=Decimal("2"), unit_cost=Decimal("10"))
     post_stock_document(document, user)
 
-    entry = JournalEntry.objects.create(
-        tenant=tenant_a, legal_entity=entity, date=document.date, memo="stub stock posting",
-        number="JV-2026-STUB", status=JournalEntry.Status.POSTED,
+    # Sprint 7.3: the real engine-produced entry, no longer a stub.
+    entry = JournalEntry.objects.get(
         content_type=ContentType.objects.get_for_model(StockDocument), object_id=document.id,
-        # No "stock_document" ProducedBy member exists yet — 7.3's own
-        # engine isn't built (this test stubs its future output ahead
-        # of time). This test's own assertion is gated by content_type,
-        # not produced_by, so MANUAL here is inert, not a claim.
-        produced_by=JournalEntry.ProducedBy.MANUAL,
     )
+    assert entry.produced_by == JournalEntry.ProducedBy.STOCK_DOCUMENT
 
     with pytest.raises(StockDocumentReversalRejected):
         reverse_journal_entry(entry, user, "trying to bypass the document-level reversal")

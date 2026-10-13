@@ -607,3 +607,88 @@ class StockDocumentLine(models.Model):
         _("counted quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES,
         null=True, blank=True,
     )
+
+
+STOCK_MOVE_IMMUTABLE_MESSAGE = "حركة المخزون المرحَّلة لا تُعدَّل ولا تُحذف — التصحيح يكون بمستند معاكس."
+
+
+class StockMoveQuerySet(models.QuerySet):
+    """Sprint 7.3: the queryset half of StockMove's own ORM guard —
+    QuerySet.update()/.delete() never call a model instance's own
+    save()/delete() (the exact bypass 7.2.6's owner review proved for
+    StockDocument), and bulk_update() is built on update(), so all
+    three are closed here too."""
+
+    def update(self, **kwargs):
+        raise ValidationError(STOCK_MOVE_IMMUTABLE_MESSAGE)
+
+    def delete(self):
+        raise ValidationError(STOCK_MOVE_IMMUTABLE_MESSAGE)
+
+
+class StockMove(TenantScopedModel):
+    """Sprint 7.3: one immutable row per stock movement — the ledger the
+    running balances (StockLevel/BatchStock/ItemCost) are a cache of.
+    Written only by apps.inventory.services' posting engine; never
+    edited or deleted once created — a correction is a new, opposite
+    StockDocument (reverse_stock_document), never a change here.
+
+    `qty_base` is signed: positive = into `warehouse`, negative = out
+    of it. `value` carries the same sign and is the exact amount the
+    inventory account moved by for this row (so Σ value over a company
+    equals Σ ItemCost.total_value, which equals the INVENTORY account's
+    balance). `company_entity` is denormalized from `legal_entity`
+    (apps.organization.services.company_entity_for) because the date
+    rule ("no posting older than the item's last movement in the
+    company") is a per-company query on every post.
+
+    `serial` is set only when the line moved exactly one serial — a
+    multi-serial line is still one move (one row per document line);
+    its serials stay reachable through `line.serials`.
+
+    Immutability is an ORM guard (save() on an existing row, delete(),
+    QuerySet.update()/.delete()) — the spec for this block asks for the
+    ORM layer explicitly; a Postgres trigger like 0006's is not added
+    here."""
+
+    document = models.ForeignKey(StockDocument, on_delete=models.PROTECT, related_name="moves")
+    line = models.ForeignKey(StockDocumentLine, on_delete=models.PROTECT, related_name="moves")
+    item = models.ForeignKey("sales.Product", on_delete=models.PROTECT, related_name="stock_moves")
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.PROTECT, related_name="stock_moves")
+    legal_entity = models.ForeignKey(
+        "organization.LegalEntity", on_delete=models.PROTECT, related_name="stock_moves"
+    )
+    company_entity = models.ForeignKey(
+        "organization.LegalEntity", on_delete=models.PROTECT, related_name="company_stock_moves"
+    )
+    date = models.DateField(_("date"))
+    qty_base = models.DecimalField(
+        _("quantity (base unit)"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES
+    )
+    unit_cost = models.DecimalField(
+        _("unit cost"), max_digits=PRICE_MAX_DIGITS, decimal_places=PRICE_DECIMAL_PLACES
+    )
+    value = models.DecimalField(_("value"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES)
+    batch = models.ForeignKey(Batch, null=True, blank=True, on_delete=models.PROTECT, related_name="moves")
+    serial = models.ForeignKey(
+        SerialNumber, null=True, blank=True, on_delete=models.PROTECT, related_name="moves"
+    )
+    posted_at = models.DateTimeField(auto_now_add=True)
+
+    objects = StockMoveQuerySet.as_manager()
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["tenant", "company_entity", "item", "date"], name="inv_move_company_item_date"),
+        ]
+
+    def __str__(self):
+        return f"{self.item_id}@{self.warehouse_id} {self.qty_base} ({self.date})"
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError(STOCK_MOVE_IMMUTABLE_MESSAGE)
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError(STOCK_MOVE_IMMUTABLE_MESSAGE)

@@ -88,6 +88,7 @@ from .serializers import (
 )
 from .services import (
     REPORTABLE_STATUSES,
+    STOCK_DOCUMENT_REVERSAL_MESSAGE,
     DepreciationEntryReversalRejected,
     OpeningEntryReversalRejected,
     StockDocumentReversalRejected,
@@ -486,6 +487,13 @@ class JournalEntryViewSet(
                     },
                     status=409,
                 )
+        # Sprint 7.3: same dedicated-409 layering as is_opening/
+        # depreciation above — a stock-document entry is corrected only
+        # by an opposite stock document, so it must not fall into the
+        # generic produced_by 400 below. reverse_journal_entry itself
+        # carries the same guard (StockDocumentReversalRejected).
+        if entry.content_type is not None and entry.content_type.model == "stockdocument":
+            return Response({"detail": STOCK_DOCUMENT_REVERSAL_MESSAGE}, status=409)
         # Sprint 7.2.7 (§8.7, owner decision 2026-10-07): produced_by is
         # never blank now — "manual" is the real, declared member for a
         # genuine manual entry, so this must be an explicit inequality,

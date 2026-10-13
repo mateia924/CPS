@@ -162,6 +162,8 @@ class _JournalEntryProducedBy(models.TextChoices):
     ASSET_DISPOSAL = "asset_disposal", _("Asset disposal")
     ASSET_DISPOSAL_CORRECTION = "asset_disposal_correction", _("Asset disposal correction")
     OPENING_BALANCE = "opening_balance", _("Opening balance")
+    # Sprint 7.3: apps.inventory.services' stock posting engine.
+    STOCK_DOCUMENT = "stock_document", _("Stock document")
     MANUAL = "manual", _("Manual")
 
 
