@@ -186,18 +186,26 @@ def select_fefo_batch(item, warehouse, qty_needed, as_of=None):
 # Cost model (D2): ItemCost is per (item, COMPANY entity) — every branch
 # under one company shares one moving weighted average; quantities for
 # availability are per warehouse (StockLevel). ItemCost.total_value is
-# the authoritative number; avg_cost is its 2-decimal display
-# (PRICE_DECIMAL_PLACES). An outflow is valued at total_value/qty at
-# full precision (never at the rounded avg_cost), so total_value can't
-# drift from the ledger through repeated rounding of the average.
+# the authoritative number; avg_cost (and StockMove.unit_cost) are kept
+# to 4 places (UNIT_COST_DECIMAL_PLACES). An outflow is valued at
+# total_value/qty at full precision, never at the stored average — EXCEPT
+# when the company quantity is already <= 0 (only reachable under
+# InventorySettings.allow_negative_stock): total_value/qty is meaningless
+# there, so the outflow is valued at the stored 4-place avg_cost
+# (_apply_cost: the `else` that follows `elif old_qty > 0`).
 # ---------------------------------------------------------------------------
 
 _ZERO = Decimal("0")
 _CENTS = Decimal("0.01")
+_UNIT = Decimal("0.0001")
 
 
 def _money(amount):
     return amount.quantize(_CENTS, rounding=ROUND_HALF_UP)
+
+
+def _unit_cost(amount):
+    return amount.quantize(_UNIT, rounding=ROUND_HALF_UP)
 
 
 def _fmt_qty(qty):
@@ -230,31 +238,62 @@ class _PlannedMove:
     adjustment: Decimal = _ZERO  # debit (+) / credit (-) to INVENTORY_ADJUSTMENT
 
 
-def _inventory_account(tenant, item, warehouse):
-    """Item override -> its category's default -> the warehouse's
-    override -> the INVENTORY system account (Product's own docstring,
-    sprint 7.1: "falling back to the category's default when null")."""
+def _inventory_account(tenant, item, warehouse, document_override=None):
+    """INVENTORY role — document override -> warehouse -> item -> category
+    -> INVENTORY system account.
+
+    Location first: stock physically sits in a warehouse, so a warehouse-
+    level inventory account must win over an item's; if the item override
+    came first, Warehouse.inventory_account_override would be unreachable
+    for any item that has one. (Owner decision 2026-10-13.)
+
+    `document_override`: StockDocument carries no inventory-account field
+    today (its `account` is the COUNTER account — it replaces GRNI on a
+    receipt and COGS on an issue), so every caller passes None; the slot
+    exists so the order is fixed before such a field is ever added."""
     category = item.category
     return (
-        item.inventory_account_override
-        or (category.default_inventory_account if category else None)
+        document_override
         or warehouse.inventory_account_override
+        or item.inventory_account_override
+        or (category.default_inventory_account if category else None)
         or get_required_system_account(tenant, "INVENTORY")
     )
 
 
-def _cogs_account(tenant, item, warehouse):
+def _cogs_account(tenant, item, warehouse, document_override=None):
+    """COGS role — document override -> item -> category -> warehouse ->
+    COGS system account.
+
+    Product first, the opposite of _inventory_account: cost of sales is
+    analysed by product line, not by location, so an item/category COGS
+    account must win over the warehouse's. (Owner decision 2026-10-13.)"""
     category = item.category
     return (
-        item.cogs_account_override
+        document_override
+        or item.cogs_account_override
         or (category.default_cogs_account if category else None)
         or warehouse.cogs_account_override
         or get_required_system_account(tenant, "COGS")
     )
 
 
-def _adjustment_account(tenant, warehouse):
-    return warehouse.adjustment_account_override or get_required_system_account(tenant, "INVENTORY_ADJUSTMENT")
+def _adjustment_account(tenant, item, warehouse, document_override=None):
+    """INVENTORY_ADJUSTMENT role — same product-first order as COGS:
+    document override -> item -> category -> warehouse -> system account.
+    Product and ItemCategory have no adjustment-account field yet, so in
+    practice this is warehouse -> system; the order is fixed now so those
+    fields slot in without re-deciding it. Callers pass no document
+    override for the RECEIPT/ISSUE/TRANSFER kinds: their document.account
+    plays the GRNI/COGS role, and routing a rounding residue to a
+    supplier or expense account chosen for a different purpose would be
+    wrong (a COUNT document's account would be a genuine override here)."""
+    del item  # no item/category adjustment field exists yet — see docstring
+    return (
+        document_override
+        or warehouse.adjustment_account_override
+        or get_required_system_account(tenant, "INVENTORY_ADJUSTMENT")
+    )
 
 
 def _validate_lines(document, lines):
@@ -322,7 +361,7 @@ def _plan_document_moves(document, lines, value_overrides):
         if kind == Kind.RECEIPT:
             counter = document.account or get_required_system_account(tenant, "GRNI")
         elif kind == Kind.ISSUE:
-            counter = document.account or _cogs_account(tenant, line.item, warehouse)
+            counter = _cogs_account(tenant, line.item, warehouse, document_override=document.account)
         else:
             counter = get_required_system_account(tenant, "GOODS_IN_TRANSIT")
         if qty > 0 and fixed is None:
@@ -502,12 +541,12 @@ def _apply_cost(cost, m):
     # Debit-positive balancing amount: inflow Dr inventory delta /
     # Cr counter; outflow Dr counter / Cr inventory -delta.
     m.adjustment = (counter - delta) if m.qty > 0 else (-delta - counter)
-    m.unit_cost = _money(counter / abs(m.qty))
+    m.unit_cost = _unit_cost(counter / abs(m.qty))
 
     cost.qty_on_hand = new_qty
     cost.total_value = new_value
     if new_qty > 0:
-        cost.avg_cost = _money(new_value / new_qty)
+        cost.avg_cost = _unit_cost(new_value / new_qty)
 
 
 def _post_journal_entry(document, legal_entity, on_date, memo, moves, user):
@@ -531,7 +570,7 @@ def _post_journal_entry(document, legal_entity, on_date, memo, moves, user):
         add(_inventory_account(tenant, m.item, m.warehouse), cost_center, m.value)
         add(m.counter_account, cost_center, m.counter_value if m.qty < 0 else -m.counter_value)
         if m.adjustment:
-            add(_adjustment_account(tenant, m.warehouse), cost_center, m.adjustment)
+            add(_adjustment_account(tenant, m.item, m.warehouse), cost_center, m.adjustment)
 
     specs = [
         {
@@ -645,8 +684,11 @@ def _post_document(document, user, value_overrides):
 
     changed = []
     for m in moves:
-        if m.line.unit_cost != m.unit_cost:
-            m.line.unit_cost = m.unit_cost
+        # The line keeps a 2-place, human-scale price (PRICE_DECIMAL_PLACES);
+        # the exact 4-place cost lives on the StockMove.
+        line_cost = _money(m.unit_cost)
+        if m.line.unit_cost != line_cost:
+            m.line.unit_cost = line_cost
             changed.append(m.line)
     if changed:
         StockDocumentLine.objects.bulk_update(changed, ["unit_cost"])

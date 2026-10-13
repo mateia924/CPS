@@ -28,3 +28,11 @@ PERCENTAGE_DECIMAL_PLACES = 2
 # ARCH_REVIEW_1.md §1.3.
 RATE_MAX_DIGITS = 18
 RATE_DECIMAL_PLACES = 8
+
+# Sprint 7.3 (owner decision 2026-10-13): a running/average unit COST —
+# derived by division, never typed by a human — needs more places than a
+# human-entered price. Same 10 integer digits as PRICE, 4 decimals.
+# Used by ItemCost.avg_cost and StockMove.unit_cost only;
+# StockDocumentLine.unit_cost stays a PRICE (human-entered).
+UNIT_COST_MAX_DIGITS = 14
+UNIT_COST_DECIMAL_PLACES = 4

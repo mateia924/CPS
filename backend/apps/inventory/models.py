@@ -11,6 +11,8 @@ from apps.common.constants import (
     PRICE_MAX_DIGITS,
     QUANTITY_DECIMAL_PLACES,
     QUANTITY_MAX_DIGITS,
+    UNIT_COST_DECIMAL_PLACES,
+    UNIT_COST_MAX_DIGITS,
 )
 from apps.common.models import DocumentStateMixin, SoftDeleteModelMixin, TenantScopedModel
 
@@ -337,7 +339,7 @@ class ItemCost(TenantScopedModel):
         _("total value"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=0,
     )
     avg_cost = models.DecimalField(
-        _("average cost"), max_digits=PRICE_MAX_DIGITS, decimal_places=PRICE_DECIMAL_PLACES, default=0,
+        _("average cost"), max_digits=UNIT_COST_MAX_DIGITS, decimal_places=UNIT_COST_DECIMAL_PLACES, default=0,
     )
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -666,7 +668,7 @@ class StockMove(TenantScopedModel):
         _("quantity (base unit)"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES
     )
     unit_cost = models.DecimalField(
-        _("unit cost"), max_digits=PRICE_MAX_DIGITS, decimal_places=PRICE_DECIMAL_PLACES
+        _("unit cost"), max_digits=UNIT_COST_MAX_DIGITS, decimal_places=UNIT_COST_DECIMAL_PLACES
     )
     value = models.DecimalField(_("value"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES)
     batch = models.ForeignKey(Batch, null=True, blank=True, on_delete=models.PROTECT, related_name="moves")

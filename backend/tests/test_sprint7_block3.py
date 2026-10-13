@@ -22,7 +22,7 @@ from django.core.exceptions import ValidationError
 from django.db import connection
 from django.db.models import Sum
 
-from apps.accounting.models import JournalEntry, JournalLine
+from apps.accounting.models import Account, JournalEntry, JournalLine
 from apps.accounting.services import (
     REPORTABLE_STATUSES,
     StockDocumentReversalRejected,
@@ -33,6 +33,7 @@ from apps.inventory.models import (
     Batch,
     BatchStock,
     InventorySettings,
+    ItemCategory,
     ItemCost,
     SerialNumber,
     StockDocument,
@@ -105,19 +106,44 @@ class _World:
         return StockLevel.objects.get(item=item or self.item, warehouse=warehouse).qty_on_hand
 
 
-def _balance(tenant, system_key):
-    totals = JournalLine.objects.filter(
-        entry__tenant=tenant, entry__status__in=REPORTABLE_STATUSES, account__system_key=system_key,
-    ).aggregate(debit=Sum("debit"), credit=Sum("credit"))
+def _balance(tenant, system_key=None, account=None, legal_entity=None):
+    lines = JournalLine.objects.filter(entry__tenant=tenant, entry__status__in=REPORTABLE_STATUSES)
+    lines = lines.filter(account=account) if account is not None else lines.filter(account__system_key=system_key)
+    if legal_entity is not None:
+        lines = lines.filter(entry__legal_entity=legal_entity)
+    totals = lines.aggregate(debit=Sum("debit"), credit=Sum("credit"))
     return (totals["debit"] or D("0")) - (totals["credit"] or D("0"))
 
 
+def _inventory_accounts(tenant):
+    """Every account that can hold inventory value in this tenant — the
+    INVENTORY system account plus every warehouse/item/category inventory
+    override. Derived from the data, deliberately NOT from the engine's own
+    _inventory_account resolver: a routing bug must not be able to agree
+    with itself here."""
+    ids = {Account.objects.get(tenant=tenant, system_key="INVENTORY").id}
+    for model, field_name in (
+        (Warehouse, "inventory_account_override"),
+        (Product, "inventory_account_override"),
+        (ItemCategory, "default_inventory_account"),
+    ):
+        ids |= set(
+            model.objects.filter(tenant=tenant, **{f"{field_name}__isnull": False}).values_list(f"{field_name}_id", flat=True)
+        )
+    return Account.objects.filter(id__in=ids).order_by("code")
+
+
 def _assert_reconciled(tenant, scenario):
-    """INVENTORY (ledger) == Σ ItemCost.total_value == Σ StockMove.value."""
-    ledger = _balance(tenant, "INVENTORY")
+    """Σ of every inventory account in the ledger == Σ ItemCost.total_value
+    == Σ StockMove.value. Not "the INVENTORY system account == Σ ItemCost":
+    with an inventory-account override in play, that narrower form is false
+    by design."""
+    per_account = {acc.code: _balance(tenant, account=acc) for acc in _inventory_accounts(tenant)}
+    ledger = sum(per_account.values(), D("0"))
     item_costs = ItemCost.objects.filter(tenant=tenant).aggregate(v=Sum("total_value"))["v"] or D("0")
     moves = StockMove.objects.filter(tenant=tenant).aggregate(v=Sum("value"))["v"] or D("0")
-    print(f"\nRECONCILE [{scenario}]: INVENTORY={ledger} ΣItemCost={item_costs} ΣStockMove.value={moves}")
+    breakdown = " + ".join(f"{code}:{amount}" for code, amount in per_account.items())
+    print(f"\nRECONCILE [{scenario}]: Σinventory accounts={ledger} ({breakdown}) ΣItemCost={item_costs} ΣStockMove.value={moves}")
     assert ledger == item_costs == moves, scenario
 
 
@@ -465,3 +491,87 @@ def test_two_concurrent_postings_on_the_same_item_lose_no_update(monkeypatch):
     assert gap >= 0.45  # the second thread waited for the first one's commit
     assert StockMove.objects.filter(tenant=tenant).count() == 3
     _assert_reconciled(tenant, "two concurrent receipts 10@120 + 10@140 after 10@100")
+
+
+# ------------------------------------------- inventory-account overrides
+
+
+def _leaf_account(tenant, code, name, system_key):
+    """A sibling of the given system account (same parent/type), so the
+    system account itself stays a postable leaf."""
+    template = Account.objects.get(tenant=tenant, system_key=system_key)
+    return Account.objects.create(
+        tenant=tenant, parent=template.parent, code=code, name=name, type=template.type,
+        normal_balance=template.normal_balance, allow_manual_posting=False,
+    )
+
+
+@pytest.mark.django_db
+def test_reconciliation_holds_across_an_inventory_account_override(world):
+    """One company, one item: into W1 (no override) and into W3, whose
+    warehouse carries its own inventory account. The system INVENTORY
+    account alone no longer equals Σ ItemCost — the sum of every inventory
+    account does."""
+    showroom = _leaf_account(world.tenant, "1410", "مخزون مستودع المعرض", "INVENTORY")
+    w3 = Warehouse.objects.create(
+        tenant=world.tenant, legal_entity=world.branch1, code="W3", name="مستودع المعرض",
+        inventory_account_override=showroom,
+    )
+    world.receipt("10", "100", date(2026, 6, 1))
+    world.receipt("5", "130", date(2026, 6, 1), warehouse=w3)
+    world.issue("2", date(2026, 6, 2), warehouse=w3)
+
+    _assert_cost(world.cost(), "13", "1430.00", "110.0000")  # 1650/15 = 110; issue 2 = 220.00
+    assert _balance(world.tenant, account=showroom) == D("430.00")  # 650 in, 220 out
+    assert _balance(world.tenant, "INVENTORY") == D("1000.00")
+    # The narrow form is false here by design — this is what the rewritten helper fixes.
+    assert _balance(world.tenant, "INVENTORY") != world.cost().total_value
+    _assert_reconciled(world.tenant, "W1 no override + W3 with inventory-account override")
+
+
+@pytest.mark.django_db
+def test_inventory_account_is_location_first_and_cogs_is_product_first(world):
+    """INVENTORY: warehouse beats item. COGS: item beats warehouse."""
+    item_inventory = _leaf_account(world.tenant, "1420", "مخزون الصنف", "INVENTORY")
+    wh_inventory = _leaf_account(world.tenant, "1430", "مخزون المستودع", "INVENTORY")
+    item_cogs = _leaf_account(world.tenant, "5051", "تكلفة خط المنتج", "COGS")
+    wh_cogs = _leaf_account(world.tenant, "5052", "تكلفة المستودع", "COGS")
+    item = ProductFactory(
+        tenant=world.tenant, name="صنف بتجاوزات", item_type=Product.ItemType.STOCK,
+        inventory_account_override=item_inventory, cogs_account_override=item_cogs,
+    )
+    w3 = Warehouse.objects.create(
+        tenant=world.tenant, legal_entity=world.branch1, code="W3", name="مستودع بتجاوزات",
+        inventory_account_override=wh_inventory, cogs_account_override=wh_cogs,
+    )
+    world.doc(StockDocument.Kind.RECEIPT, [{"item": item, "qty": "4", "unit_cost": "50"}], date(2026, 6, 1), warehouse=w3)
+    world.doc(StockDocument.Kind.ISSUE, [{"item": item, "qty": "1"}], date(2026, 6, 2), warehouse=w3)
+
+    assert _balance(world.tenant, account=wh_inventory) == D("150.00")
+    assert _balance(world.tenant, account=item_inventory) == D("0")
+    assert _balance(world.tenant, account=item_cogs) == D("50.00")
+    assert _balance(world.tenant, account=wh_cogs) == D("0")
+    _assert_reconciled(world.tenant, "inventory location-first, COGS product-first")
+
+
+@pytest.mark.django_db
+def test_goods_in_transit_nets_to_zero_across_the_company_but_not_per_branch(world):
+    """Company level: after a confirmed branch-to-branch transfer,
+    GOODS_IN_TRANSIT is zero. Branch level it is NOT — the transfer posts
+    on the source branch, the receipt on the destination branch. Known and
+    accepted (owner decision 2026-10-13): the fix is an inter-branch current
+    account, deferred to sprint 12 with the inter-company entries; branch-
+    level statements are not a deliverable yet. This test pins today's
+    behaviour so that change is a visible, deliberate edit."""
+    world.receipt("10", "100", date(2026, 6, 1))
+    transfer = world.doc(
+        StockDocument.Kind.TRANSFER, [{"qty": "4"}], date(2026, 6, 2), warehouse=world.w1, to_warehouse=world.w2,
+    )
+    confirm_transfer_receipt(transfer, world.user, date=date(2026, 6, 3))
+
+    company_entities = LegalEntity.objects.filter(tenant=world.tenant)
+    company_git = sum((_balance(world.tenant, "GOODS_IN_TRANSIT", legal_entity=e) for e in company_entities), D("0"))
+    assert company_git == D("0")
+    assert _balance(world.tenant, "GOODS_IN_TRANSIT", legal_entity=world.branch1) == D("400.00")
+    assert _balance(world.tenant, "GOODS_IN_TRANSIT", legal_entity=world.branch2) == D("-400.00")
+    _assert_reconciled(world.tenant, "confirmed transfer — GIT zero company-wide")
