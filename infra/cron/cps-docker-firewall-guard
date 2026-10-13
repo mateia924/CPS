@@ -1,0 +1,4 @@
+# Installed to /etc/cron.d/cps-docker-firewall-guard (7.2.9-c). cron.d files do NOT inherit
+# /etc/crontab's PATH — set it here explicitly (the original omission restarted docker every 2 min).
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+*/2 * * * * root flock -n /run/cps-dfg.lock /opt/cps/scripts/docker_firewall_guard.sh

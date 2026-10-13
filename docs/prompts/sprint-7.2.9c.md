@@ -7,10 +7,12 @@
 `iptables: No chain/target/match by that name`. لا مراقبة أنذرت، ولا أحد لاحظ.
 
 ### الأدلة (journalctl، إقلاع 12 أكتوبر 14:32)
-14:35:06 firewalld started
-14:35:22–27 ERROR: INVALID_PORT: 0:65535 × 14
-14:37:15 dockerd: “Firewalld: docker zone already exists, returning”
-14:37:15 COMMAND_FAILED: iptables -t nat -D PREROUTING ... Chain ‘DOCKER’ does not exist
+```
+14:35:06  firewalld started
+14:35:22–27  ERROR: INVALID_PORT: 0:65535   × 14
+14:37:15  dockerd: "Firewalld: docker zone already exists, returning"
+14:37:15  COMMAND_FAILED: iptables -t nat -D PREROUTING ... Chain 'DOCKER' does not exist
+```
 وتكرر الخطأ مرتين يوم 13 أكتوبر 13:43:25.
 
 ### الآلية
@@ -140,3 +142,35 @@ MASQUERADE. النتيجة:
 - تأمين SSH (526 محاولة/يوم).
 - دور Celery (أعلاه) — سبرنت مستقل.
 - نشر live لـ7.2.9 + 7.2.9-b — مؤجَّل عمدًا حتى تكتمل المرحلة ب (SMTP).
+
+### 7.6 خلل في حارس 7.2.9-c نفسه (اكتُشف 2026-10-13 أثناء 7.3)
+**الأثر:** 166 إعادة تشغيل غير ضرورية لـDocker بين 15:40:01 و21:10:01 (كل دقيقتين بلا انقطاع)،
+كل واحدة تُسقط live وstaging وdev معًا. توقّف الـdaemon نفسه 17.3–33.6 ثانية (متوسط 26.8،
+مجموع ≈74 دقيقة) من journalctl، تُضاف إليها مدة إقلاع الحاويات (≈30–50 ثانية لكل دورة حتى يعود
+live للاستجابة). سجل الحارس: 166 سطر `MISSING — restarting docker` يتبع كلًّا منها
+`STILL MISSING after restart` — بينما السلسلة كانت موجودة طوال الوقت.
+
+**السبب المباشر:** ملفات `/etc/cron.d` لا ترث PATH من `/etc/crontab`؛ PATH الافتراضي
+`/usr/bin:/bin` لا يحوي `/usr/sbin/iptables` → خروج 127 في كل فحص.
+**السبب الجذري:** حارس لا يميّز "تعذّر الفحص" من "وُجد عطل" — أي خروج غير صفري كان يُقرأ
+"السلسلة مفقودة"، وبلا حدّ لعدد مرات الإعادة، ولا توقف بعد فشل الإعادة.
+
+**الإصلاح (`scripts/docker_firewall_guard.sh` + `infra/cron/cps-docker-firewall-guard`):**
+- iptables بالمسار المطلق، وPATH صريح في السكربت وفي سطر cron.
+- ثلاث نتائج للفحص لا اثنتان: موجودة → خروج 0؛ غائبة فعلًا (خروج 1 **و** نص
+  `No chain/target/match by that name`) → إعادة تشغيل؛ أي شيء آخر (ثنائي غير موجود/غير
+  قابل للتنفيذ، قفل xtables، خطأ آخر) → سطر `cannot check` وخروج 0 بلا إعادة.
+- حدّ: إعادة واحدة كحد أقصى كل 30 دقيقة (`/var/lib/cps-docker-firewall-guard/last_restart`).
+- إن بقيت غائبة بعد الإعادة: `STILL MISSING — manual intervention needed` ويتوقف الحارس
+  نهائيًا (`gave_up`) حتى يُحذف الملف يدويًا.
+
+**الإثبات (21:11–21:12):** PATH مجرَّد إلى `/bin:/usr/bin` → خروج 0 بلا إعادة (المسار المطلق
+يجعل الفحص ينجح فعليًا، فلا يُكتب `cannot check` في هذه الحالة)؛ `IPTABLES=/nonexistent` →
+`cannot check` وخروج 0؛ iptables مزيَّف بخروج 4 (قفل xtables) → `cannot check`؛ سلسلة غائبة
+مع إعادة قبل <30 دقيقة → `not restarting again`؛ مع `gave_up` → لا إعادة. MainPID لـdockerd
+ثابت قبل كل ذلك وبعده. **غير مُختبَر:** فرع "غائبة فعلًا والحارس مسلَّح → إعادة حقيقية" —
+اختباره يعني إعادة تشغيل Docker فعلًا.
+
+## 8. الالتزامات
+- `6c4ef43` — الحادثة + الحارس + استثناء السجلات + إصلاح الـfixture.
+- `67cb3b5` — قفل pytest + التخطّي المعلن + خطوة CI + تسجيل دور Celery.
