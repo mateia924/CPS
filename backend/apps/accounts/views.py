@@ -26,7 +26,6 @@ from .serializers import (
     TenantSerializer,
     UserSerializer,
 )
-from .tasks import send_password_reset_email_task
 from .services import (
     consume_backup_code,
     generate_backup_codes,
@@ -38,6 +37,7 @@ from .services import (
     user_requires_2fa_setup,
     verify_totp,
 )
+from .tasks import send_password_reset_email_task
 
 
 def _tokens_for_user(user, request=None):

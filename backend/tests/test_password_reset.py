@@ -24,7 +24,7 @@ from django.core.cache import cache
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from apps.accounts.models import PasswordResetToken, User
+from apps.accounts.models import PasswordResetToken
 from apps.accounts.tasks import send_password_reset_email_task
 
 from .factories import TenantFactory, UserFactory
