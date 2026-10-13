@@ -101,7 +101,8 @@ run_step "ruff (lint) — same gate as \`make lint\`" docker exec -w /workspace/
 run_step "manage.py check" docker exec -w /workspace/backend ci-local-backend python manage.py check
 run_step "makemigrations --check" docker exec -w /workspace/backend ci-local-backend python manage.py makemigrations --check --dry-run
 run_step "collect-only (fast import/collection check — seconds, not minutes)" docker exec -w /workspace/backend ci-local-backend pytest --collect-only -q
-run_step "pytest (full deterministic suite) — same gate as \`make test\`" docker exec -w /workspace/backend ci-local-backend pytest -q --create-db
+run_step "deploy.sh guards actually RUN here (they skip in the dev container: no repo root, no git)" docker exec -w /workspace/backend ci-local-backend bash -c "pytest -q tests/test_deploy_sh_guards.py > /tmp/dg.txt 2>&1; tail -3 /tmp/dg.txt; grep -q '4 passed' /tmp/dg.txt"
+run_step "pytest (full deterministic suite) — same gate as \`make test\`" env PYTEST_WORKDIR=/workspace/backend "$ROOT_DIR/scripts/pytest_run.sh" ci-local-backend -q --create-db
 
 docker rm -f ci-local-backend ci-local-postgres ci-local-redis >/dev/null 2>&1 || true
 

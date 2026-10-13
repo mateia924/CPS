@@ -19,6 +19,20 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+# 7.2.9-c: these drive the real scripts/deploy.sh through a git worktree,
+# so they need BOTH a git binary and the repo root. The dev container has
+# neither — it mounts only backend/ at /app and ships no git — so they
+# errored there on every run and proved nothing. A declared skip is honest
+# where a false ERROR was not. scripts/ci_local.sh mounts the whole repo at
+# /workspace, installs git, and has its own step asserting these PASS (not
+# skip), so the skip can never quietly become "never runs anywhere".
+_GUARDS_RUNNABLE = (REPO_ROOT / ".git").exists() and shutil.which("git") is not None
+
+pytestmark = pytest.mark.skipif(
+    not _GUARDS_RUNNABLE,
+    reason="needs the repo root and a git binary (CI does; the dev container does not)",
+)
+
 
 @pytest.fixture
 def disposable_worktree(tmp_path):
