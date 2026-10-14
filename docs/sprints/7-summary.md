@@ -373,3 +373,15 @@ fatma/acme/sprint15test منذ هجرة 0027)، التشخيص الدائم
   `tests/test_default_approval_rules.py`؛ القاعدة 11 مثبتة (حذف `asset_disposal` → الاختبار
   يفشل بالاسم، و`migrate` نظيف يرفض عند 0015). (ب) المستأجرون الحاليون **بلا تعبئة** —
   الأثر مقاس بـSELECT فقط على الحي (2026-10-14)؛ القرار لكل مستأجر. انظر SYSTEM_ANALYSIS §11.
+  **قرار المالك (2026-10-14):** تعبئة `1cps` وحده بالأنواع الخمسة الناقصة (`opening_balance`،
+  `recurring_entry`، `asset_addition`، `asset_depreciation`، `asset_disposal`) عبر الأمر
+  `backfill_default_approval_rules --subdomain 1cps --doc-type …` (مستأجر واحد بالاسم، أنواع
+  مسمّاة، المؤرشف مرفوض، طباعة قبل/بعد، idempotent). fatma والاثنا عشر الآخرون لديهم المجموعة
+  كاملة فلا يتغير لهم شيء؛ المؤرشفون لا يُمسّون.
+  **حقيقة المحرّك التي تجعل التعبئة آمنة:** المستأجر بمستخدم نشط واحد مُعفى من قيد «المنشئ لا
+  يعتمد مستنده» — `approvals.services._is_single_active_user_tenant` (`users.filter(is_active=True)
+  .count() <= 1`) يجعل `approve()` يقبل اعتماد المنشئ، ويُسجَّل الإعفاء في قيد AuditLog نفسه
+  (`<doc_type>.approved` بـ`after={"single_user_tenant_exemption": true}`)
+  (3.15.1: «يُعفى تلقائيًا مع تسجيل ذلك»). أي أن القاعدة الجديدة على `1cps` (مستخدم نشط واحد)
+  خطوة اعتماد إضافية مسجَّلة لا توقف للمستندات. **تنبيه:** إن أضاف `1cps` مستخدمًا نشطًا ثانيًا
+  يسقط الإعفاء، ويلزم عندها حامل آخر نشط لدور Owner أو الاعتماد الاضطراري بسبب (D4).
