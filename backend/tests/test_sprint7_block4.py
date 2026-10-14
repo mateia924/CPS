@@ -231,6 +231,26 @@ def test_confirming_a_transfer_from_a_non_destination_entity_is_403(setup, clien
 
 
 @pytest.mark.django_db
+def test_a_third_branch_keeper_cannot_see_or_confirm_a_transfer_between_two_other_branches(setup, client_a):
+    """Neither source nor destination: out of scope entirely, so 404 (not
+    403 — the document's existence isn't disclosed), and nothing moves."""
+    branch3 = LegalEntity.objects.create(
+        tenant=setup.tenant, code="MAIN-03", name="فرع الدمام", entity_type=LegalEntity.Type.BRANCH, parent=setup.company,
+    )
+    _posted(client_a, setup)
+    transfer = _posted(client_a, setup, kind="transfer", qty="4", to_warehouse=setup.w2)
+    third_keeper = setup.user_client(branch3, email="third@tenant-a.test")
+
+    assert third_keeper.get(f"{URL}{transfer['id']}/").status_code == 404
+    assert third_keeper.get(f"{URL}incoming/").data == []
+    response = third_keeper.post(f"{URL}{transfer['id']}/confirm-receipt/", {"date": "2026-06-11"}, format="json")
+
+    assert response.status_code == 404
+    assert not StockLevel.objects.filter(item=setup.item, warehouse=setup.w2, qty_on_hand__gt=0).exists()
+    assert client_a.get(f"{URL}{transfer['id']}/").data["transfer_received"] is False
+
+
+@pytest.mark.django_db
 def test_the_destination_branch_sees_the_transfer_as_incoming_and_confirms_it(setup, client_a):
     _posted(client_a, setup)
     transfer = _posted(client_a, setup, kind="transfer", qty="4", to_warehouse=setup.w2)

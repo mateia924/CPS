@@ -256,8 +256,11 @@ class StockDocumentViewSet(
     Entity scope (404, never 403, for anything outside it): the source
     entity, or — for a transfer only — the destination warehouse's entity,
     so a receiving branch can see what's coming. Seeing a document is not
-    the right to act on it: every mutating action re-checks the SOURCE
-    entity (403), and confirm-receipt checks the DESTINATION entity (403).
+    the right to act on it: every SENDING-side action (edit, delete,
+    submit, approve, reject, withdraw, post, reverse) re-checks the SOURCE
+    entity through _source_object (403). confirm-receipt is the one
+    receiving-side action: it does NOT go through _source_object and
+    checks only the DESTINATION entity (403 from anywhere else in scope).
 
     Posted-immutability is enforced HERE (update/destroy refuse anything
     past DRAFT with 409), not only by hiding buttons; 0006's trigger is

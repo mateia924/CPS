@@ -16,6 +16,10 @@ import type { ApprovalDocType, ApprovalRule, Paginated, Role } from "@/lib/types
 const DOC_TYPES: ApprovalDocType[] = [
   "journal_entry", "invoice", "voucher_receipt", "voucher_payment", "voucher_settlement",
   "asset_depreciation", "asset_addition", "asset_disposal",
+  // Sprint 7.4: a tenant registered after approvals/0019 has no stock
+  // rule at all (registration doesn't seed one), so the picker is the
+  // only way to create it. stock_count stays out until COUNT exists.
+  "stock_receipt", "stock_issue", "stock_transfer",
 ];
 // iban_change/opening_balance are deliberately absent from DOC_TYPES
 // (below) — both are fixed, non-deletable system rules (approvals/

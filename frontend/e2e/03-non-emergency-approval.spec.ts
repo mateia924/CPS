@@ -160,6 +160,13 @@ test("6.5.10 item 6: genuine creator != approver, a real second user made throug
     await accountantPage.getByRole("button", { name: "تسجيل الدخول" }).click();
     await accountantPage.waitForURL("**/dashboard**");
     await expect(accountantPage).not.toHaveURL(/\/dashboard\/profile$/);
+    // Sprint 7.4: phase 11 approves stock documents as this same user —
+    // the only active non-creator on the tenant — so it needs the
+    // credentials as they are now, after the rotation above.
+    fs.writeFileSync(
+      path.join(AUTH_DIR, "second-user.json"),
+      JSON.stringify({ email: accountantEmail, password: newAccountantPassword })
+    );
 
     await accountantPage.goto(`/dashboard/assets/${newAssetId}`);
     await accountantPage.getByRole("button", { name: "اعتماد", exact: true }).click();
