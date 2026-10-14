@@ -5,20 +5,11 @@ from django.db import migrations
 
 
 def seed_default_asset_addition_rule(apps, schema_editor):
-    Tenant = apps.get_model("tenants", "Tenant")
-    Role = apps.get_model("access", "Role")
-    ApprovalRule = apps.get_model("approvals", "ApprovalRule")
+    # Reads the one shared definition (apps/approvals/defaults.py) that
+    # registration also uses, so the two can't drift (7.4 follow-up).
+    from apps.approvals.defaults import backfill_default_approval_rules
 
-    for tenant in Tenant.objects.all().iterator():
-        owner_role = Role.objects.filter(tenant=tenant, name="Owner", is_system=True).first()
-        if owner_role is None:
-            continue
-        ApprovalRule.objects.get_or_create(
-            tenant=tenant,
-            doc_type="asset_addition",
-            min_amount=0,
-            defaults={"required_role": owner_role, "is_active": True},
-        )
+    backfill_default_approval_rules(apps, ["asset_addition"])
 
 
 def noop(apps, schema_editor):

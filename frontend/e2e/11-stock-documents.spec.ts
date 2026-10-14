@@ -7,11 +7,10 @@ import * as path from "path";
  * nothing faked with page.route(). e2e.sh seeds what the screens can't
  * create yet (the inventory module flag, one warehouse, one stock item).
  *
- * Approval is walked, not switched off. A tenant registered today has
- * NO stock approval rule (approvals/0019 only backfilled tenants that
- * existed then; registration seeds only JE + IBAN), so the spec first
- * creates active min=0 -> Accountant rules for receipt and issue through
- * the approval-rules screen. Then: the Owner creates and submits (202,
+ * Approval is walked, not switched off. Registration seeds the default
+ * stock rules (min=0 -> Owner, apps/approvals/defaults.py); the spec
+ * re-points receipt and issue to Accountant through the approval-rules
+ * screen, since the only Owner is the creator. Then: the Owner creates and submits (202,
  * PENDING_APPROVAL), the Owner's own approve is refused with 403
  * (creator, and another active user holds the role, so no emergency
  * path), and phase 3's second user — the Accountant made through the
@@ -32,22 +31,23 @@ function field(page: Page, name: string) {
   return page.locator(`[data-field="${name}"]`).locator("input, select, textarea").first();
 }
 
-async function addAccountantRule(page: Page, docTypeLabel: string) {
+async function requireAccountantOn(page: Page, docTypeLabel: string) {
+  // Edits the rule registration seeded (min=0 -> Owner) — the same move
+  // phase 3 makes on asset_depreciation.
   await page.goto("/dashboard/settings/approval-rules");
-  await page.waitForLoadState("networkidle"); // roles loaded before reading the role picker
-  await field(page, "doc_type").selectOption({ label: docTypeLabel });
-  await field(page, "min_amount").fill("0");
+  const row = page.locator("tr", { hasText: docTypeLabel });
+  await expect(row).toHaveCount(1);
+  await row.getByRole("button", { name: "تعديل" }).click();
   await field(page, "required_role").selectOption({ label: "محاسب" });
-  // Wait on both responses the save itself produces (POST, then
-  // DataTable's refetch) — the same shape as 03-non-emergency-approval.
+  // Wait on both responses the save itself produces (PATCH, then
+  // DataTable's refetch) — see 03-non-emergency-approval for why.
   const [saved, refetched] = await Promise.all([
-    page.waitForResponse((r) => r.url().includes("/api/approval-rules/") && r.request().method() === "POST"),
+    page.waitForResponse((r) => r.url().includes("/api/approval-rules/") && r.request().method() === "PATCH"),
     page.waitForResponse((r) => r.url().includes("/api/approval-rules/") && r.request().method() === "GET"),
-    page.getByRole("button", { name: "إضافة", exact: true }).click(),
+    page.getByRole("button", { name: "حفظ التعديلات" }).click(),
   ]);
-  expect(saved.status()).toBe(201);
+  expect(saved.ok()).toBeTruthy();
   expect(refetched.ok()).toBeTruthy();
-  await expect(page.locator("tr", { hasText: docTypeLabel })).toHaveCount(1);
 }
 
 async function loginSecondUser(browser: Browser): Promise<Page> {
@@ -124,8 +124,8 @@ async function balanceRow(page: Page) {
 }
 
 test("7.4: receipt -> approve (second user) -> post -> balance on screen -> issue -> report", async ({ page, browser }) => {
-  await addAccountantRule(page, "إذن إضافة");
-  await addAccountantRule(page, "إذن صرف");
+  await requireAccountantOn(page, "إذن إضافة");
+  await requireAccountantOn(page, "إذن صرف");
   const approver = await loginSecondUser(browser);
 
   await createApproveAndPost(page, approver, "receipts", "10", "100");

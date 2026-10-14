@@ -8,6 +8,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
+from apps.access.models import Role
 from apps.access.services import seed_default_roles
 from apps.accounting.periods import seed_fiscal_year_for_tenant
 from apps.accounting.services import (
@@ -15,6 +16,7 @@ from apps.accounting.services import (
     seed_chart_of_accounts,
     seed_tax_codes_for_country,
 )
+from apps.approvals.defaults import seed_default_approval_rules
 from apps.approvals.models import ApprovalRule
 from apps.common.rls import set_local_tenant_id
 from apps.common.validators import validate_tenant_subdomain
@@ -134,22 +136,12 @@ class RegisterSerializer(serializers.Serializer):
             # periods, from the moment the tenant exists.
             seed_fiscal_year_for_tenant(tenant, start_date=timezone.now().date())
 
-            # Sprint 4.5 (3.15.9): "لا قيد يدوي يُرحَّل بلا اعتماد" — every
-            # tenant starts with this baseline rule so manual JVs always
-            # need Owner approval by default; editable/removable
-            # afterward via Settings ← "قواعد الاعتماد".
-            ApprovalRule.objects.create(
-                tenant=tenant, doc_type=ApprovalRule.DocType.JOURNAL_ENTRY,
-                min_amount=0, required_role=roles["Owner"],
-            )
-            # Sprint 5.5 (block 5.5.0, CFO_REVIEW_1 C10 / 3.15.9): the
-            # fixed IBAN-change rule — same reasoning as the JV rule
-            # above, and same split as approvals/migrations/0005 (which
-            # only backfills tenants that existed *before* this sprint).
-            ApprovalRule.objects.create(
-                tenant=tenant, doc_type=ApprovalRule.DocType.IBAN_CHANGE,
-                min_amount=0, required_role=roles["Owner"],
-            )
+            # The full default ApprovalRule set (JE, IBAN, opening balance,
+            # recurring, asset_*, stock_*) from the ONE definition the
+            # backfill migrations also read — until 7.4 this hard-coded
+            # JE + IBAN only, so every tenant registered after a later
+            # default's migration was born without it (SYSTEM_ANALYSIS §11).
+            seed_default_approval_rules(tenant, ApprovalRule=ApprovalRule, Role=Role)
 
         return {"tenant": tenant, "user": user}
 

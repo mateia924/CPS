@@ -148,11 +148,11 @@ docker run --rm --network host \
 
 # Sprint 7.4: stock documents. Seeds only what no screen creates yet on a
 # fresh smoke tenant — the inventory module flag, one warehouse on the
-# branch, one stock item. No approval rule is seeded or disabled here: a
-# freshly registered tenant has no stock_* rule at all, so the spec creates
-# min=0 -> Accountant rules through the approval-rules screen and phase 3's
-# second user (frontend/e2e/.auth/second-user.json) approves what the Owner
-# created. Never touches a real tenant.
+# branch, one stock item. No approval rule is touched here: registration
+# seeds the default stock_* rules (apps/approvals/defaults.py), the spec
+# re-points receipt/issue to Accountant through the approval-rules screen,
+# and phase 3's second user (frontend/e2e/.auth/second-user.json) approves
+# what the Owner created. Never touches a real tenant.
 echo "[e2e] seeding inventory for the stock-documents scenario"
 docker exec cps-dev-backend-1 python manage.py shell -c "
 from apps.inventory.models import Warehouse

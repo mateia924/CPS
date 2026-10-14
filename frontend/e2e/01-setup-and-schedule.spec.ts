@@ -50,19 +50,18 @@ test("6.5.8 UAT part 1: register, approval rule, voucher on FIXED_ASSETS, asset,
     await shot(page, "register");
   });
 
-  await test.step("create an approval rule for asset_depreciation (Owner, min 0)", async () => {
-    // Without this, start-depreciation auto-approves (no matching
-    // rule) and there is nothing to withdraw or approve below — also
-    // exercises the E2E-discovered fix that this doc_type was missing
-    // from the "create a new rule" picker entirely (settings/
-    // approval-rules/page.tsx).
+  await test.step("registration seeded the default approval rules (asset_depreciation: Owner, min 0)", async () => {
+    // 7.4 follow-up: this step used to CREATE the rule here, because a
+    // freshly registered tenant was born without it (the default lived
+    // only in approvals/0011's backfill). Registration now seeds the full
+    // default set from apps/approvals/defaults.py — creating it again
+    // would collide with the one-active-rule constraint (0017). Asserting
+    // the seeded rows is the real check; start/withdraw/approve below
+    // still need it.
     await page.goto("/dashboard/settings/approval-rules");
-    await field(page, "doc_type").selectOption("asset_depreciation");
-    // Sprint 6.5.10 (item 3): role names render in Arabic now (roleLabel())
-    // — "مالك", not the raw "Owner" Role.name.
-    await field(page, "required_role").selectOption({ label: "مالك" });
-    await page.getByRole("button", { name: "إضافة", exact: true }).click();
-    await expect(page.locator("tr", { hasText: "جدول إهلاك أصل" })).toBeVisible();
+    for (const label of ["جدول إهلاك أصل", "إذن إضافة", "إذن صرف", "قيد يدوي"]) {
+      await expect(page.locator("tr", { hasText: label })).toHaveCount(1);
+    }
     await shot(page, "approval-rule-created");
   });
 
