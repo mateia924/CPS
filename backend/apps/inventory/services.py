@@ -231,6 +231,9 @@ class _PlannedMove:
     from_transit: bool = False  # inflow whose serials must be IN_TRANSIT
     to_transit: bool = False  # outflow whose serials become IN_TRANSIT
     check_expiry: bool = False
+    # Sprint 7.5: a COUNT variance — an outflow's serials become DISPOSED
+    # (not ISSUED), and a reversal's inflow brings them back IN_STOCK.
+    count: bool = False
     # Filled by _run_moves:
     value: Decimal = _ZERO  # signed inventory movement
     unit_cost: Decimal = _ZERO
@@ -378,6 +381,106 @@ def _plan_document_moves(document, lines, value_overrides):
     return moves
 
 
+def _count_line_balance(line, levels, batch_levels, warehouse):
+    if line.batch_id is not None:
+        return batch_levels[(line.batch_id, warehouse.id)].qty
+    return levels[(line.item_id, warehouse.id)].qty_on_hand
+
+
+def _plan_count_moves(document, lines, value_overrides):
+    """Sprint 7.5 (D16): a COUNT's moves.
+
+    A count session never moves what nobody counted: a line whose
+    counted_qty is NULL produces nothing, and an item outside the session's
+    scope has no line at all. Counted-and-zero is a real count (the whole
+    balance goes); not-counted is no information.
+
+    The variance is computed HERE, at posting, under the same row locks the
+    engine then takes: counted − the balance NOW, not counted − the snapshot
+    taken when the session opened. Whatever moved in between, the balance
+    after posting equals what was counted. (The API shows that drift and
+    asks for confirmation before it gets here — count_variances.)
+
+    The variance's quantity is written onto the line (qty/qty_base) and,
+    for a serial item, the missing serials onto line.serials — so the
+    posted line says exactly what moved, and reverse_stock_document needs
+    nothing count-specific to undo it.
+
+    A reversal (document.reverses set) carries the negated quantities and
+    the original values (value_overrides), like every other kind."""
+    tenant = document.tenant
+    warehouse = document.warehouse
+    adjustment = _adjustment_account(tenant, None, warehouse, document_override=document.account)
+
+    if document.reverses_id is not None:
+        return [
+            _PlannedMove(
+                line=line, item=line.item, warehouse=warehouse, qty=line.qty_base,
+                fixed_value=value_overrides.get(line.id), counter_account=adjustment, batch=line.batch,
+                serial_ids=line.serial_ids, count=True,
+            )
+            for line in lines
+            if line.qty_base
+        ]
+
+    counted = [line for line in lines if line.counted_qty is not None]
+    if not counted:
+        raise ValidationError("لم يُدخَل عدّ لأي سطر في جلسة الجرد — لا شيء يُرحَّل.")
+    company = company_entity_for(warehouse.legal_entity)
+    stubs = [
+        _PlannedMove(line=line, item=line.item, warehouse=warehouse, qty=_ZERO, fixed_value=None,
+                     counter_account=adjustment, batch=line.batch)
+        for line in counted
+    ]
+    _, levels, batch_levels = _lock_balances(tenant, company, stubs)
+
+    counted_serials = {}
+    through = StockDocumentLine.counted_serials.through
+    for line_id, serial_id in through.objects.filter(stockdocumentline__document=document).values_list(
+        "stockdocumentline_id", "serialnumber_id"
+    ):
+        counted_serials.setdefault(line_id, set()).add(serial_id)
+
+    moves = []
+    for line in counted:
+        balance = _count_line_balance(line, levels, batch_levels, warehouse)
+        variance = line.counted_qty - balance
+        missing = []
+        if line.item.tracking == InventorySettings.Tracking.SERIAL:
+            in_stock = set(
+                SerialNumber.objects.select_for_update()
+                .filter(item=line.item, warehouse=warehouse, status=SerialNumber.Status.IN_STOCK)
+                .values_list("id", flat=True)
+            )
+            scanned = counted_serials.get(line.id, set())
+            gone = SerialNumber.objects.filter(id__in=scanned - in_stock).order_by("serial")
+            if gone:
+                raise ValidationError(
+                    f"السيريال {', '.join(s.serial for s in gone)} للصنف «{line.item.name}» عُدَّ في الجرد "
+                    f"لكنه لم يعد في المستودع «{warehouse.name}»."
+                )
+            missing = sorted(in_stock - scanned)
+            if Decimal(len(missing)) != -variance:
+                raise ValidationError(
+                    f"الصنف «{line.item.name}»: رصيده {_fmt_qty(balance)} وسيريالاته في المستودع {len(in_stock)} "
+                    "— لا يتطابقان، فلا يُحسب فرق السيريالات. صحّح الرصيد قبل الجرد."
+                )
+        line.qty = line.qty_base = variance
+        if not variance:
+            continue
+        moves.append(
+            _PlannedMove(
+                line=line, item=line.item, warehouse=warehouse, qty=variance, fixed_value=None,
+                counter_account=adjustment, batch=line.batch, serial_ids=missing, count=True,
+            )
+        )
+    StockDocumentLine.objects.bulk_update(counted, ["qty", "qty_base"])
+    for m in moves:
+        if m.serial_ids:
+            m.line.serials.set(m.serial_ids)
+    return moves
+
+
 def _lock_balances(tenant, company, moves):
     """Creates any missing ItemCost/StockLevel/BatchStock row (INSERT ..
     ON CONFLICT DO NOTHING — safe against a concurrent creator), then
@@ -519,7 +622,10 @@ def _apply_cost(cost, m):
     old_qty, old_value = cost.qty_on_hand, cost.total_value
     new_qty = old_qty + m.qty
     if m.qty > 0:
-        counter = m.fixed_value
+        # A count surplus (fixed_value None) enters at the company average
+        # read under the lock — "الفرق بالمتوسط" (D6). Every other inflow
+        # carries its value in fixed_value.
+        counter = m.fixed_value if m.fixed_value is not None else _money(m.qty * cost.avg_cost)
         new_value = old_value + counter
     else:
         out_qty = -m.qty
@@ -604,10 +710,51 @@ def _post_journal_entry(document, legal_entity, on_date, memo, moves, user):
     return entry
 
 
+OPEN_COUNT_STATUSES = (
+    StockDocument.Status.DRAFT, StockDocument.Status.PENDING_APPROVAL, StockDocument.Status.APPROVED,
+)
+
+
+def open_count_sessions(tenant, warehouse_ids):
+    """Count sessions not yet posted (and not deleted) on these warehouses.
+    A reversal document of kind COUNT is never a session."""
+    return StockDocument.objects.filter(
+        tenant=tenant, kind=StockDocument.Kind.COUNT, warehouse_id__in=warehouse_ids,
+        status__in=OPEN_COUNT_STATUSES, deleted_at__isnull=True, reverses__isnull=True,
+    )
+
+
+def count_session_label(session):
+    scope = f" — {session.count_scope}" if session.count_scope else ""
+    return f"«جرد {session.date}{scope}» ({session.get_status_display()})"
+
+
+def _assert_not_frozen(document, moves):
+    """D16 freeze, inside the engine: every entry point (post, reverse,
+    confirm receipt — and any Celery task calling them) runs _run_moves,
+    so no caller can post around an open count. The session's own posting
+    is the one exception."""
+    settings_obj = InventorySettings.objects.filter(tenant=document.tenant).first()
+    if settings_obj is not None and not settings_obj.freeze_warehouse_during_count:
+        return
+    warehouses = {m.warehouse.id: m.warehouse for m in moves}
+    session = (
+        open_count_sessions(document.tenant, list(warehouses)).exclude(pk=document.pk)
+        .order_by("created_at").first()
+    )
+    if session is not None:
+        raise ValidationError(
+            f"المستودع «{warehouses[session.warehouse_id].name}» مجمَّد بجلسة الجرد {count_session_label(session)} "
+            "— لا يُرحَّل عليه أي مستند حتى ترحيل الجرد أو حذفه."
+        )
+
+
 def _run_moves(document, moves, on_date):
     tenant = document.tenant
     company = company_entity_for(moves[0].warehouse.legal_entity)
 
+    # 0. An open count session freezes its warehouse (D16).
+    _assert_not_frozen(document, moves)
     # 1. Locks first — see _lock_balances. Taken BEFORE the date rule,
     # the availability check and the cost read, so none of the three can
     # be invalidated by a concurrent posting between the read and the write.
@@ -658,7 +805,13 @@ def _move_serials(document, moves):
         if not m.serial_ids:
             continue
         serials = SerialNumber.objects.filter(id__in=m.serial_ids)
-        if m.qty > 0:
+        if m.count and m.qty > 0:
+            # Reversing a count: what the count marked disposed comes back
+            # where it was counted missing from.
+            serials.update(status=Status.IN_STOCK, warehouse=m.warehouse)
+        elif m.count:
+            serials.update(status=Status.DISPOSED, warehouse=None, issued_doc=document.id)
+        elif m.qty > 0:
             serials.update(
                 status=Status.IN_STOCK, warehouse=m.warehouse, batch=m.batch or F("batch"),
                 received_doc=document.id,
@@ -678,9 +831,13 @@ def _post_document(document, user, value_overrides):
 
     assert_open_period(document.tenant, document.date)
     lines = _load_lines(document)
-    _validate_lines(document, lines)
-    moves = _plan_document_moves(document, lines, value_overrides)
-    _run_moves(document, moves, document.date)
+    if document.kind == StockDocument.Kind.COUNT:
+        moves = _plan_count_moves(document, lines, value_overrides)
+    else:
+        _validate_lines(document, lines)
+        moves = _plan_document_moves(document, lines, value_overrides)
+    if moves:  # a count whose every counted line matched moves nothing
+        _run_moves(document, moves, document.date)
 
     changed = []
     for m in moves:
@@ -713,6 +870,10 @@ def post_stock_document(document, user, request=None):
     document.status = StockDocument.objects.select_for_update().get(pk=document.pk).status
     if document.status != StockDocument.Status.APPROVED:
         raise ValidationError(_("Only an approved stock document can be posted."))
+    # A count's drift (balance moved since the session opened) is read
+    # before posting and kept in the audit entry: the variance was
+    # computed on the current balance, and the record says so.
+    drift = count_drift(document) if document.kind == StockDocument.Kind.COUNT else []
     _post_document(document, user, value_overrides={})
     log_action(
         actor_type=AuditLog.ActorType.TENANT_USER,
@@ -721,6 +882,8 @@ def post_stock_document(document, user, request=None):
         target_type="stock_document",
         target_id=document.id,
         tenant_id=document.tenant_id,
+        after={"count_drift": [{k: str(v) if v is not None else None for k, v in d.items()} for d in drift]}
+        if drift else None,
         request=request,
     )
     return document
@@ -829,7 +992,16 @@ def reverse_stock_document(document, user, reason, request=None, date=None):
     # Lines are built while the reversal is still DRAFT — the trigger's
     # own INSERT branch (0006) rejects a line bulk_created onto an
     # already-POSTED document.
+    original_values = dict(
+        StockMove.objects.filter(document=document, warehouse_id=document.warehouse_id).values_list("line_id", "value")
+    )
     original_lines = list(document.lines.order_by("id"))
+    if document.kind == StockDocument.Kind.COUNT:
+        # Only the lines that moved — an uncounted or matching line has
+        # nothing to undo.
+        original_lines = [line for line in original_lines if line.id in original_values]
+        if not original_lines:
+            raise ValidationError("هذا الجرد لم يُثبت أي فرق — لا شيء يُعكس.")
     reversed_lines = StockDocumentLine.objects.bulk_create(
         [
             StockDocumentLine(
@@ -846,9 +1018,6 @@ def reverse_stock_document(document, user, reason, request=None, date=None):
             )
             for line in original_lines
         ]
-    )
-    original_values = dict(
-        StockMove.objects.filter(document=document, warehouse_id=document.warehouse_id).values_list("line_id", "value")
     )
     value_overrides = {}
     for original_line, reversed_line in zip(original_lines, reversed_lines):
@@ -1043,6 +1212,8 @@ def update_stock_document(document, user, data, raw_lines, request=None):
     document.status = StockDocument.objects.select_for_update().get(pk=document.pk).status
     if document.status != StockDocument.Status.DRAFT:
         raise StockDocumentLocked("لا يُعدَّل إلا المستند المسودة — هذا المستند مرحَّل أو قيد الاعتماد.")
+    if document.kind == StockDocument.Kind.COUNT:
+        raise ValidationError("أسطر جلسة الجرد تُملأ من الأرصدة عند فتحها — أدخل العدّ أو استورده، ولا تُعدَّل الأسطر.")
     if raw_lines is None:
         raw_lines = [
             {
@@ -1079,6 +1250,8 @@ def document_totals(document):
       at posting)."""
     from django.db.models import DecimalField, ExpressionWrapper, Sum
 
+    if document.kind == StockDocument.Kind.COUNT:
+        return _count_totals(document)
     total_qty = document.lines.aggregate(q=Sum("qty_base"))["q"] or Decimal("0")
     if document.status in (StockDocument.Status.POSTED, StockDocument.Status.REVERSED):
         moved = StockMove.objects.filter(document=document, warehouse_id=document.warehouse_id).aggregate(
@@ -1109,6 +1282,8 @@ def submit_stock_document(document, user, request=None):
 
     if not document.lines.exists():
         raise ValidationError("لا يُرسَل للاعتماد مستند بلا سطور.")
+    if document.kind == StockDocument.Kind.COUNT and not document.lines.filter(counted_qty__isnull=False).exists():
+        raise ValidationError("لم يُدخَل عدّ لأي سطر في جلسة الجرد — أدخل العدّ قبل الإرسال للاعتماد.")
     amount = document_totals(document)["total_value"]
     return submit_for_approval(document, user, approval_doc_type(document), amount, request=request)
 
@@ -1132,3 +1307,358 @@ def withdraw_stock_document(document, user, request=None):
     from apps.approvals.services import withdraw
 
     return withdraw(document, user, approval_doc_type(document), request=request)
+
+
+# ---------------------------------------------------------------------------
+# Sprint 7.5 (D16): count sessions — a StockDocument of kind COUNT.
+#
+# Open: lines filled from the warehouse's balances (expected_qty = the
+# snapshot). Count: counted_qty per line, by hand or from a CSV — both go
+# through set_counts, all-or-nothing. Variances: count_variances, against
+# the balance NOW (not the snapshot). Post: the 7.3 engine
+# (_plan_count_moves). Freeze: _assert_not_frozen, inside the engine.
+# ---------------------------------------------------------------------------
+
+
+class CountEntryErrors(Exception):
+    """Every problem in one counts submission (manual or CSV), each with
+    its row number and reason. Nothing is applied when this is raised."""
+
+    def __init__(self, errors):
+        super().__init__("; ".join(f"{e['row']}: {e['reason']}" for e in errors))
+        self.errors = errors
+
+
+def _category_ids_under(category):
+    from .models import ItemCategory
+
+    ids, frontier = {category.id}, [category.id]
+    while frontier:
+        frontier = list(
+            ItemCategory.objects.filter(parent_id__in=frontier, deleted_at__isnull=True).values_list("id", flat=True)
+        )
+        frontier = [i for i in frontier if i not in ids]
+        ids.update(frontier)
+    return ids
+
+
+@transaction.atomic
+def create_count_session(tenant, user, data, category=None, search="", request=None):
+    """Open a count session on one warehouse: one line per item with a
+    balance row there (per batch for a batch-tracked item), expected_qty =
+    the balance now. `category` (with its sub-categories) and/or `search`
+    (code or name) narrow it to a partial count; items outside the scope
+    get no line and so can never move. One open session per warehouse."""
+    from django.db.models import Q as _Q
+
+    from apps.sales.models import Product
+
+    data = {**data, "kind": StockDocument.Kind.COUNT, "to_warehouse": None}
+    _validate_header(tenant, data)
+    warehouse = data["warehouse"]
+    existing = open_count_sessions(tenant, [warehouse.id]).first()
+    if existing is not None:
+        raise ValidationError(
+            f"على المستودع «{warehouse.name}» جلسة جرد مفتوحة {count_session_label(existing)} — "
+            "رحّلها أو احذفها قبل فتح جلسة جديدة."
+        )
+
+    items = Product.objects.filter(tenant=tenant, item_type=Product.ItemType.STOCK, deleted_at__isnull=True)
+    scope = []
+    if category is not None:
+        items = items.filter(category_id__in=_category_ids_under(category))
+        scope.append(f"الفئة {category.name}")
+    search = (search or "").strip()
+    if search:
+        items = items.filter(_Q(sku__icontains=search) | _Q(name__icontains=search))
+        scope.append(f"بحث «{search}»")
+
+    specs = []
+    levels = (
+        StockLevel.objects.filter(warehouse=warehouse, item__in=items)
+        .select_related("item").order_by("item__sku", "item__name")
+    )
+    for level in levels:
+        item = level.item
+        if item.tracking == InventorySettings.Tracking.BATCH:
+            for bs in (
+                BatchStock.objects.filter(warehouse=warehouse, batch__item=item)
+                .select_related("batch").order_by(F("batch__expiry").asc(nulls_last=True), "batch__number")
+            ):
+                specs.append((item, bs.batch, bs.qty))
+        else:
+            specs.append((item, None, level.qty_on_hand))
+    if not specs:
+        raise ValidationError("لا أصناف لها رصيد في هذا المستودع ضمن نطاق الجرد المختار.")
+
+    document = StockDocument.objects.create(
+        tenant=tenant, created_by=user, status=StockDocument.Status.DRAFT, kind=StockDocument.Kind.COUNT,
+        legal_entity=data["legal_entity"], warehouse=warehouse, date=data["date"],
+        account=data.get("account"), reference=data.get("reference", ""), notes=data.get("notes", ""),
+        count_scope="، ".join(scope),
+    )
+    StockDocumentLine.objects.bulk_create(
+        [
+            StockDocumentLine(
+                document=document, item=item, batch=batch, qty=_ZERO, qty_base=_ZERO, expected_qty=expected,
+            )
+            for item, batch, expected in specs
+        ]
+    )
+    log_action(
+        actor_type=AuditLog.ActorType.TENANT_USER, actor_id=user.id, action="stock_document.created",
+        target_type="stock_document", target_id=document.id, tenant_id=tenant.id,
+        after={"kind": "count", "lines": len(specs), "scope": document.count_scope}, request=request,
+    )
+    return document
+
+
+def _parse_qty(text):
+    from decimal import InvalidOperation
+
+    try:
+        value = Decimal(str(text).strip().replace("٫", ".").translate(str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")))
+    except InvalidOperation:
+        return None
+    if not value.is_finite() or value.as_tuple().exponent < -2:
+        return None
+    return value
+
+
+@transaction.atomic
+def set_counts(document, user, entries, request=None, source="manual", errors=None):
+    """Apply counted quantities to a DRAFT count session — all of them or
+    none. `entries`: [{"row", "line" (id), "counted_qty" (str, "" / None
+    = not counted), "serials" (list of serial strings)}]. Every bad row is
+    collected (row number + reason) and raised together as
+    CountEntryErrors; nothing is written unless every row is valid."""
+    document.status = StockDocument.objects.select_for_update().get(pk=document.pk).status
+    if document.kind != StockDocument.Kind.COUNT:
+        raise ValidationError("إدخال العدّ لجلسات الجرد فقط.")
+    if document.status != StockDocument.Status.DRAFT:
+        raise StockDocumentLocked("لا يُعدَّل العدّ إلا في جلسة جرد مسودة.")
+
+    lines = {str(line.id): line for line in document.lines.select_related("item", "batch")}
+    # `errors`: problems the caller already found (a CSV row matching no
+    # line) — reported together with these, never applied around.
+    errors, updates, seen = list(errors or []), [], {}
+    for entry in entries:
+        row = entry["row"]
+        line = lines.get(str(entry.get("line")))
+        if line is None:
+            errors.append({"row": row, "reason": "السطر ليس من هذه الجلسة."})
+            continue
+        if str(line.id) in seen:
+            errors.append({"row": row, "reason": f"الصنف «{line.item.name}» مكرر (ورد في الصف {seen[str(line.id)]})."})
+            continue
+        seen[str(line.id)] = row
+        raw_qty = entry.get("counted_qty")
+        serial_texts = [t.strip() for t in entry.get("serials") or [] if t and t.strip()]
+        is_serial = line.item.tracking == InventorySettings.Tracking.SERIAL
+        if raw_qty in (None, "") and not serial_texts:
+            updates.append((line, None, []))  # not counted
+            continue
+        qty = None
+        if raw_qty not in (None, ""):
+            qty = _parse_qty(raw_qty)
+            if qty is None:
+                errors.append({"row": row, "reason": f"الكمية «{raw_qty}» ليست رقمًا صالحًا (خانتان عشريتان كحد أقصى)."})
+                continue
+            if qty < 0:
+                errors.append({"row": row, "reason": "الكمية المعدودة لا تكون سالبة."})
+                continue
+        if not is_serial:
+            if serial_texts:
+                errors.append({"row": row, "reason": f"الصنف «{line.item.name}» غير متتبَّع بالسيريال."})
+                continue
+            updates.append((line, qty, []))
+            continue
+        if len(set(serial_texts)) != len(serial_texts):
+            errors.append({"row": row, "reason": "سيريال مكرر في الصف نفسه."})
+            continue
+        if qty is not None and qty != len(serial_texts):
+            errors.append({
+                "row": row,
+                "reason": f"الصنف «{line.item.name}» متتبَّع بالسيريال: الكمية {_fmt_qty(qty)} وعدد السيريالات {len(serial_texts)}.",
+            })
+            continue
+        found = {
+            sn.serial: sn
+            for sn in SerialNumber.objects.filter(
+                tenant=document.tenant, item=line.item, serial__in=serial_texts,
+                status=SerialNumber.Status.IN_STOCK, warehouse=document.warehouse,
+            )
+        }
+        unknown = [t for t in serial_texts if t not in found]
+        if unknown:
+            errors.append({
+                "row": row,
+                "reason": f"السيريال {', '.join(unknown)} ليس في رصيد المستودع «{document.warehouse.name}» — "
+                "السيريال الزائد يُثبت بإذن إضافة لا بالجرد.",
+            })
+            continue
+        updates.append((line, Decimal(len(serial_texts)), [found[t].id for t in serial_texts]))
+
+    if errors:
+        raise CountEntryErrors(sorted(errors, key=lambda e: e["row"]))
+    for line, qty, _serial_ids in updates:
+        line.counted_qty = qty
+    StockDocumentLine.objects.bulk_update([u[0] for u in updates], ["counted_qty"])
+    for line, _qty, serial_ids in updates:
+        if line.item.tracking == InventorySettings.Tracking.SERIAL:
+            line.counted_serials.set(serial_ids)
+    log_action(
+        actor_type=AuditLog.ActorType.TENANT_USER, actor_id=user.id, action="stock_document.counts_entered",
+        target_type="stock_document", target_id=document.id, tenant_id=document.tenant_id,
+        after={"source": source, "rows": len(updates)}, request=request,
+    )
+    return document
+
+
+COUNT_CSV_COLUMNS = ("sku", "batch", "counted_qty", "serials")
+
+
+def import_counts_csv(document, user, text, request=None):
+    """CSV with a header row: sku, batch (blank for a non-batch item),
+    counted_qty, serials (space- or ;-separated, serial items only). Row
+    numbers in errors are the file's own line numbers (header = 1). Atomic:
+    one bad row and nothing is applied (set_counts)."""
+    import csv
+    import io
+
+    reader = csv.reader(io.StringIO(text.lstrip("\ufeff")))
+    rows = list(reader)
+    if not rows:
+        raise CountEntryErrors([{"row": 1, "reason": "الملف فارغ."}])
+    header = [h.strip().lower() for h in rows[0]]
+    missing = [c for c in ("sku", "counted_qty") if c not in header]
+    if missing:
+        raise CountEntryErrors([{
+            "row": 1, "reason": f"العمودان المطلوبان: sku وcounted_qty (الناقص: {', '.join(missing)}). "
+            f"الأعمدة المقبولة: {', '.join(COUNT_CSV_COLUMNS)}.",
+        }])
+    col = {name: header.index(name) for name in COUNT_CSV_COLUMNS if name in header}
+
+    by_key = {}
+    for line in document.lines.select_related("item", "batch"):
+        by_key[(line.item.sku.strip().lower(), (line.batch.number if line.batch else "").strip().lower())] = line
+
+    def cell(values, name):
+        index = col.get(name)
+        return values[index].strip() if index is not None and index < len(values) else ""
+
+    entries, errors = [], []
+    for number, values in enumerate(rows[1:], start=2):
+        if not any(v.strip() for v in values):
+            continue
+        sku, batch = cell(values, "sku"), cell(values, "batch")
+        line = by_key.get((sku.lower(), batch.lower()))
+        if line is None:
+            what = f"الصنف «{sku}»" + (f" بالدفعة «{batch}»" if batch else "")
+            errors.append({"row": number, "reason": f"{what} ليس ضمن أسطر هذه الجلسة."})
+            continue
+        qty = cell(values, "counted_qty")
+        serials = [t for t in cell(values, "serials").replace(";", " ").split() if t]
+        if qty == "" and not serials:
+            errors.append({"row": number, "reason": "الكمية المعدودة فارغة — احذف الصف إن لم يُعدّ الصنف."})
+            continue
+        entries.append({"row": number, "line": str(line.id), "counted_qty": qty, "serials": serials})
+    return set_counts(document, user, entries, request=request, source="csv", errors=errors)
+
+
+def count_drift(document):
+    """Counted lines whose balance moved since the session opened:
+    [{line, item, batch, expected, current, change}]. Empty = the snapshot
+    still holds."""
+    return [
+        {k: row[k] for k in ("line", "item_name", "batch_number", "expected_qty", "current_qty", "drift")}
+        for row in count_variances(document)["lines"]
+        if row["counted_qty"] is not None and row["drift"]
+    ]
+
+
+def count_variances(document):
+    """The variance tab. Before posting: per line, the snapshot
+    (expected_qty), the balance NOW, the counted quantity, the variance it
+    will post (counted − now — not counted − snapshot), its value at the
+    current company average, and the drift (now − snapshot). After posting:
+    the variance and value the posting actually moved (StockMove)."""
+    from django.db.models import Sum
+
+    company = company_entity_for(document.warehouse.legal_entity)
+    lines = list(document.lines.select_related("item", "batch").order_by("id"))
+    averages = dict(
+        ItemCost.objects.filter(company_entity=company, item_id__in={line.item_id for line in lines}).values_list(
+            "item_id", "avg_cost"
+        )
+    )
+    posted = document.status in (StockDocument.Status.POSTED, StockDocument.Status.REVERSED)
+    moved = {}
+    if posted:
+        moved = {
+            r["line_id"]: r["v"]
+            for r in StockMove.objects.filter(document=document, warehouse_id=document.warehouse_id)
+            .values("line_id").annotate(v=Sum("value"))
+        }
+    levels = dict(
+        StockLevel.objects.filter(warehouse=document.warehouse, item_id__in={line.item_id for line in lines})
+        .values_list("item_id", "qty_on_hand")
+    )
+    batch_levels = dict(
+        BatchStock.objects.filter(
+            warehouse=document.warehouse, batch_id__in={line.batch_id for line in lines if line.batch_id}
+        ).values_list("batch_id", "qty")
+    )
+
+    rows, shortage, surplus = [], _ZERO, _ZERO
+    for line in lines:
+        avg = averages.get(line.item_id, _ZERO)
+        current = batch_levels.get(line.batch_id, _ZERO) if line.batch_id else levels.get(line.item_id, _ZERO)
+        if posted:
+            variance = line.qty_base if line.counted_qty is not None else None
+            value = moved.get(line.id, _ZERO) if variance is not None else None
+        elif line.counted_qty is not None:
+            variance = line.counted_qty - current
+            value = _money(variance * avg)
+        else:
+            variance = value = None
+        if value is not None and value < 0:
+            shortage -= value
+        elif value is not None:
+            surplus += value
+        rows.append({
+            "line": str(line.id),
+            "item": str(line.item_id),
+            "item_name": line.item.name,
+            "item_sku": line.item.sku,
+            "batch_number": line.batch.number if line.batch else None,
+            "expected_qty": line.expected_qty,
+            "current_qty": None if posted else current,
+            "counted_qty": line.counted_qty,
+            "variance_qty": variance,
+            "avg_cost": avg,
+            "variance_value": value,
+            "drift": None if posted else (current - (line.expected_qty or _ZERO)),
+        })
+    return {
+        "lines": rows,
+        "shortage_value": _money(shortage),
+        "surplus_value": _money(surplus),
+        "net_value": _money(surplus - shortage),
+        "counted_lines": sum(1 for line in lines if line.counted_qty is not None),
+        "total_lines": len(lines),
+    }
+
+
+def _count_totals(document):
+    """A count's totals: the gross variance value (shortage + surplus) —
+    the amount the approval rule is judged on and the list shows —
+    estimated at the current average until posted."""
+    report = count_variances(document)
+    qty = sum((r["variance_qty"] for r in report["lines"] if r["variance_qty"] is not None), _ZERO)
+    posted = document.status in (StockDocument.Status.POSTED, StockDocument.Status.REVERSED)
+    return {
+        "total_qty": qty,
+        "total_value": report["shortage_value"] + report["surplus_value"],
+        "is_estimate": not posted,
+    }

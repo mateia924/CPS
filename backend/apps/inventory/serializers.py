@@ -198,17 +198,23 @@ class StockDocumentLineSerializer(serializers.ModelSerializer):
     batch_number = serializers.CharField(source="batch.number", read_only=True, default=None)
     batch_expiry = serializers.DateField(source="batch.expiry", read_only=True, default=None)
     serial_numbers = serializers.SerializerMethodField()
+    counted_serial_numbers = serializers.SerializerMethodField()
+    item_tracking = serializers.CharField(source="item.tracking", read_only=True)
 
     class Meta:
         model = StockDocumentLine
         fields = (
-            "id", "item", "item_name", "item_sku", "uom", "uom_name", "qty", "qty_base", "unit_cost",
+            "id", "item", "item_name", "item_sku", "item_tracking", "uom", "uom_name", "qty", "qty_base", "unit_cost",
             "cost_center", "cost_center_name", "batch", "batch_number", "batch_expiry", "serial_numbers",
+            "expected_qty", "counted_qty", "counted_serial_numbers",
         )
         read_only_fields = fields
 
     def get_serial_numbers(self, obj):
         return [s.serial for s in obj.serials.all()]
+
+    def get_counted_serial_numbers(self, obj):
+        return [s.serial for s in obj.counted_serials.all()]
 
 
 class StockDocumentSerializer(serializers.ModelSerializer):
@@ -233,7 +239,7 @@ class StockDocumentSerializer(serializers.ModelSerializer):
             "id", "kind", "number", "date", "status", "legal_entity", "legal_entity_name",
             "warehouse", "warehouse_name", "to_warehouse", "to_warehouse_name", "to_legal_entity",
             "to_legal_entity_name", "party", "party_name", "account", "account_name", "reference", "notes",
-            "reverses", "reversed_by_id", "created_by", "created_at", "lines",
+            "reverses", "reversed_by_id", "created_by", "created_at", "count_scope", "lines",
             "total_qty", "total_value", "total_is_estimate", "transfer_received", "journal_entries",
         )
         read_only_fields = fields
@@ -296,7 +302,9 @@ class StockDocumentInputSerializer(serializers.Serializer):
     """Create (all fields) and draft edit (partial). `kind` is fixed at
     creation — an edit can't turn a receipt into an issue."""
 
-    kind = serializers.ChoiceField(choices=[("receipt", "receipt"), ("issue", "issue"), ("transfer", "transfer")])
+    kind = serializers.ChoiceField(
+        choices=[("receipt", "receipt"), ("issue", "issue"), ("transfer", "transfer"), ("count", "count")]
+    )
     legal_entity = serializers.PrimaryKeyRelatedField(queryset=LegalEntity.objects.none())
     warehouse = serializers.PrimaryKeyRelatedField(queryset=Warehouse.objects.none())
     to_warehouse = serializers.PrimaryKeyRelatedField(queryset=Warehouse.objects.none(), required=False, allow_null=True)
@@ -305,7 +313,19 @@ class StockDocumentInputSerializer(serializers.Serializer):
     account = serializers.PrimaryKeyRelatedField(queryset=Account.objects.none(), required=False, allow_null=True)
     reference = serializers.CharField(required=False, allow_blank=True, default="", max_length=100)
     notes = serializers.CharField(required=False, allow_blank=True, default="")
-    lines = StockDocumentLineInputSerializer(many=True)
+    lines = StockDocumentLineInputSerializer(many=True, required=False)
+    # kind=count only: the partial-count scope. Lines are never sent for a
+    # count — the session fills them from the warehouse's balances.
+    category = serializers.PrimaryKeyRelatedField(queryset=Account.objects.none(), required=False, allow_null=True)
+    search = serializers.CharField(required=False, allow_blank=True, default="", max_length=100)
+
+    def validate(self, attrs):
+        if attrs.get("kind") == "count":
+            if attrs.get("lines"):
+                raise serializers.ValidationError({"lines": ["أسطر جلسة الجرد تُملأ من الأرصدة — لا تُرسل."]})
+        elif "lines" not in attrs and not self.partial:
+            raise serializers.ValidationError({"lines": [_("This field is required.")]})
+        return attrs
 
     def __init__(self, *args, **kwargs):
         from apps.organization.services import get_accessible_entity_ids
@@ -328,6 +348,17 @@ class StockDocumentInputSerializer(serializers.Serializer):
             )
             self.fields["party"].queryset = Party.objects.filter(tenant=tenant)
             self.fields["account"].queryset = Account.objects.filter(tenant=tenant)
+            self.fields["category"].queryset = ItemCategory.objects.filter(tenant=tenant, deleted_at__isnull=True)
+
+
+class CountEntrySerializer(serializers.Serializer):
+    line = serializers.IntegerField()
+    counted_qty = serializers.CharField(required=False, allow_blank=True, allow_null=True, max_length=30)
+    serials = serializers.ListField(child=serializers.CharField(max_length=100), required=False, default=list)
+
+
+class CountEntriesSerializer(serializers.Serializer):
+    entries = CountEntrySerializer(many=True)
 
 
 class StockDocumentReasonSerializer(serializers.Serializer):

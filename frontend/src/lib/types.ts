@@ -1407,7 +1407,7 @@ export interface Voucher {
 }
 
 // Sprint 7.4: stock documents (SR/SI/ST) — every total is server-computed.
-export type StockDocumentKind = "receipt" | "issue" | "transfer";
+export type StockDocumentKind = "receipt" | "issue" | "transfer" | "count";
 
 export interface StockDocumentLine {
   id: string;
@@ -1425,6 +1425,11 @@ export interface StockDocumentLine {
   batch_number: string | null;
   batch_expiry: string | null;
   serial_numbers: string[];
+  // Sprint 7.5: count sessions only (null/empty on every other kind).
+  item_tracking: ItemTracking;
+  expected_qty: string | null;
+  counted_qty: string | null;
+  counted_serial_numbers: string[];
 }
 
 export interface StockDocument {
@@ -1457,6 +1462,42 @@ export interface StockDocument {
   total_is_estimate: boolean;
   transfer_received: boolean;
   journal_entries: { id: string; number: string; date: string }[];
+  count_scope: string;
+}
+
+// Sprint 7.5: GET /stock-documents/{id}/variances/ — quantities and money
+// as exact text. current_qty/drift are null once the count is posted.
+export interface CountVarianceRow {
+  line: string;
+  item: string;
+  item_name: string;
+  item_sku: string;
+  batch_number: string | null;
+  expected_qty: string | null;
+  current_qty: string | null;
+  counted_qty: string | null;
+  variance_qty: string | null;
+  avg_cost: string;
+  variance_value: string | null;
+  drift: string | null;
+}
+
+export interface CountVariances {
+  lines: CountVarianceRow[];
+  shortage_value: string;
+  surplus_value: string;
+  net_value: string;
+  counted_lines: number;
+  total_lines: number;
+}
+
+export interface CountDrift {
+  line: string;
+  item_name: string;
+  batch_number: string | null;
+  expected_qty: string;
+  current_qty: string;
+  drift: string;
 }
 
 export interface StockLevelRow {

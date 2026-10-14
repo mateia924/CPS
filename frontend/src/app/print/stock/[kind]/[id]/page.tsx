@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { Money } from "@/components/Money";
@@ -12,6 +12,7 @@ const DOC_LABEL: Record<StockDocumentKind, string> = {
   receipt: "stockReceiptDoc",
   issue: "stockIssueDoc",
   transfer: "stockTransferDoc",
+  count: "stockCountDoc",
 };
 
 /** Sprint 7.4: /print/stock/<kind>/<id> — same layout as
@@ -19,6 +20,7 @@ const DOC_LABEL: Record<StockDocumentKind, string> = {
  * document data, its lines, server totals, and signature boxes. */
 export default function StockDocumentPrintPage() {
   const { id } = useParams<{ kind: string; id: string }>();
+  const blind = useSearchParams().get("blind") === "1";
   const { t } = useLocale();
   const [doc, setDoc] = useState<StockDocument | null>(null);
   const [entity, setEntity] = useState<LegalEntity | null>(null);
@@ -37,6 +39,7 @@ export default function StockDocumentPrintPage() {
     .filter(Boolean)
     .join("، ");
   const isTransfer = doc.kind === "transfer";
+  const isCount = doc.kind === "count";
   const showCost = doc.status === "posted" || doc.status === "reversed" || doc.kind === "receipt";
 
   return (
@@ -56,8 +59,8 @@ export default function StockDocumentPrintPage() {
           </div>
           <div style={{ textAlign: "end" }}>
             <h2>{t(DOC_LABEL[doc.kind])}</h2>
-            <p>{t("number")}: {doc.number}</p>
-            <p>{t("stockDocDate")}: {formatDate(doc.date, "form")}</p>
+            <p>{t("number")}: {doc.number || `(${t("draft")})`}</p>
+            <p>{isCount ? t("stockCountDate") : t("stockDocDate")}: {formatDate(doc.date, "form")}</p>
           </div>
         </div>
 
@@ -68,9 +71,38 @@ export default function StockDocumentPrintPage() {
           <p><strong>{t("stockToWarehouse")}:</strong> {doc.to_warehouse_name} ({doc.to_legal_entity_name})</p>
         )}
         {doc.party_name && <p><strong>{t("stockParty")}:</strong> {doc.party_name}</p>}
+        {isCount && <p><strong>{t("stockCountScope")}:</strong> {doc.count_scope || t("stockCountWholeWarehouse")}</p>}
         {doc.reference && <p><strong>{t("reference")}:</strong> {doc.reference}</p>}
         {doc.notes && <p><strong>{t("notes")}:</strong> {doc.notes}</p>}
 
+        {isCount ? (
+          // Sprint 7.5: the count sheet — what to count and a box to write
+          // it in. ?blind=1 drops the expected quantity (blind count).
+          <table style={{ marginTop: "1rem", width: "100%" }} data-testid="count-sheet">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>{t("stockItem")}</th>
+                <th>{t("stockBatch")}</th>
+                {!blind && <th>{t("stockExpectedQty")}</th>}
+                <th>{t("stockCountedQty")}</th>
+                <th>{t("stockCountedSerials")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {doc.lines.map((line, i) => (
+                <tr key={line.id}>
+                  <td>{i + 1}</td>
+                  <td>{line.item_sku} — {line.item_name}</td>
+                  <td>{line.batch_number || "—"}</td>
+                  {!blind && <td className="money">{line.expected_qty}</td>}
+                  <td style={{ minWidth: "6rem", borderBottom: "1px solid var(--border)" }} />
+                  <td style={{ minWidth: "10rem", borderBottom: "1px solid var(--border)" }} />
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
         <table style={{ marginTop: "1rem", width: "100%" }}>
           <thead>
             <tr>
@@ -97,7 +129,9 @@ export default function StockDocumentPrintPage() {
             ))}
           </tbody>
         </table>
+        )}
 
+        {!isCount && (
         <p style={{ marginTop: "1rem" }}>
           <strong>{t("stockTotalQty")}:</strong> <span className="money">{doc.total_qty}</span>
           {showCost && (
@@ -106,11 +140,22 @@ export default function StockDocumentPrintPage() {
             </>
           )}
         </p>
+        )}
 
         <div className="print-signatures">
-          <div>{t("stockSignatureStorekeeper")}</div>
-          <div>{t("stockSignatureReceiver")}</div>
-          <div>{t("signatureAccountant")}</div>
+          {isCount ? (
+            <>
+              <div>{t("stockCountSignatureCounter")}</div>
+              <div>{t("stockSignatureStorekeeper")}</div>
+              <div>{t("stockCountSignatureSupervisor")}</div>
+            </>
+          ) : (
+            <>
+              <div>{t("stockSignatureStorekeeper")}</div>
+              <div>{t("stockSignatureReceiver")}</div>
+              <div>{t("signatureAccountant")}</div>
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -377,3 +377,163 @@ def test_stock_receipt_posted_over_http_under_the_restricted_role(settings):
             cur.execute("SELECT count(*) FROM inventory_stockmove WHERE document_id = %s", [doc_id])
             assert cur.fetchone()[0] == 0
         conn.rollback()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_stock_count_posted_over_http_under_the_restricted_role(settings):
+    """Sprint 7.5 (rule 34): the count endpoints — open a session, enter
+    counts, submit/approve/post — write StockMove, ItemCost, StockLevel,
+    BatchStock and SerialNumber (disposed) plus a JournalEntry, all
+    RLS-protected, under FOR UPDATE locks taken twice (once to read the
+    balance the variance is computed on, once by the engine). Same shape as
+    the receipt test above: a real JWT over HTTP on a connection swapped to
+    the restricted role, then every table read back as that role."""
+    from datetime import date
+    from decimal import Decimal
+
+    from django.test import Client as DjangoTestClient
+
+    from apps.access.services import seed_default_roles
+    from apps.accounting.periods import seed_fiscal_year_for_tenant
+    from apps.accounting.services import seed_chart_of_accounts
+    from apps.inventory.models import Warehouse
+    from apps.organization.models import LegalEntity
+    from apps.organization.services import create_default_legal_entities
+    from apps.sales.models import Product
+    from apps.tenants.models import TenantFeatures
+
+    from .factories import ProductFactory
+
+    tenant = TenantFactory(subdomain="rls-count-test")
+    create_default_legal_entities(tenant, tenant.name)
+    seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
+    TenantFeatures.objects.create(tenant_id=tenant.id, inventory=True)
+    owner = UserFactory(tenant=tenant, email="owner@rls-count-test.test", password="RlsCountTest!2026")
+    owner.roles.add(seed_default_roles(tenant)["Owner"])
+    branch = LegalEntity.objects.get(tenant=tenant, code="MAIN-01")
+    warehouse = Warehouse.objects.create(tenant=tenant, legal_entity=branch, code="W1", name="مستودع")
+    plain = ProductFactory(tenant=tenant, sku="P-1", item_type=Product.ItemType.STOCK)
+    batched = ProductFactory(tenant=tenant, sku="B-1", item_type=Product.ItemType.STOCK, tracking="batch")
+    serial = ProductFactory(tenant=tenant, sku="S-1", item_type=Product.ItemType.STOCK, tracking="serial")
+    tenant_id = str(tenant.id)
+
+    original = settings.DATABASES["default"].copy()
+    settings.DATABASES["default"]["USER"] = settings.POSTGRES_APP_USER
+    settings.DATABASES["default"]["PASSWORD"] = settings.POSTGRES_APP_PASSWORD
+    connection.close()
+    connection.settings_dict.update(settings.DATABASES["default"])
+    try:
+        with connection.cursor() as cur:
+            cur.execute("SELECT current_user, rolbypassrls FROM pg_roles WHERE rolname = current_user")
+            assert cur.fetchone() == (settings.POSTGRES_APP_USER, False)  # really the restricted role
+        connection.close()
+        client = DjangoTestClient()
+        login = client.post(
+            "/api/auth/login/",
+            {"subdomain": "rls-count-test", "email": "owner@rls-count-test.test", "password": "RlsCountTest!2026"},
+            content_type="application/json",
+        )
+        assert login.status_code == 200, login.content
+        auth = {"HTTP_AUTHORIZATION": f"Bearer {login.json()['access']}"}
+
+        def through_to_posted(doc_id, body=None):
+            submitted = client.post(f"/api/stock-documents/{doc_id}/submit/", **auth)
+            assert submitted.status_code in (200, 202), submitted.content
+            if submitted.status_code == 202:  # the seeded Owner rule: the sole user may approve
+                approved = client.post(f"/api/stock-documents/{doc_id}/approve/", **auth)
+                assert approved.status_code == 200, approved.content
+            posted = client.post(
+                f"/api/stock-documents/{doc_id}/post/", body or {}, content_type="application/json", **auth
+            )
+            assert posted.status_code == 200, posted.content
+            return posted.json()
+
+        header = {"legal_entity": str(branch.id), "warehouse": str(warehouse.id), "date": "2026-06-10"}
+        receipt = client.post(
+            "/api/stock-documents/",
+            {
+                **header, "kind": "receipt", "lines": [
+                    {"item": str(plain.id), "qty": "10", "unit_cost": "100"},
+                    {"item": str(batched.id), "qty": "10", "unit_cost": "20", "batch_number": "L1"},
+                    {"item": str(serial.id), "qty": "3", "unit_cost": "300", "serials": ["S1", "S2", "S3"]},
+                ],
+            },
+            content_type="application/json", **auth,
+        )
+        assert receipt.status_code == 201, receipt.content
+        through_to_posted(receipt.json()["id"])
+
+        session = client.post(
+            "/api/stock-documents/", {**header, "kind": "count"}, content_type="application/json", **auth,
+        )
+        assert session.status_code == 201, session.content
+        doc_id = session.json()["id"]
+        lines = {line["item"]: line["id"] for line in session.json()["lines"]}
+        assert len(lines) == 3
+        counted = client.post(
+            f"/api/stock-documents/{doc_id}/counts/",
+            {"entries": [
+                {"line": lines[str(plain.id)], "counted_qty": "8"},
+                {"line": lines[str(batched.id)], "counted_qty": "7"},
+                {"line": lines[str(serial.id)], "serials": ["S1"]},
+            ]},
+            content_type="application/json", **auth,
+        )
+        assert counted.status_code == 200, counted.content
+        variances = client.get(f"/api/stock-documents/{doc_id}/variances/", **auth)
+        assert variances.status_code == 200 and variances.json()["shortage_value"] == "860.00", variances.content
+        detail = through_to_posted(doc_id)
+        assert detail["status"] == "posted" and detail["total_value"] == "860.00", detail
+        assert len(detail["journal_entries"]) == 1, detail
+    finally:
+        connection.close()
+        connection.settings_dict.update(original)
+
+    with _app_role_connection() as conn:
+        with conn.cursor() as cur:
+            set_local_tenant_id(cur, tenant_id)
+            cur.execute(
+                "SELECT i.sku, m.qty_base, m.value FROM inventory_stockmove m JOIN sales_product i ON i.id = m.item_id "
+                "WHERE m.document_id = %s ORDER BY i.sku", [doc_id],
+            )
+            assert cur.fetchall() == [
+                ("B-1", Decimal("-3.00"), Decimal("-60.00")),
+                ("P-1", Decimal("-2.00"), Decimal("-200.00")),
+                ("S-1", Decimal("-2.00"), Decimal("-600.00")),
+            ]
+            cur.execute(
+                "SELECT i.sku, c.qty_on_hand, c.total_value FROM inventory_itemcost c "
+                "JOIN sales_product i ON i.id = c.item_id WHERE c.tenant_id = %s ORDER BY i.sku", [tenant_id],
+            )
+            assert cur.fetchall() == [
+                ("B-1", Decimal("7.00"), Decimal("140.00")),
+                ("P-1", Decimal("8.00"), Decimal("800.00")),
+                ("S-1", Decimal("1.00"), Decimal("300.00")),
+            ]
+            cur.execute(
+                "SELECT i.sku, l.qty_on_hand FROM inventory_stocklevel l JOIN sales_product i ON i.id = l.item_id "
+                "WHERE l.warehouse_id = %s ORDER BY i.sku", [str(warehouse.id)],
+            )
+            assert cur.fetchall() == [("B-1", Decimal("7.00")), ("P-1", Decimal("8.00")), ("S-1", Decimal("1.00"))]
+            cur.execute("SELECT qty FROM inventory_batchstock WHERE warehouse_id = %s", [str(warehouse.id)])
+            assert cur.fetchall() == [(Decimal("7.00"),)]
+            cur.execute("SELECT serial, status FROM inventory_serialnumber WHERE item_id = %s ORDER BY serial", [str(serial.id)])
+            assert cur.fetchall() == [("S1", "in_stock"), ("S2", "disposed"), ("S3", "disposed")]
+            cur.execute(
+                "SELECT a.system_key, sum(l.debit), sum(l.credit) FROM accounting_journalline l "
+                "JOIN accounting_journalentry e ON e.id = l.entry_id JOIN accounting_account a ON a.id = l.account_id "
+                "WHERE e.object_id = %s AND e.status = 'posted' AND e.produced_by = 'stock_document' "
+                "GROUP BY a.system_key ORDER BY a.system_key",
+                [doc_id],
+            )
+            assert cur.fetchall() == [
+                ("INVENTORY", Decimal("0.00"), Decimal("860.00")),
+                ("INVENTORY_ADJUSTMENT", Decimal("860.00"), Decimal("0.00")),
+            ]
+            # And the same tenant's rows are invisible with a different tenant id set:
+            set_local_tenant_id(cur, "00000000-0000-0000-0000-000000000000")
+            for table in ("inventory_stockmove", "inventory_batchstock", "inventory_serialnumber"):
+                cur.execute(f"SELECT count(*) FROM {table}")  # noqa: S608 — fixed table names
+                assert cur.fetchone()[0] == 0, table
+        conn.rollback()

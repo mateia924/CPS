@@ -541,6 +541,10 @@ class StockDocument(TenantScopedModel, DocumentStateMixin, SoftDeleteModelMixin)
         "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    # Sprint 7.5, kind=COUNT only: the scope the session was opened with
+    # (category / search), as text for the screen and the count sheet.
+    # Blank = the whole warehouse.
+    count_scope = models.CharField(_("count scope"), max_length=255, blank=True, default="")
 
     class Meta:
         verbose_name_plural = _("stock documents")
@@ -609,6 +613,11 @@ class StockDocumentLine(models.Model):
         _("counted quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES,
         null=True, blank=True,
     )
+    # Sprint 7.5, kind=COUNT, serial-tracked items: the serials actually
+    # scanned. Kept apart from `serials`, which on every kind means "the
+    # serials this line MOVED" — on a posted count that is the missing ones
+    # (marked disposed), and reverse_stock_document copies exactly those.
+    counted_serials = models.ManyToManyField(SerialNumber, blank=True, related_name="count_lines")
 
 
 STOCK_MOVE_IMMUTABLE_MESSAGE = "حركة المخزون المرحَّلة لا تُعدَّل ولا تُحذف — التصحيح يكون بمستند معاكس."

@@ -203,6 +203,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <SidebarLink href="/dashboard/inventory/stock/receipts">{t("stockReceipts")}</SidebarLink>
             <SidebarLink href="/dashboard/inventory/stock/issues">{t("stockIssues")}</SidebarLink>
             <SidebarLink href="/dashboard/inventory/stock/transfers">{t("stockTransfers")}</SidebarLink>
+            <SidebarLink href="/dashboard/inventory/stock/counts">{t("stockCounts")}</SidebarLink>
             <SidebarLink href="/dashboard/inventory/balances">{t("stockBalances")}</SidebarLink>
             <SidebarLink href="/dashboard/inventory/warehouses">{t("warehouses")}</SidebarLink>
             <SidebarLink href="/dashboard/inventory/item-categories">{t("itemCategories")}</SidebarLink>

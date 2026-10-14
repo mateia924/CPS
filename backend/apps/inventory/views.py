@@ -30,6 +30,7 @@ from .models import (
     set_default_warehouse,
 )
 from .serializers import (
+    CountEntriesSerializer,
     InventorySettingsSerializer,
     ItemBarcodeSerializer,
     ItemCategorySerializer,
@@ -42,13 +43,20 @@ from .serializers import (
     WarehouseSerializer,
 )
 from .services import (
+    CountEntryErrors,
     StockDocumentLocked,
+    _fmt_qty,
     approve_stock_document,
     confirm_transfer_receipt,
+    count_drift,
+    count_variances,
+    create_count_session,
     create_stock_document,
+    import_counts_csv,
     post_stock_document,
     reject_stock_document,
     reverse_stock_document,
+    set_counts,
     submit_stock_document,
     update_stock_document,
     withdraw_stock_document,
@@ -236,6 +244,19 @@ class WarehouseViewSet(SoftDeleteViewSetMixin, EntityScopedViewSet):
         return Response(self.get_serializer(warehouse).data)
 
 
+def _decimals_as_text(value):
+    """Count reports are plain dicts, not serializer output — DRF's JSON
+    encoder would send their Decimals as floats. Money and quantities go
+    out as exact text, like every serializer field in the project."""
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, dict):
+        return {k: _decimals_as_text(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_decimals_as_text(v) for v in value]
+    return value
+
+
 def _error_detail(exc):
     """A ValidationError's message(s) as {"detail": "..."} — the engine's
     Arabic text verbatim, never a generic fallback."""
@@ -288,6 +309,9 @@ class StockDocumentViewSet(
         "post": "inventory.post",
         "reverse": "inventory.post",
         "confirm_receipt": "inventory.post",
+        "counts": "inventory.manage",
+        "import_counts": "inventory.manage",
+        "variances": "inventory.view",
     }
 
     def scope_to_accessible_entities(self, queryset):
@@ -339,11 +363,17 @@ class StockDocumentViewSet(
         serializer = StockDocumentInputSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         data = dict(serializer.validated_data)
-        raw_lines = data.pop("lines")
+        raw_lines = data.pop("lines", [])
+        category, search = data.pop("category", None), data.pop("search", "")
         try:
-            document = create_stock_document(
-                request.user.tenant, request.user, data, raw_lines, request=request
-            )
+            if data["kind"] == StockDocument.Kind.COUNT:
+                document = create_count_session(
+                    request.user.tenant, request.user, data, category=category, search=search, request=request,
+                )
+            else:
+                document = create_stock_document(
+                    request.user.tenant, request.user, data, raw_lines, request=request
+                )
         except (ValidationError, ValueError) as exc:
             return Response(_error_detail(exc), status=400)
         return self._done(document, status_code=201)
@@ -360,7 +390,8 @@ class StockDocumentViewSet(
         serializer.is_valid(raise_exception=True)
         data = dict(serializer.validated_data)
         raw_lines = data.pop("lines", None)
-        data.pop("kind", None)
+        for name in ("kind", "category", "search"):
+            data.pop(name, None)
         try:
             update_stock_document(document, request.user, data, raw_lines, request=request)
         except StockDocumentLocked as exc:
@@ -436,8 +467,92 @@ class StockDocumentViewSet(
     @action(detail=True, methods=["post"])
     def post(self, request, pk=None):
         document = self._source_object()
+        if document.kind == StockDocument.Kind.COUNT and request.data.get("acknowledge_drift") is not True:
+            # D16 / 7.5 point (a): the variance posts against the balance
+            # NOW. If that moved since the session opened, say so — by item
+            # — and post only once the user has seen it.
+            drift = count_drift(document)
+            if drift:
+                parts = [
+                    f"«{d['item_name']}{' / ' + d['batch_number'] if d['batch_number'] else ''}»: "
+                    f"عند فتح الجلسة {_fmt_qty(d['expected_qty'])} والرصيد الآن {_fmt_qty(d['current_qty'])} "
+                    f"(الفرق {'+' if d['drift'] > 0 else ''}{_fmt_qty(d['drift'])})"
+                    for d in drift
+                ]
+                return Response(
+                    {
+                        "detail": "تغيّر رصيد أصناف معدودة منذ فتح جلسة الجرد — سيُحسب الفرق على الرصيد الحالي "
+                        "لا على اللقطة: " + "؛ ".join(parts) + ". أعد الترحيل بعد المراجعة لتأكيده.",
+                        "drift": _decimals_as_text(drift),
+                        "code": "count_drift",
+                    },
+                    status=409,
+                )
         error = self._run(post_stock_document, document, request.user, request=request)
         return error or self._done(document)
+
+    # -- count sessions (7.5, D16) ---------------------------------------
+
+    def _count_errors(self, exc):
+        return Response(
+            {"detail": "لم يُطبَّق شيء — صحّح الأخطاء ثم أعد المحاولة.", "errors": exc.errors}, status=400
+        )
+
+    @action(detail=True, methods=["post"])
+    def counts(self, request, pk=None):
+        """Counted quantities by hand: {"entries": [{line, counted_qty, serials}]}
+        — all applied or none (400 with every bad row)."""
+        document = self._source_object()
+        serializer = CountEntriesSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        entries = [
+            {**entry, "row": index, "line": str(entry["line"])}
+            for index, entry in enumerate(serializer.validated_data["entries"], start=1)
+        ]
+        try:
+            set_counts(document, request.user, entries, request=request)
+        except CountEntryErrors as exc:
+            return self._count_errors(exc)
+        except StockDocumentLocked as exc:
+            return Response({"detail": str(exc)}, status=409)
+        except ValidationError as exc:
+            return Response(_error_detail(exc), status=400)
+        return self._done(document)
+
+    @action(detail=True, methods=["post"], url_path="import-counts")
+    def import_counts(self, request, pk=None):
+        """CSV import (multipart `file`, or `csv` as text) — atomic: one
+        invalid row and nothing is applied; the 400 lists every row number
+        and reason."""
+        document = self._source_object()
+        upload = request.FILES.get("file")
+        if upload is not None:
+            if upload.size > 2 * 1024 * 1024:
+                return Response({"detail": "ملف العدّ أكبر من 2 ميجابايت."}, status=400)
+            try:
+                text = upload.read().decode("utf-8-sig")
+            except UnicodeDecodeError:
+                return Response({"detail": "الملف ليس نصًا بترميز UTF-8 — احفظه CSV UTF-8."}, status=400)
+        else:
+            text = request.data.get("csv") or ""
+        try:
+            import_counts_csv(document, request.user, text, request=request)
+        except CountEntryErrors as exc:
+            return self._count_errors(exc)
+        except StockDocumentLocked as exc:
+            return Response({"detail": str(exc)}, status=409)
+        except ValidationError as exc:
+            return Response(_error_detail(exc), status=400)
+        return self._done(document)
+
+    @action(detail=True, methods=["get"])
+    def variances(self, request, pk=None):
+        """«الفروق»: per line snapshot / balance now / counted / variance /
+        value at the average, and the drift since the session opened."""
+        document = self.get_object()
+        if document.kind != StockDocument.Kind.COUNT:
+            return Response({"detail": "تبويب الفروق لجلسات الجرد فقط."}, status=400)
+        return Response(_decimals_as_text(count_variances(document)))
 
     @action(detail=True, methods=["post"])
     def reverse(self, request, pk=None):

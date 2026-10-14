@@ -19,18 +19,21 @@ export const STOCK_KIND_SLUG: Record<StockDocumentKind, string> = {
   receipt: "receipts",
   issue: "issues",
   transfer: "transfers",
+  count: "counts",
 };
 
 const TITLE: Record<StockDocumentKind, string> = {
   receipt: "stockReceipts",
   issue: "stockIssues",
   transfer: "stockTransfers",
+  count: "stockCounts",
 };
 
 const NEW_TITLE: Record<StockDocumentKind, string> = {
   receipt: "newStockReceipt",
   issue: "newStockIssue",
   transfer: "newStockTransfer",
+  count: "newStockCount",
 };
 
 const STATUSES = ["draft", "pending_approval", "approved", "posted", "reversed"] as const;

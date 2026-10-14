@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
 import { ChangeHistoryTab } from "@/components/ChangeHistoryTab";
+import { CountSession } from "@/components/CountSession";
 import { FormField } from "@/components/FormField";
 import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -21,6 +22,7 @@ const DOC_LABEL: Record<StockDocumentKind, string> = {
   receipt: "stockReceiptDoc",
   issue: "stockIssueDoc",
   transfer: "stockTransferDoc",
+  count: "stockCountDoc",
 };
 
 /** Sprint 7.4: one detail screen for all three kinds — same layout as
@@ -43,6 +45,17 @@ export default function StockDocumentDetailPage() {
   useEffect(load, [id]);
 
   if (!doc) return null;
+
+  // Sprint 7.5: a count session has its own screen (count / variances).
+  if (doc.kind === "count") {
+    return (
+      <div>
+        <CountSession doc={doc} reload={load} />
+        <AttachmentPanel targetType="stock_document" targetId={doc.id} />
+        <ChangeHistoryTab targetType="stock_document" targetId={doc.id} />
+      </div>
+    );
+  }
 
   const canManage = hasPermission("inventory.manage");
   const canPost = hasPermission("inventory.post");
