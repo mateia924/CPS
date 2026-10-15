@@ -574,7 +574,7 @@ class StockDocumentViewSet(
 
     @action(detail=True, methods=["post"], url_path="find-item")
     def find_item(self, request, pk=None):
-        """«أضف صنفًا»: {"q": serial / code / barcode / name}. Never adds a
+        """«صنف وُجد وليس في الورقة»: {"q": serial / code / barcode / name}. Never adds a
         line — 200 {line, message} when the session already has it, else
         400 with the reason it can't be counted here."""
         document = self._source_object()

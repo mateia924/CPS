@@ -393,7 +393,7 @@ def zero_cost_surplus_message(items):
     names = "، ".join(f"«{item.name}» ({item.sku}) بزيادة {_fmt_qty(qty)}" for item, qty in items)
     return (
         f"لا تُثبت زيادة جرد بقيمة صفر: الصنف {names} متوسط تكلفته في الشركة صفر. "
-        "أدخل تكلفة وحدة الزيادة في تبويب الفروق، أو حوّل الزيادة إلى إذن استلام."
+        "أدخل تكلفة وحدة الزيادة في تبويب الفروق، أو أدخل الزيادة بإذن إضافة من «أذون الإضافة»."
     )
 
 
@@ -1365,7 +1365,7 @@ class CountEntryErrors(Exception):
 
 # What a counter is told about anything found on the shelf that the
 # session can't take: it goes in on a receipt first, then gets counted.
-NOT_IN_WAREHOUSE = "غير مسجَّل في هذا المستودع — استلمه بإذن استلام ثم أعد العدّ."
+NOT_IN_WAREHOUSE = "غير مسجَّل في هذا المستودع — أدخله بإذن إضافة من «أذون الإضافة» ثم أعد العدّ."
 
 
 def _category_ids_under(category):
@@ -1637,7 +1637,7 @@ def set_surplus_costs(document, user, entries, request=None):
 
 
 def find_count_item(document, query):
-    """«أضف صنفًا» on the count screen: a counter found something the sheet
+    """«صنف وُجد وليس في الورقة» on the count screen: a counter found something the sheet
     doesn't list. A session never takes manual lines — this only says
     where the thing goes: its existing line ({"line", "message"}), or a
     ValidationError naming exactly why it can't be counted here. `query`

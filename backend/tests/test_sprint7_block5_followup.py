@@ -38,7 +38,7 @@ from .test_sprint7_block5 import (
 )
 
 D = Decimal
-NOT_IN_WAREHOUSE = "غير مسجَّل في هذا المستودع — استلمه بإذن استلام ثم أعد العدّ"
+NOT_IN_WAREHOUSE = "غير مسجَّل في هذا المستودع — أدخله بإذن إضافة من «أذون الإضافة» ثم أعد العدّ"
 
 
 @pytest.fixture
@@ -101,7 +101,7 @@ def test_number_2_a_zero_cost_surplus_is_refused_with_400_naming_the_item_and_mo
     assert response.status_code == 400, response.content
     detail = response.data["detail"]
     assert "«صنف بلا تكلفة»" in detail and "ZERO-1" in detail
-    assert "أدخل تكلفة وحدة الزيادة" in detail and "إذن استلام" in detail
+    assert "أدخل تكلفة وحدة الزيادة" in detail and "«أذون الإضافة»" in detail
     session.refresh_from_db()
     assert session.status == StockDocument.Status.APPROVED and not session.number
     assert not StockMove.objects.filter(document=session).exists()
@@ -190,7 +190,7 @@ def test_a_zero_cost_surplus_cannot_be_submitted_for_approval_either(world, clie
     response = client_a.post(f"{URL}{session.id}/submit/")
 
     assert response.status_code == 400
-    assert "«صنف بلا تكلفة»" in response.data["detail"] and "إذن استلام" in response.data["detail"]
+    assert "«صنف بلا تكلفة»" in response.data["detail"] and "«أذون الإضافة»" in response.data["detail"]
     session.refresh_from_db()
     assert session.status == StockDocument.Status.DRAFT
 

@@ -39,6 +39,29 @@ function field(page: Page, name: string) {
   return page.locator(`[data-field="${name}"]`).locator("input, select, textarea").first();
 }
 
+/** Layout, not just text: every cell of the variances table sits under its
+ * own column header. A display:inline-block <td> once pushed figures under
+ * the wrong headings while the DOM order — and every text assertion —
+ * stayed right. Run on each state the tab has: a draft (with «الرصيد الآن»,
+ * where it was seen), posted, and reversed (without it). */
+async function expectCellsUnderTheirHeaders(page: Page) {
+  const misaligned = await page.getByTestId("count-variances").evaluate((card) => {
+    const heads = [...card.querySelectorAll("thead th")].map((th) => ({ text: th.textContent, box: th.getBoundingClientRect() }));
+    const bad: string[] = [];
+    card.querySelectorAll("tbody tr").forEach((tr, r) => {
+      [...tr.children].forEach((td, i) => {
+        const b = td.getBoundingClientRect();
+        const h = heads[i];
+        if (!h || Math.abs(b.left - h.box.left) > 1 || Math.abs(b.right - h.box.right) > 1) {
+          bad.push(`row ${r} cell ${i} «${td.textContent?.trim()}» not under «${h?.text ?? "—"}»`);
+        }
+      });
+    });
+    return bad;
+  });
+  expect(misaligned).toEqual([]);
+}
+
 /** The app's own API, from inside the page — same origin, same token
  * (refreshed once on a 401, the way lib/api.ts does it). */
 async function api(page: Page, method: string, apiPath: string, body?: unknown) {
@@ -155,7 +178,7 @@ test("7.5: count session — shortage + surplus at an entered cost, approved, po
   const refused = page.waitForResponse((r) => r.url().includes("/find-item/"));
   await page.getByRole("button", { name: "حاول الإضافة" }).click();
   expect((await refused).status()).toBe(400);
-  await expect(page.getByText(/E2E-SN-404.*غير مسجَّل في هذا المستودع — استلمه بإذن استلام ثم أعد العدّ/)).toBeVisible();
+  await expect(page.getByText(/E2E-SN-404.*غير مسجَّل في هذا المستودع — أدخله بإذن إضافة من «أذون الإضافة» ثم أعد العدّ/)).toBeVisible();
   // ... and an item already on the sheet is pointed to, not added.
   await field(page, "find_item").fill("E2E-STK-1");
   const pointed = page.waitForResponse((r) => r.url().includes("/find-item/"));
@@ -186,6 +209,7 @@ test("7.5: count session — shortage + surplus at an entered cost, approved, po
   await page.getByRole("heading", { name: /سجل التغييرات/ }).click();
   await expect(page.getByText(/E2E-STK-1 — .*: بالمتوسط → 70\.00/)).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/7.5f-variances-surplus-cost.png`, fullPage: true });
+  await expectCellsUnderTheirHeaders(page);
 
   // The printed count sheet: the entered cost is printed, and the sheet ends
   // with the empty «أصناف وُجدت وليست في الورقة» section to write in.
@@ -218,22 +242,7 @@ test("7.5: count session — shortage + surplus at an entered cost, approved, po
   expect((await posted).status()).toBe(200);
   await expect(page.getByText("مرحّلة").first()).toBeVisible();
   await expect(page.getByTestId("count-variances").locator("tr", { hasText: "E2E-STK-1" })).toContainText("140.00");
-  // Layout, not just text: every cell of the row sits under its own column
-  // header (a display:inline-block <td> once pushed figures under the wrong
-  // headings while the DOM order — and every text assertion — stayed right).
-  const misaligned = await page.getByTestId("count-variances").evaluate((card) => {
-    const heads = [...card.querySelectorAll("thead th")].map((th) => th.getBoundingClientRect());
-    const bad: string[] = [];
-    card.querySelectorAll("tbody tr").forEach((tr, r) => {
-      [...tr.children].forEach((td, i) => {
-        const b = td.getBoundingClientRect();
-        const h = heads[i];
-        if (!h || Math.abs(b.left - h.left) > 1 || Math.abs(b.right - h.right) > 1) bad.push(`row ${r} cell ${i}`);
-      });
-    });
-    return bad;
-  });
-  expect(misaligned).toEqual([]);
+  await expectCellsUnderTheirHeaders(page);
   await page.screenshot({ path: `${SHOTS}/7.5f-count-posted.png`, fullPage: true });
 
   // The numbers, over HTTP.
@@ -271,6 +280,7 @@ test("7.5: reversing the count on the screen", async ({ page }) => {
   await expect(page.getByTestId("count-variances").locator("tr", { hasText: "E2E-STK-1" })).toContainText("140.00");
   await expect(page.getByTestId("count-variances").locator("tr", { hasText: "E2E-SER-1" })).toContainText("−500.00");
   await page.screenshot({ path: `${SHOTS}/7.5f-count-reversed.png`, fullPage: true });
+  await expectCellsUnderTheirHeaders(page);
 
   const tb = await trialBalance(page);
   console.log(`PHASE12 after reverse: 1400=${JSON.stringify(tb.byCode["1400"])} 5070=${JSON.stringify(tb.byCode["5070"])} total Dr=${tb.totalDebit} Cr=${tb.totalCredit}`);
