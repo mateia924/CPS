@@ -459,3 +459,24 @@ def test_the_known_edge_a_line_turned_zero_cost_surplus_after_approval_keeps_its
     assert StockMove.objects.get(document=session).value == D("25.00")
     assert StockLevel.objects.get(item=item, warehouse=world.w1).qty_on_hand == D("4")
     _assert_reconciled(world.tenant, "edge: zero-cost surplus after approval, cost 25 entered, re-approved, posted")
+
+
+def test_the_zero_cost_surplus_message_agrees_in_number_in_both_branches():
+    """One item reads singular, several plural — draft (submit/post) and
+    approved (post after the balance moved) alike."""
+    from types import SimpleNamespace
+
+    from apps.inventory.services import zero_cost_surplus_message
+
+    one = [(SimpleNamespace(name="أ", sku="A-1"), D("2"))]
+    three = one + [(SimpleNamespace(name="ب", sku="B-1"), D("1")), (SimpleNamespace(name="ج", sku="C-1"), D("4"))]
+
+    for approved in (False, True):
+        print(f"\nNUMBER approved={approved}:\n  {zero_cost_surplus_message(one, approved)}\n  {zero_cost_surplus_message(three, approved)}")
+    assert zero_cost_surplus_message(one).startswith("لا تُثبت زيادة جرد بقيمة صفر: الصنف «أ» (A-1) بزيادة 2 متوسط تكلفته في الشركة صفر.")
+    assert zero_cost_surplus_message(three).startswith(
+        "لا تُثبت زيادة جرد بقيمة صفر: الأصناف «أ» (A-1) بزيادة 2، «ب» (B-1) بزيادة 1، «ج» (C-1) بزيادة 4 "
+        "متوسط تكلفتها في الشركة صفر."
+    )
+    assert zero_cost_surplus_message(one, approved=True).startswith("هذا السطر صار زيادة بمتوسط صفر")
+    assert zero_cost_surplus_message(three, approved=True).startswith("هذه الأسطر صارت زيادة بمتوسط صفر")

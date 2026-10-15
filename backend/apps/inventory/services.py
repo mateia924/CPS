@@ -391,16 +391,18 @@ def zero_cost_surplus_message(items, approved=False):
     """`items`: [(item, surplus qty)] — every surplus line whose item has a
     zero company average and no unit cost entered. `approved`: the session
     passed approval without this (the balance moved since) — entering the
-    cost now voids that approval, and the message says so."""
+    cost now voids that approval, and the message says so. One item or
+    several, both branches agree in number."""
+    one = len(items) == 1
     names = "، ".join(f"«{item.name}» ({item.sku}) بزيادة {_fmt_qty(qty)}" for item, qty in items)
     if approved:
-        which = "هذا السطر صار" if len(items) == 1 else "هذه الأسطر صارت"
         return (
-            f"{which} زيادة بمتوسط صفر بعد تغيّر الرصيد ({names}). أدخل تكلفة الوحدة في تبويب الفروق "
-            "— سيعود المستند إلى مسودة ويحتاج اعتمادًا جديدًا."
+            f"{'هذا السطر صار' if one else 'هذه الأسطر صارت'} زيادة بمتوسط صفر بعد تغيّر الرصيد ({names}). "
+            "أدخل تكلفة الوحدة في تبويب الفروق — سيعود المستند إلى مسودة ويحتاج اعتمادًا جديدًا."
         )
     return (
-        f"لا تُثبت زيادة جرد بقيمة صفر: الصنف {names} متوسط تكلفته في الشركة صفر. "
+        f"لا تُثبت زيادة جرد بقيمة صفر: {'الصنف' if one else 'الأصناف'} {names} "
+        f"{'متوسط تكلفته' if one else 'متوسط تكلفتها'} في الشركة صفر. "
         "أدخل تكلفة وحدة الزيادة في تبويب الفروق، أو أدخل الزيادة بإذن إضافة من «أذون الإضافة»."
     )
 
