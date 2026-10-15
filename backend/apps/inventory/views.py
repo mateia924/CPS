@@ -554,7 +554,8 @@ class StockDocumentViewSet(
     @action(detail=True, methods=["post"], url_path="surplus-costs")
     def surplus_costs(self, request, pk=None):
         """{"entries": [{line, unit_cost}]} — the unit cost a surplus enters
-        at ("" = the company average). DRAFT only, all or none."""
+        at ("" = the company average). DRAFT, or APPROVED and unposted —
+        where a change voids the approval (back to DRAFT). All or none."""
         document = self._source_object()
         serializer = SurplusCostsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

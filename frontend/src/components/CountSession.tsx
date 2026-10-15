@@ -31,6 +31,9 @@ interface SurplusCostChange {
 
 /** «سجل التغييرات»: a surplus unit cost change, before -> after per item. */
 function describeChange(entry: AuditLogEntry, atAverage: string): string | null {
+  if (entry.action === "stock_document.approval_voided") {
+    return (entry.after as { reason?: string } | null)?.reason ?? null;
+  }
   if (entry.action !== "stock_document.surplus_cost_set") return null;
   const before = (entry.before as { lines?: SurplusCostChange[] } | null)?.lines ?? [];
   const after = (entry.after as { lines?: SurplusCostChange[] } | null)?.lines ?? [];
@@ -129,10 +132,12 @@ export function CountSession({ doc, reload }: { doc: StockDocument; reload: () =
   const saveSurplusCosts = async () => {
     clearMessages();
     try {
-      await api.post(`/stock-documents/${doc.id}/surplus-costs/`, {
+      const saved = await api.post<StockDocument>(`/stock-documents/${doc.id}/surplus-costs/`, {
         entries: surplusRows.map((row) => ({ line: Number(row.line), unit_cost: costs[row.line] ?? "" })),
       });
-      setNotice(t("stockSurplusCostsSaved"));
+      // The server says whether the approval was voided (a real change on an
+      // approved session); an unchanged save leaves it approved.
+      setNotice(t(isApproved && saved.status === "draft" ? "stockSurplusApprovalVoided" : "stockSurplusCostsSaved"));
       reload();
     } catch (err) {
       const body = (err as { body?: { errors?: ImportError[] } }).body;
@@ -209,7 +214,10 @@ export function CountSession({ doc, reload }: { doc: StockDocument; reload: () =
 
   const frozen = ["draft", "pending_approval", "approved"].includes(doc.status) && !doc.reverses;
   const surplusRows = (variances?.lines ?? []).filter((r) => r.variance_qty !== null && Number(r.variance_qty) > 0);
-  const canEditCost = isDraft && canPost;
+  // An approved, unposted session too: the server sends it back to draft
+  // (the approval is void, the counts stay) — the hint under the button says so.
+  const isApproved = doc.status === "approved";
+  const canEditCost = (isDraft || isApproved) && canPost;
 
   return (
     <div>
@@ -446,6 +454,7 @@ export function CountSession({ doc, reload }: { doc: StockDocument; reload: () =
           {canEditCost && surplusRows.length > 0 && (
             <div style={{ marginTop: "0.75rem" }}>
               <p style={{ color: "var(--muted)" }}>{t("stockSurplusUnitCostHint")}</p>
+              {isApproved && <p style={{ color: "var(--warning)" }}>{t("stockSurplusCostVoidsApproval")}</p>}
               <button className="primary" onClick={saveSurplusCosts}>{t("stockSaveSurplusCosts")}</button>
             </div>
           )}

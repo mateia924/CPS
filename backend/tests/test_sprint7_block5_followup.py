@@ -18,7 +18,14 @@ from decimal import Decimal
 import pytest
 
 from apps.accounting.models import JournalLine
-from apps.inventory.models import ItemCost, SerialNumber, StockDocument, StockLevel, StockMove
+from apps.inventory.models import (
+    InventorySettings,
+    ItemCost,
+    SerialNumber,
+    StockDocument,
+    StockLevel,
+    StockMove,
+)
 from apps.inventory.services import CountEntryErrors, reverse_stock_document
 from apps.platform.models import AuditLog
 from apps.sales.models import Product
@@ -101,7 +108,8 @@ def test_number_2_a_zero_cost_surplus_is_refused_with_400_naming_the_item_and_mo
     assert response.status_code == 400, response.content
     detail = response.data["detail"]
     assert "«صنف بلا تكلفة»" in detail and "ZERO-1" in detail
-    assert "أدخل تكلفة وحدة الزيادة" in detail and "«أذون الإضافة»" in detail
+    assert "أدخل تكلفة الوحدة في تبويب الفروق" in detail
+    assert "سيعود المستند إلى مسودة ويحتاج اعتمادًا جديدًا" in detail
     session.refresh_from_db()
     assert session.status == StockDocument.Status.APPROVED and not session.number
     assert not StockMove.objects.filter(document=session).exists()
@@ -235,7 +243,7 @@ def test_the_surplus_cost_is_in_the_audit_log_before_and_after_and_on_the_line(w
 
 
 @pytest.mark.django_db
-def test_a_surplus_cost_must_be_positive_not_on_a_serial_line_and_only_in_a_draft(world, client_a):
+def test_a_surplus_cost_must_be_positive_not_on_a_serial_line_and_not_while_pending_approval(world, client_a):
     _stock_116(world)
     serial_item, _rows = _serial_item(world, ["IMEI-1"])
     session = _session(world)
@@ -249,8 +257,11 @@ def test_a_surplus_cost_must_be_positive_not_on_a_serial_line_and_only_in_a_draf
     assert _line(session, world.item).surplus_unit_cost is None
 
     assert _set_cost(client_a, session, world.item, "").status_code == 200  # clearing = back to the average
-    assert client_a.post(f"{URL}{session.id}/submit/").status_code == 200
-    assert _set_cost(client_a, session, world.item, "90").status_code == 409
+    session.status = StockDocument.Status.PENDING_APPROVAL
+    session.save(update_fields=["status"])
+    response = _set_cost(client_a, session, world.item, "90")
+    assert response.status_code == 409 and "تُسحب أو تُرفض" in response.data["detail"]
+    assert _line(session, world.item).surplus_unit_cost is None
 
 
 @pytest.mark.django_db
@@ -348,3 +359,103 @@ def test_counting_a_serial_not_in_the_warehouse_names_it_and_one_of_another_item
     assert "IMEI-404" in reason and NOT_IN_WAREHOUSE in reason
     assert "TAB-1" in reason and "«لوحي»" in reason
     assert _line(session, phone).counted_qty is None
+
+
+# ------------------------------------ a cost change voids an approval (the edge)
+
+
+def _approval_trail(session):
+    return list(
+        AuditLog.objects.filter(target_id=session.id, action__startswith="stock_count.")
+        .order_by("created_at").values_list("action", flat=True)
+    )
+
+
+@pytest.mark.django_db
+def test_a_cost_change_on_an_approved_session_voids_the_approval_and_it_cannot_be_posted(world, client_a, user_a):
+    """The guard: approve -> change the cost -> try to post -> refused. The
+    approver approved an amount; the cost changed it, so the approval no
+    longer stands. The counts stay."""
+    _stock_116(world)
+    session = _session(world)
+    _count(world, session, {world.item: "27"})
+    assert client_a.post(f"{URL}{session.id}/submit/").status_code == 200  # no rule -> auto-approved
+    session.refresh_from_db()
+    assert session.status == StockDocument.Status.APPROVED
+
+    changed = _set_cost(client_a, session, world.item, "90")
+    posted = client_a.post(f"{URL}{session.id}/post/", {}, format="json")
+
+    print(f"\nVOID: cost change -> {changed.data['status']}; post -> {posted.status_code} {posted.data}")
+    assert changed.status_code == 200 and changed.data["status"] == StockDocument.Status.DRAFT
+    assert posted.status_code == 400, posted.content
+    session.refresh_from_db()
+    assert session.status == StockDocument.Status.DRAFT and not session.number
+    assert not StockMove.objects.filter(document=session).exists()
+    assert not JournalLine.objects.filter(entry__object_id=session.id).exists()
+    assert _line(session, world.item).counted_qty == D("27")  # the count is kept
+    assert _line(session, world.item).surplus_unit_cost == D("90.00")
+    # Both records say the approval was voided, by whom, and why.
+    voided = AuditLog.objects.get(target_type="stock_document", target_id=session.id, action="stock_document.approval_voided")
+    assert voided.actor_id == user_a.id
+    assert (voided.before["status"], voided.after["status"]) == ("approved", "draft")
+    assert _approval_trail(session) == ["stock_count.submitted", "stock_count.auto_approved", "stock_count.approval_voided"]
+    trail = AuditLog.objects.get(target_type="stock_count", target_id=session.id, action="stock_count.approval_voided")
+    assert trail.after["lines"][0]["unit_cost"] == "90.00"
+
+    # A new approval, then it posts at the new cost: +2 x 90 = 180.00.
+    assert client_a.post(f"{URL}{session.id}/submit/").status_code == 200
+    assert client_a.post(f"{URL}{session.id}/post/", {}, format="json").status_code == 200
+    assert StockMove.objects.get(document=session).value == D("180.00")
+    _assert_reconciled(world.tenant, "void: approved, cost 90 entered (back to draft), re-approved, posted +2 x 90")
+
+
+@pytest.mark.django_db
+def test_an_unchanged_cost_save_on_an_approved_session_leaves_it_approved(world, client_a):
+    _stock_116(world)
+    session = _session(world)
+    _count(world, session, {world.item: "27"})
+    assert _set_cost(client_a, session, world.item, "90").status_code == 200
+    assert client_a.post(f"{URL}{session.id}/submit/").status_code == 200
+
+    response = _set_cost(client_a, session, world.item, "90.00")
+
+    assert response.status_code == 200 and response.data["status"] == StockDocument.Status.APPROVED
+    assert not AuditLog.objects.filter(target_id=session.id, action__endswith="approval_voided").exists()
+
+
+@pytest.mark.django_db
+def test_the_known_edge_a_line_turned_zero_cost_surplus_after_approval_keeps_its_count(world, client_a):
+    """The edge from 7.5: approved with no surplus, then the balance moves
+    (freeze off) and the line becomes a surplus on an item whose average
+    is zero. Posting says the truth; entering the cost sends the session
+    back to draft with the count as it was; a new approval posts it."""
+    item = _zero_average_item(world)
+    world.doc(StockDocument.Kind.RECEIPT, [{"item": item, "qty": "4", "unit_cost": "0"}], DAY)  # samples, no cost
+    InventorySettings.objects.update_or_create(tenant=world.tenant, defaults={"freeze_warehouse_during_count": False})
+    session = _session(world)
+    _count(world, session, {item: "4"})  # matches: no variance, nothing to cost
+    assert client_a.post(f"{URL}{session.id}/submit/").status_code == 200
+    world.doc(StockDocument.Kind.ISSUE, [{"item": item, "qty": "1"}], DAY)  # balance 4 -> 3: the count is now +1
+
+    refused = client_a.post(f"{URL}{session.id}/post/", {"acknowledge_drift": True}, format="json")
+
+    print(f"\nEDGE: {refused.status_code} {refused.data.get('detail')}")
+    assert refused.status_code == 400, refused.content
+    assert refused.data["detail"] == (
+        "هذا السطر صار زيادة بمتوسط صفر بعد تغيّر الرصيد («صنف بلا تكلفة» (ZERO-1) بزيادة 1). "
+        "أدخل تكلفة الوحدة في تبويب الفروق — سيعود المستند إلى مسودة ويحتاج اعتمادًا جديدًا."
+    )
+    session.refresh_from_db()
+    assert session.status == StockDocument.Status.APPROVED
+
+    assert _set_cost(client_a, session, item, "25").data["status"] == StockDocument.Status.DRAFT
+    assert _line(session, item).counted_qty == D("4")  # nobody recounts
+    assert client_a.post(f"{URL}{session.id}/post/", {"acknowledge_drift": True}, format="json").status_code == 400
+    assert client_a.post(f"{URL}{session.id}/submit/").status_code == 200
+    posted = client_a.post(f"{URL}{session.id}/post/", {"acknowledge_drift": True}, format="json")
+
+    assert posted.status_code == 200, posted.content
+    assert StockMove.objects.get(document=session).value == D("25.00")
+    assert StockLevel.objects.get(item=item, warehouse=world.w1).qty_on_hand == D("4")
+    _assert_reconciled(world.tenant, "edge: zero-cost surplus after approval, cost 25 entered, re-approved, posted")

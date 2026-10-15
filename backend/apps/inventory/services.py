@@ -387,10 +387,18 @@ def _count_line_balance(line, levels, batch_levels, warehouse):
     return levels[(line.item_id, warehouse.id)].qty_on_hand
 
 
-def zero_cost_surplus_message(items):
+def zero_cost_surplus_message(items, approved=False):
     """`items`: [(item, surplus qty)] — every surplus line whose item has a
-    zero company average and no unit cost entered."""
+    zero company average and no unit cost entered. `approved`: the session
+    passed approval without this (the balance moved since) — entering the
+    cost now voids that approval, and the message says so."""
     names = "، ".join(f"«{item.name}» ({item.sku}) بزيادة {_fmt_qty(qty)}" for item, qty in items)
+    if approved:
+        which = "هذا السطر صار" if len(items) == 1 else "هذه الأسطر صارت"
+        return (
+            f"{which} زيادة بمتوسط صفر بعد تغيّر الرصيد ({names}). أدخل تكلفة الوحدة في تبويب الفروق "
+            "— سيعود المستند إلى مسودة ويحتاج اعتمادًا جديدًا."
+        )
     return (
         f"لا تُثبت زيادة جرد بقيمة صفر: الصنف {names} متوسط تكلفته في الشركة صفر. "
         "أدخل تكلفة وحدة الزيادة في تبويب الفروق، أو أدخل الزيادة بإذن إضافة من «أذون الإضافة»."
@@ -496,7 +504,9 @@ def _plan_count_moves(document, lines, value_overrides):
             )
         )
     if zero_cost:
-        raise ValidationError(zero_cost_surplus_message(zero_cost))
+        raise ValidationError(
+            zero_cost_surplus_message(zero_cost, approved=document.status == StockDocument.Status.APPROVED)
+        )
     StockDocumentLine.objects.bulk_update(counted, ["qty", "qty_base"])
     for m in moves:
         if m.serial_ids:
@@ -1567,16 +1577,28 @@ def set_counts(document, user, entries, request=None, source="manual", errors=No
 
 @transaction.atomic
 def set_surplus_costs(document, user, entries, request=None):
-    """The unit cost a count surplus enters at, per line — DRAFT only (it
-    changes the amount the approval is judged on). `entries`: [{"row",
-    "line", "unit_cost" (str; "" / None = back to the average)}]. All or
-    nothing, like set_counts. Every change goes to the audit log (before /
-    after per line) — the document's change history."""
+    """The unit cost a count surplus enters at, per line. `entries`:
+    [{"row", "line", "unit_cost" (str; "" / None = back to the average)}].
+    All or nothing, like set_counts. Every change goes to the audit log
+    (before / after per line) — the document's change history.
+
+    DRAFT, or APPROVED and not yet posted. The approver approved an amount,
+    and the cost changes it: on an APPROVED session a real change sends it
+    back to DRAFT — the approval is void, the counts stay — and it posts
+    only after a new approval (post_stock_document wants APPROVED). This is
+    count-only: apps.approvals has no general approved -> draft path
+    (reject/withdraw start from PENDING_APPROVAL), and a session's counts
+    are physical work that a line turning into a zero-cost surplus after
+    approval must not throw away."""
     document.status = StockDocument.objects.select_for_update().get(pk=document.pk).status
     if document.kind != StockDocument.Kind.COUNT:
         raise ValidationError("تكلفة وحدة الزيادة لجلسات الجرد فقط.")
-    if document.status != StockDocument.Status.DRAFT:
-        raise StockDocumentLocked("لا تُعدَّل تكلفة الزيادة إلا في جلسة جرد مسودة.")
+    if document.status == StockDocument.Status.PENDING_APPROVAL:
+        raise StockDocumentLocked(
+            "الجلسة بانتظار الاعتماد — لا تُعدَّل تكلفة الزيادة حتى تُسحب أو تُرفض فتعود مسودة."
+        )
+    if document.status not in (StockDocument.Status.DRAFT, StockDocument.Status.APPROVED):
+        raise StockDocumentLocked("لا تُعدَّل تكلفة الزيادة إلا في جلسة جرد مسودة أو معتمدة لم تُرحَّل.")
 
     lines = {str(line.id): line for line in document.lines.select_related("item")}
     errors, updates, seen = [], [], {}
@@ -1633,7 +1655,32 @@ def set_surplus_costs(document, user, entries, request=None):
         target_type="stock_document", target_id=document.id, tenant_id=document.tenant_id,
         before={"lines": before}, after={"lines": after}, request=request,
     )
+    if document.status == StockDocument.Status.APPROVED:
+        _void_count_approval(document, user, after, request=request)
     return document
+
+
+def _void_count_approval(document, user, changed_lines, request=None):
+    """APPROVED -> DRAFT because the amount changed. Logged twice, on
+    purpose: on the document (its change history, which reads
+    target_type="stock_document") and in the approvals trail
+    (target_type="stock_count", next to its .submitted/.approved), so
+    neither record shows an approval that silently stopped counting."""
+    from apps.approvals.services import _log as log_approval_event
+
+    reason = "تغيّرت تكلفة وحدة الزيادة بعد الاعتماد — المبلغ المعتمد لم يعد مبلغ الجلسة."
+    document.status = StockDocument.Status.DRAFT
+    document.save(update_fields=["status"])
+    log_action(
+        actor_type=AuditLog.ActorType.TENANT_USER, actor_id=user.id, action="stock_document.approval_voided",
+        target_type="stock_document", target_id=document.id, tenant_id=document.tenant_id,
+        before={"status": StockDocument.Status.APPROVED}, after={"status": StockDocument.Status.DRAFT, "reason": reason},
+        request=request,
+    )
+    log_approval_event(
+        document, approval_doc_type(document), user, "approval_voided",
+        after={"reason": reason, "lines": changed_lines}, request=request,
+    )
 
 
 def find_count_item(document, query):

@@ -236,6 +236,39 @@ test("7.5: count session — shortage + surplus at an entered cost, approved, po
   expect((await approved).status()).toBe(200);
   await expect(approver.getByText("معتمدة").first()).toBeVisible();
 
+  // The approver approved an amount. Changing the surplus cost on the
+  // approved session changes it: the session goes back to draft with its
+  // counts kept, cannot be posted, and needs a new approval.
+  await page.reload();
+  await expect(page.getByText("الجلسة معتمدة: تعديل التكلفة يغيّر المبلغ المعتمد")).toBeVisible();
+  const approvedRow = page.getByTestId("count-variances").locator("tr", { hasText: "E2E-STK-1" });
+  await approvedRow.locator("input").fill("75");
+  const voided = page.waitForResponse((r) => r.url().includes("/surplus-costs/"));
+  await page.getByRole("button", { name: "حفظ تكاليف الزيادة" }).click();
+  expect((await voided).status()).toBe(200);
+  await expect(page.getByText("عادت الجلسة مسودة وأُبطل اعتمادها")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "جلسة جرد (مسودة)" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "ترحيل", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "العدّ", exact: true }).click();
+  await expect(page.locator("tr", { hasText: "E2E-STK-1" }).locator("input").first()).toHaveValue("8.00");
+  await page.getByRole("button", { name: "الفروق", exact: true }).click();
+  await page.getByRole("heading", { name: /سجل التغييرات/ }).click();
+  await expect(page.getByText("تغيّرت تكلفة وحدة الزيادة بعد الاعتماد")).toBeVisible();
+  await page.screenshot({ path: `${SHOTS}/7.5f-approval-voided-by-cost-change.png`, fullPage: true });
+  // Back to 70 (the numbers below), submit again, approve again.
+  await page.getByTestId("count-variances").locator("tr", { hasText: "E2E-STK-1" }).locator("input").fill("70");
+  const restored = page.waitForResponse((r) => r.url().includes("/surplus-costs/"));
+  await page.getByRole("button", { name: "حفظ تكاليف الزيادة" }).click();
+  expect((await restored).status()).toBe(200);
+  const resubmitted = page.waitForResponse((r) => r.url().includes("/submit/") && r.request().method() === "POST");
+  await page.getByRole("button", { name: "إرسال للاعتماد" }).click();
+  expect((await resubmitted).status()).toBe(202);
+  await approver.goto(sessionUrl);
+  const reapproved = approver.waitForResponse((r) => r.url().includes("/approve/") && r.request().method() === "POST");
+  await approver.getByRole("button", { name: "اعتماد", exact: true }).click();
+  expect((await reapproved).status()).toBe(200);
+  await expect(approver.getByText("معتمدة").first()).toBeVisible();
+
   await page.reload();
   const posted = page.waitForResponse((r) => r.url().includes("/post/") && r.request().method() === "POST");
   await page.getByRole("button", { name: "ترحيل", exact: true }).click();
