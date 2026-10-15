@@ -113,7 +113,7 @@ export function StockDocumentScreen({ kind }: { kind: StockDocumentKind }) {
                     <td>{formatDate(doc.date, "form")}</td>
                     <td>{doc.warehouse_name} ({doc.legal_entity_name})</td>
                     <td>{doc.to_warehouse_name}</td>
-                    <td className="money">{doc.total_qty}</td>
+                    <td><span className="money">{doc.total_qty}</span></td>
                     <td>
                       {canPost && (
                         <button className="primary" onClick={() => confirmReceipt(doc)}>{t("stockConfirmReceipt")}</button>

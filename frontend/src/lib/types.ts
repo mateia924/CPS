@@ -959,7 +959,9 @@ export type ApprovalDocType =
   // Sprint 6.5 (decision 11).
   | "asset_depreciation" | "asset_addition" | "asset_disposal"
   // Sprint 7.4: stock documents (registered on the backend since 7.0).
-  | "stock_receipt" | "stock_issue" | "stock_transfer";
+  | "stock_receipt" | "stock_issue" | "stock_transfer"
+  // Sprint 7.5 follow-up: the count rule registration seeds (approvals/defaults.py).
+  | "stock_count";
 
 // Sprint 6.3 (3.10/3.16.3): opening balances.
 export type OpeningBalanceKind = "initial" | "adjustment";
@@ -1430,6 +1432,7 @@ export interface StockDocumentLine {
   expected_qty: string | null;
   counted_qty: string | null;
   counted_serial_numbers: string[];
+  surplus_unit_cost: string | null;
 }
 
 export interface StockDocument {
@@ -1478,6 +1481,10 @@ export interface CountVarianceRow {
   counted_qty: string | null;
   variance_qty: string | null;
   avg_cost: string;
+  // Sprint 7.5 follow-up: the entered surplus unit cost (null = average),
+  // and a surplus the posting would refuse (zero average, no cost).
+  surplus_unit_cost: string | null;
+  needs_cost: boolean;
   variance_value: string | null;
   drift: string | null;
 }

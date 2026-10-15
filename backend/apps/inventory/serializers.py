@@ -206,7 +206,7 @@ class StockDocumentLineSerializer(serializers.ModelSerializer):
         fields = (
             "id", "item", "item_name", "item_sku", "item_tracking", "uom", "uom_name", "qty", "qty_base", "unit_cost",
             "cost_center", "cost_center_name", "batch", "batch_number", "batch_expiry", "serial_numbers",
-            "expected_qty", "counted_qty", "counted_serial_numbers",
+            "expected_qty", "counted_qty", "counted_serial_numbers", "surplus_unit_cost",
         )
         read_only_fields = fields
 
@@ -359,6 +359,15 @@ class CountEntrySerializer(serializers.Serializer):
 
 class CountEntriesSerializer(serializers.Serializer):
     entries = CountEntrySerializer(many=True)
+
+
+class SurplusCostEntrySerializer(serializers.Serializer):
+    line = serializers.IntegerField()
+    unit_cost = serializers.CharField(required=False, allow_blank=True, allow_null=True, max_length=30)
+
+
+class SurplusCostsSerializer(serializers.Serializer):
+    entries = SurplusCostEntrySerializer(many=True)
 
 
 class StockDocumentReasonSerializer(serializers.Serializer):

@@ -378,7 +378,7 @@ def test_a_serial_not_in_the_warehouse_cannot_be_counted(world):
 
     with pytest.raises(CountEntryErrors) as exc:
         _count(world, session, {item: ("1", ["IMEI-404"])})
-    assert "IMEI-404" in exc.value.errors[0]["reason"] and "إذن إضافة" in exc.value.errors[0]["reason"]
+    assert "IMEI-404" in exc.value.errors[0]["reason"] and "إذن استلام" in exc.value.errors[0]["reason"]
 
 
 @pytest.mark.django_db

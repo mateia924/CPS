@@ -52,7 +52,8 @@ export default function StockDocumentDetailPage() {
       <div>
         <CountSession doc={doc} reload={load} />
         <AttachmentPanel targetType="stock_document" targetId={doc.id} />
-        <ChangeHistoryTab targetType="stock_document" targetId={doc.id} />
+        {/* The count session's change history (with the surplus-cost
+            describer) is rendered inside CountSession itself. */}
       </div>
     );
   }
@@ -171,7 +172,7 @@ export default function StockDocumentDetailPage() {
                   <tr key={line.id}>
                     <td>{line.item_sku} — {line.item_name}</td>
                     <td>{line.uom_name || t("stockBaseUnit")}</td>
-                    <td className="money">{line.qty}</td>
+                    <td><span className="money">{line.qty}</span></td>
                     <td>{doc.kind === "receipt" || doc.status === "posted" || doc.status === "reversed" ? <Money amount={line.unit_cost} /> : "—"}</td>
                     <td>{line.batch_number ? `${line.batch_number}${line.batch_expiry ? ` (${formatDate(line.batch_expiry, "form")})` : ""}` : "—"}</td>
                     <td>{line.serial_numbers.length ? line.serial_numbers.join("، ") : "—"}</td>

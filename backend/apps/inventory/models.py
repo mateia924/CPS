@@ -618,6 +618,14 @@ class StockDocumentLine(models.Model):
     # serials this line MOVED" — on a posted count that is the missing ones
     # (marked disposed), and reverse_stock_document copies exactly those.
     counted_serials = models.ManyToManyField(SerialNumber, blank=True, related_name="count_lines")
+    # Sprint 7.5 follow-up, kind=COUNT: the unit cost a surplus enters at,
+    # entered on the variance tab (inventory.post). NULL = the company
+    # average at posting — refused when that average is zero
+    # (_plan_count_moves): a surplus never enters at zero silently.
+    surplus_unit_cost = models.DecimalField(
+        _("surplus unit cost"), max_digits=PRICE_MAX_DIGITS, decimal_places=PRICE_DECIMAL_PLACES,
+        null=True, blank=True,
+    )
 
 
 STOCK_MOVE_IMMUTABLE_MESSAGE = "حركة المخزون المرحَّلة لا تُعدَّل ولا تُحذف — التصحيح يكون بمستند معاكس."

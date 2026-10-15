@@ -387,6 +387,16 @@ def _count_line_balance(line, levels, batch_levels, warehouse):
     return levels[(line.item_id, warehouse.id)].qty_on_hand
 
 
+def zero_cost_surplus_message(items):
+    """`items`: [(item, surplus qty)] — every surplus line whose item has a
+    zero company average and no unit cost entered."""
+    names = "، ".join(f"«{item.name}» ({item.sku}) بزيادة {_fmt_qty(qty)}" for item, qty in items)
+    return (
+        f"لا تُثبت زيادة جرد بقيمة صفر: الصنف {names} متوسط تكلفته في الشركة صفر. "
+        "أدخل تكلفة وحدة الزيادة في تبويب الفروق، أو حوّل الزيادة إلى إذن استلام."
+    )
+
+
 def _plan_count_moves(document, lines, value_overrides):
     """Sprint 7.5 (D16): a COUNT's moves.
 
@@ -432,7 +442,7 @@ def _plan_count_moves(document, lines, value_overrides):
                      counter_account=adjustment, batch=line.batch)
         for line in counted
     ]
-    _, levels, batch_levels = _lock_balances(tenant, company, stubs)
+    costs, levels, batch_levels = _lock_balances(tenant, company, stubs)
 
     counted_serials = {}
     through = StockDocumentLine.counted_serials.through
@@ -441,7 +451,7 @@ def _plan_count_moves(document, lines, value_overrides):
     ):
         counted_serials.setdefault(line_id, set()).add(serial_id)
 
-    moves = []
+    moves, zero_cost = [], []
     for line in counted:
         balance = _count_line_balance(line, levels, batch_levels, warehouse)
         variance = line.counted_qty - balance
@@ -468,12 +478,25 @@ def _plan_count_moves(document, lines, value_overrides):
         line.qty = line.qty_base = variance
         if not variance:
             continue
+        # A surplus enters at the unit cost entered on the variance tab, or
+        # else at the company average read under the lock — never at zero:
+        # an item whose average is zero (never received at a cost) needs
+        # the cost entered, or the surplus goes in on a receipt instead.
+        fixed = None
+        if variance > 0:
+            if line.surplus_unit_cost is not None:
+                fixed = _money(variance * line.surplus_unit_cost)
+            elif not costs[line.item_id].avg_cost:
+                zero_cost.append((line.item, variance))
+                continue
         moves.append(
             _PlannedMove(
-                line=line, item=line.item, warehouse=warehouse, qty=variance, fixed_value=None,
+                line=line, item=line.item, warehouse=warehouse, qty=variance, fixed_value=fixed,
                 counter_account=adjustment, batch=line.batch, serial_ids=missing, count=True,
             )
         )
+    if zero_cost:
+        raise ValidationError(zero_cost_surplus_message(zero_cost))
     StockDocumentLine.objects.bulk_update(counted, ["qty", "qty_base"])
     for m in moves:
         if m.serial_ids:
@@ -1282,8 +1305,19 @@ def submit_stock_document(document, user, request=None):
 
     if not document.lines.exists():
         raise ValidationError("لا يُرسَل للاعتماد مستند بلا سطور.")
-    if document.kind == StockDocument.Kind.COUNT and not document.lines.filter(counted_qty__isnull=False).exists():
-        raise ValidationError("لم يُدخَل عدّ لأي سطر في جلسة الجرد — أدخل العدّ قبل الإرسال للاعتماد.")
+    if document.kind == StockDocument.Kind.COUNT:
+        if not document.lines.filter(counted_qty__isnull=False).exists():
+            raise ValidationError("لم يُدخَل عدّ لأي سطر في جلسة الجرد — أدخل العدّ قبل الإرسال للاعتماد.")
+        # The posting refuses a zero-cost surplus (_plan_count_moves); say
+        # so here too, while the session is still a draft and the cost can
+        # still be entered.
+        lines = {line.id: line for line in document.lines.select_related("item")}
+        zero_cost = [
+            (lines[int(row["line"])].item, row["variance_qty"])
+            for row in count_variances(document)["lines"] if row["needs_cost"]
+        ]
+        if zero_cost:
+            raise ValidationError(zero_cost_surplus_message(zero_cost))
     amount = document_totals(document)["total_value"]
     return submit_for_approval(document, user, approval_doc_type(document), amount, request=request)
 
@@ -1327,6 +1361,11 @@ class CountEntryErrors(Exception):
     def __init__(self, errors):
         super().__init__("; ".join(f"{e['row']}: {e['reason']}" for e in errors))
         self.errors = errors
+
+
+# What a counter is told about anything found on the shelf that the
+# session can't take: it goes in on a receipt first, then gets counted.
+NOT_IN_WAREHOUSE = "غير مسجَّل في هذا المستودع — استلمه بإذن استلام ثم أعد العدّ."
 
 
 def _category_ids_under(category):
@@ -1491,11 +1530,22 @@ def set_counts(document, user, entries, request=None, source="manual", errors=No
         }
         unknown = [t for t in serial_texts if t not in found]
         if unknown:
-            errors.append({
-                "row": row,
-                "reason": f"السيريال {', '.join(unknown)} ليس في رصيد المستودع «{document.warehouse.name}» — "
-                "السيريال الزائد يُثبت بإذن إضافة لا بالجرد.",
-            })
+            # Every unknown serial is named — none is dropped. One that is in
+            # this warehouse under another item was scanned on the wrong line.
+            elsewhere = dict(
+                SerialNumber.objects.filter(
+                    tenant=document.tenant, serial__in=unknown, status=SerialNumber.Status.IN_STOCK,
+                    warehouse=document.warehouse,
+                ).exclude(item=line.item).values_list("serial", "item__name")
+            )
+            reasons = [
+                f"السيريال {t} للصنف «{elsewhere[t]}» لا «{line.item.name}» — امسحه في سطر صنفه."
+                for t in unknown if t in elsewhere
+            ]
+            missing = [t for t in unknown if t not in elsewhere]
+            if missing:
+                reasons.insert(0, f"السيريال {', '.join(missing)} {NOT_IN_WAREHOUSE}")
+            errors.append({"row": row, "reason": " ".join(reasons)})
             continue
         updates.append((line, Decimal(len(serial_texts)), [found[t].id for t in serial_texts]))
 
@@ -1513,6 +1563,138 @@ def set_counts(document, user, entries, request=None, source="manual", errors=No
         after={"source": source, "rows": len(updates)}, request=request,
     )
     return document
+
+
+@transaction.atomic
+def set_surplus_costs(document, user, entries, request=None):
+    """The unit cost a count surplus enters at, per line — DRAFT only (it
+    changes the amount the approval is judged on). `entries`: [{"row",
+    "line", "unit_cost" (str; "" / None = back to the average)}]. All or
+    nothing, like set_counts. Every change goes to the audit log (before /
+    after per line) — the document's change history."""
+    document.status = StockDocument.objects.select_for_update().get(pk=document.pk).status
+    if document.kind != StockDocument.Kind.COUNT:
+        raise ValidationError("تكلفة وحدة الزيادة لجلسات الجرد فقط.")
+    if document.status != StockDocument.Status.DRAFT:
+        raise StockDocumentLocked("لا تُعدَّل تكلفة الزيادة إلا في جلسة جرد مسودة.")
+
+    lines = {str(line.id): line for line in document.lines.select_related("item")}
+    errors, updates, seen = [], [], {}
+    for entry in entries:
+        row = entry["row"]
+        line = lines.get(str(entry.get("line")))
+        if line is None:
+            errors.append({"row": row, "reason": "السطر ليس من هذه الجلسة."})
+            continue
+        if str(line.id) in seen:
+            errors.append({"row": row, "reason": f"الصنف «{line.item.name}» مكرر (ورد في الصف {seen[str(line.id)]})."})
+            continue
+        seen[str(line.id)] = row
+        if line.item.tracking == InventorySettings.Tracking.SERIAL:
+            errors.append({
+                "row": row,
+                "reason": f"الصنف «{line.item.name}» متتبَّع بالسيريال — لا زيادة له في الجرد، فلا تكلفة زيادة.",
+            })
+            continue
+        raw = entry.get("unit_cost")
+        cost = None
+        if raw not in (None, ""):
+            cost = _parse_qty(raw)
+            if cost is None:
+                errors.append({"row": row, "reason": f"التكلفة «{raw}» ليست رقمًا صالحًا (خانتان عشريتان كحد أقصى)."})
+                continue
+            if cost <= 0:
+                errors.append({
+                    "row": row,
+                    "reason": f"تكلفة وحدة الزيادة للصنف «{line.item.name}» يجب أن تكون أكبر من صفر.",
+                })
+                continue
+            cost = _money(cost)
+        if line.surplus_unit_cost != cost:
+            updates.append((line, cost))
+
+    if errors:
+        raise CountEntryErrors(sorted(errors, key=lambda e: e["row"]))
+    if not updates:
+        return document
+
+    def text(cost):
+        return None if cost is None else str(cost)
+
+    before = [{"line": line.id, "item": line.item.name, "sku": line.item.sku, "unit_cost": text(line.surplus_unit_cost)}
+              for line, _cost in updates]
+    after = [{"line": line.id, "item": line.item.name, "sku": line.item.sku, "unit_cost": text(cost)}
+             for line, cost in updates]
+    for line, cost in updates:
+        line.surplus_unit_cost = cost
+    StockDocumentLine.objects.bulk_update([u[0] for u in updates], ["surplus_unit_cost"])
+    log_action(
+        actor_type=AuditLog.ActorType.TENANT_USER, actor_id=user.id, action="stock_document.surplus_cost_set",
+        target_type="stock_document", target_id=document.id, tenant_id=document.tenant_id,
+        before={"lines": before}, after={"lines": after}, request=request,
+    )
+    return document
+
+
+def find_count_item(document, query):
+    """«أضف صنفًا» on the count screen: a counter found something the sheet
+    doesn't list. A session never takes manual lines — this only says
+    where the thing goes: its existing line ({"line", "message"}), or a
+    ValidationError naming exactly why it can't be counted here. `query`
+    is a serial, a code, a barcode, or (one match only) part of a name."""
+    from apps.sales.models import Product
+
+    query = (query or "").strip()
+    if not query:
+        raise ValidationError("اكتب رمز الصنف أو الباركود أو السيريال.")
+    warehouse = document.warehouse
+    lines = {}
+    for line in document.lines.select_related("item").order_by("id"):
+        lines.setdefault(line.item_id, line)
+
+    serial = (
+        SerialNumber.objects.filter(tenant=document.tenant, serial=query)
+        .select_related("item", "warehouse").first()
+    )
+    if serial is not None:
+        here = serial.status == SerialNumber.Status.IN_STOCK and serial.warehouse_id == warehouse.id
+        if not here:
+            raise ValidationError(f"السيريال {serial.serial} للصنف «{serial.item.name}» {NOT_IN_WAREHOUSE}")
+        if serial.item_id not in lines:
+            raise ValidationError(
+                f"السيريال {serial.serial} للصنف «{serial.item.name}» خارج نطاق هذه الجلسة "
+                f"({document.count_scope}) — يُعدّ في جلسة جرد لاحقة على هذا المستودع."
+            )
+        line = lines[serial.item_id]
+        return {"line": line.id, "message": f"السيريال {serial.serial} للصنف «{line.item.name}» — امسحه في سطر الصنف."}
+
+    products = Product.objects.filter(tenant=document.tenant, deleted_at__isnull=True)
+    item = (
+        products.filter(sku__iexact=query).first()
+        or products.filter(
+            barcodes__barcode=query, barcodes__is_active=True, barcodes__deleted_at__isnull=True
+        ).first()
+    )
+    if item is None:
+        matches = list(products.filter(Q(sku__icontains=query) | Q(name__icontains=query))[:6])
+        if not matches:
+            raise ValidationError(
+                f"لا صنف ولا سيريال بالرمز «{query}». إن كان سيريالًا فهو {NOT_IN_WAREHOUSE}"
+            )
+        if len(matches) > 1:
+            names = "، ".join(f"«{p.name}» ({p.sku})" for p in matches[:5])
+            raise ValidationError(f"أكثر من صنف يطابق «{query}»: {names} — اكتب الرمز كاملًا.")
+        item = matches[0]
+    if item.item_type != Product.ItemType.STOCK:
+        raise ValidationError(f"«{item.name}» ليس صنفًا مخزنيًا — لا يُجرد.")
+    if item.id in lines:
+        return {"line": lines[item.id].id, "message": f"الصنف «{item.name}» في الجلسة — أدخل عدّه في سطره."}
+    if StockLevel.objects.filter(item=item, warehouse=warehouse).exists():
+        raise ValidationError(
+            f"الصنف «{item.name}» خارج نطاق هذه الجلسة ({document.count_scope}) — "
+            "يُعدّ في جلسة جرد لاحقة على هذا المستودع."
+        )
+    raise ValidationError(f"الصنف «{item.name}» ({item.sku}): هذا الصنف {NOT_IN_WAREHOUSE}")
 
 
 COUNT_CSV_COLUMNS = ("sku", "batch", "counted_qty", "serials")
@@ -1581,7 +1763,8 @@ def count_variances(document):
     """The variance tab. Before posting: per line, the snapshot
     (expected_qty), the balance NOW, the counted quantity, the variance it
     will post (counted − now — not counted − snapshot), its value at the
-    current company average, and the drift (now − snapshot). After posting:
+    current company average (a surplus at its entered surplus_unit_cost
+    when there is one), and the drift (now − snapshot). After posting:
     the variance and value the posting actually moved (StockMove)."""
     from django.db.models import Sum
 
@@ -1619,7 +1802,8 @@ def count_variances(document):
             value = moved.get(line.id, _ZERO) if variance is not None else None
         elif line.counted_qty is not None:
             variance = line.counted_qty - current
-            value = _money(variance * avg)
+            unit = line.surplus_unit_cost if variance > 0 and line.surplus_unit_cost is not None else avg
+            value = _money(variance * unit)
         else:
             variance = value = None
         if value is not None and value < 0:
@@ -1637,6 +1821,10 @@ def count_variances(document):
             "counted_qty": line.counted_qty,
             "variance_qty": variance,
             "avg_cost": avg,
+            "surplus_unit_cost": line.surplus_unit_cost,
+            # A surplus the posting would refuse: zero average, no cost entered.
+            "needs_cost": bool(not posted and variance is not None and variance > 0
+                               and line.surplus_unit_cost is None and not avg),
             "variance_value": value,
             "drift": None if posted else (current - (line.expected_qty or _ZERO)),
         })

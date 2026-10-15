@@ -174,6 +174,71 @@ docker run --rm --network host \
   "$PLAYWRIGHT_IMAGE" \
   sh -c "npx playwright test 11-stock-documents.spec.ts --reporter=list"
 
+# Sprint 7.5 follow-up: count sessions (the D16 path end to end). Seeds
+# the one thing no screen creates yet — a serial-tracked stock item; its
+# serials come in on a receipt the spec itself posts over HTTP. The serial
+# statuses and the reconciliation invariant aren't exposed over HTTP, so
+# they are checked here, in the database, after each of the two tests —
+# every check asserts and prints its numbers.
+echo "[e2e] seeding a serial-tracked item for the count scenario"
+docker exec cps-dev-backend-1 python manage.py shell -c "
+from apps.sales.models import Product
+from apps.tenants.models import Tenant
+t = Tenant.objects.get(subdomain='$SUBDOMAIN')
+item, created = Product.objects.get_or_create(tenant=t, sku='E2E-SER-1', defaults={'name': 'صنف بسيريال e2e', 'unit_price': '900.00', 'tax_rate': '15.00', 'item_type': 'stock', 'tracking': 'serial'})
+assert created and item.tracking == 'serial', 'E2E-SER-1 already existed on a fresh smoke tenant'
+print('[e2e] seeded E2E-SER-1 (serial)')
+"
+
+count_check() {
+  # args: label, expected serial statuses, expected ItemCost (E2E-STK-1), expected ItemCost (E2E-SER-1)
+  docker exec cps-dev-backend-1 python manage.py shell -c "
+from decimal import Decimal as D
+from django.db.models import Sum
+from apps.accounting.models import JournalLine
+from apps.accounting.services import REPORTABLE_STATUSES
+from apps.inventory.models import ItemCost, SerialNumber, StockMove
+from apps.tenants.models import Tenant
+t = Tenant.objects.get(subdomain='$SUBDOMAIN')
+statuses = dict(SerialNumber.objects.filter(tenant=t, item__sku='E2E-SER-1').values_list('serial', 'status'))
+costs = {c.item.sku: (str(c.qty_on_hand), str(c.total_value), str(c.avg_cost)) for c in ItemCost.objects.filter(tenant=t).select_related('item')}
+def bal(key):
+    s = JournalLine.objects.filter(entry__tenant=t, entry__status__in=REPORTABLE_STATUSES, account__system_key=key).aggregate(d=Sum('debit'), c=Sum('credit'))
+    return (s['d'] or D(0)) - (s['c'] or D(0))
+ledger = bal('INVENTORY')
+item_costs = ItemCost.objects.filter(tenant=t).aggregate(v=Sum('total_value'))['v']
+moves = StockMove.objects.filter(tenant=t).aggregate(v=Sum('value'))['v']
+print('[e2e] $1: serials', statuses)
+print('[e2e] $1: ItemCost', costs)
+print('[e2e] $1: INVENTORY ledger', ledger, '| sum ItemCost.total_value', item_costs, '| sum StockMove.value', moves, '| INVENTORY_ADJUSTMENT', bal('INVENTORY_ADJUSTMENT'))
+assert statuses == $2, statuses
+assert costs['E2E-STK-1'] == $3, costs
+assert costs['E2E-SER-1'] == $4, costs
+assert ledger == item_costs == moves, (ledger, item_costs, moves)
+print('[e2e] $1: reconciled')
+"
+}
+
+echo "[e2e] phase 12: count session — open, count (shortage + surplus at an entered cost), approve (second user), post, trial balance"
+docker run --rm --network host \
+  -e E2E_BASE_URL="$BASE_URL" \
+  -v "$ROOT_DIR:/repo" -w /repo/frontend/e2e \
+  "$PLAYWRIGHT_IMAGE" \
+  sh -c "npx playwright test 12-stock-count.spec.ts --grep 'trial balance' --reporter=list"
+count_check "after post" \
+  "{'E2E-SN-1': 'in_stock', 'E2E-SN-2': 'in_stock', 'E2E-SN-3': 'disposed'}" \
+  "('8.00', '740.00', '92.5000')" "('2.00', '1000.00', '500.0000')"
+
+echo "[e2e] phase 12: reversing the count — serials back in stock, averages back"
+docker run --rm --network host \
+  -e E2E_BASE_URL="$BASE_URL" \
+  -v "$ROOT_DIR:/repo" -w /repo/frontend/e2e \
+  "$PLAYWRIGHT_IMAGE" \
+  sh -c "npx playwright test 12-stock-count.spec.ts --grep 'reversing' --reporter=list"
+count_check "after reverse" \
+  "{'E2E-SN-1': 'in_stock', 'E2E-SN-2': 'in_stock', 'E2E-SN-3': 'in_stock'}" \
+  "('6.00', '600.00', '100.0000')" "('3.00', '1500.00', '500.0000')"
+
 echo "[e2e] archiving the smoke-* tenant this run created"
 docker exec cps-dev-backend-1 python manage.py archive_smoke_tenants \
   --force --reason "e2e.sh: disposable smoke tenant this run created, never meant to be reversed"

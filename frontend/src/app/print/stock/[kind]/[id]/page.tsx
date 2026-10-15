@@ -41,6 +41,9 @@ export default function StockDocumentPrintPage() {
   const isTransfer = doc.kind === "transfer";
   const isCount = doc.kind === "count";
   const showCost = doc.status === "posted" || doc.status === "reversed" || doc.kind === "receipt";
+  // A count's entered surplus unit cost is part of the document — printed
+  // whenever there is one, except on a blind sheet (the counter's copy).
+  const showSurplusCost = isCount && !blind && doc.lines.some((l) => l.surplus_unit_cost !== null);
 
   return (
     <div>
@@ -87,6 +90,7 @@ export default function StockDocumentPrintPage() {
                 {!blind && <th>{t("stockExpectedQty")}</th>}
                 <th>{t("stockCountedQty")}</th>
                 <th>{t("stockCountedSerials")}</th>
+                {showSurplusCost && <th>{t("stockSurplusUnitCost")}</th>}
               </tr>
             </thead>
             <tbody>
@@ -95,9 +99,12 @@ export default function StockDocumentPrintPage() {
                   <td>{i + 1}</td>
                   <td>{line.item_sku} — {line.item_name}</td>
                   <td>{line.batch_number || "—"}</td>
-                  {!blind && <td className="money">{line.expected_qty}</td>}
+                  {!blind && <td><span className="money">{line.expected_qty}</span></td>}
                   <td style={{ minWidth: "6rem", borderBottom: "1px solid var(--border)" }} />
                   <td style={{ minWidth: "10rem", borderBottom: "1px solid var(--border)" }} />
+                  {showSurplusCost && (
+                    <td>{line.surplus_unit_cost !== null ? <Money amount={line.surplus_unit_cost} /> : "—"}</td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -121,7 +128,7 @@ export default function StockDocumentPrintPage() {
                 <td>{i + 1}</td>
                 <td>{line.item_sku} — {line.item_name}</td>
                 <td>{line.uom_name || t("stockBaseUnit")}</td>
-                <td className="money">{line.qty}</td>
+                <td><span className="money">{line.qty}</span></td>
                 {showCost && <td><Money amount={line.unit_cost} /></td>}
                 <td>{line.batch_number || "—"}</td>
                 <td>{line.serial_numbers.join("، ") || "—"}</td>
@@ -129,6 +136,35 @@ export default function StockDocumentPrintPage() {
             ))}
           </tbody>
         </table>
+        )}
+
+        {isCount && (
+          // A counter finds goods the sheet doesn't list: they get a place
+          // on paper before they get one in the system (which takes them
+          // only through a receipt, then a recount).
+          <div style={{ marginTop: "1.5rem" }} data-testid="count-sheet-extras">
+            <h3>{t("stockSheetExtrasTitle")}</h3>
+            <table style={{ width: "100%" }}>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>{t("stockSheetExtrasDescription")}</th>
+                  <th>{t("quantity")}</th>
+                  <th>{t("stockSheetExtrasLocation")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: 8 }, (_, i) => (
+                  <tr key={i} style={{ height: "2rem" }}>
+                    <td>{i + 1}</td>
+                    <td style={{ minWidth: "14rem", borderBottom: "1px solid var(--border)" }} />
+                    <td style={{ minWidth: "6rem", borderBottom: "1px solid var(--border)" }} />
+                    <td style={{ minWidth: "8rem", borderBottom: "1px solid var(--border)" }} />
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
 
         {!isCount && (

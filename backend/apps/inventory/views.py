@@ -39,6 +39,7 @@ from .serializers import (
     StockDocumentReasonSerializer,
     StockDocumentSerializer,
     StockLevelSerializer,
+    SurplusCostsSerializer,
     UnitOfMeasureSerializer,
     WarehouseSerializer,
 )
@@ -52,11 +53,13 @@ from .services import (
     count_variances,
     create_count_session,
     create_stock_document,
+    find_count_item,
     import_counts_csv,
     post_stock_document,
     reject_stock_document,
     reverse_stock_document,
     set_counts,
+    set_surplus_costs,
     submit_stock_document,
     update_stock_document,
     withdraw_stock_document,
@@ -311,6 +314,9 @@ class StockDocumentViewSet(
         "confirm_receipt": "inventory.post",
         "counts": "inventory.manage",
         "import_counts": "inventory.manage",
+        "find_item": "inventory.manage",
+        # The surplus unit cost is a valuation decision, not a count.
+        "surplus_costs": "inventory.post",
         "variances": "inventory.view",
     }
 
@@ -544,6 +550,41 @@ class StockDocumentViewSet(
         except ValidationError as exc:
             return Response(_error_detail(exc), status=400)
         return self._done(document)
+
+    @action(detail=True, methods=["post"], url_path="surplus-costs")
+    def surplus_costs(self, request, pk=None):
+        """{"entries": [{line, unit_cost}]} — the unit cost a surplus enters
+        at ("" = the company average). DRAFT only, all or none."""
+        document = self._source_object()
+        serializer = SurplusCostsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        entries = [
+            {**entry, "row": index, "line": str(entry["line"])}
+            for index, entry in enumerate(serializer.validated_data["entries"], start=1)
+        ]
+        try:
+            set_surplus_costs(document, request.user, entries, request=request)
+        except CountEntryErrors as exc:
+            return self._count_errors(exc)
+        except StockDocumentLocked as exc:
+            return Response({"detail": str(exc)}, status=409)
+        except ValidationError as exc:
+            return Response(_error_detail(exc), status=400)
+        return self._done(document)
+
+    @action(detail=True, methods=["post"], url_path="find-item")
+    def find_item(self, request, pk=None):
+        """«أضف صنفًا»: {"q": serial / code / barcode / name}. Never adds a
+        line — 200 {line, message} when the session already has it, else
+        400 with the reason it can't be counted here."""
+        document = self._source_object()
+        if document.kind != StockDocument.Kind.COUNT:
+            return Response({"detail": "البحث عن صنف للعدّ لجلسات الجرد فقط."}, status=400)
+        try:
+            found = find_count_item(document, str(request.data.get("q") or ""))
+        except ValidationError as exc:
+            return Response(_error_detail(exc), status=400)
+        return Response({"line": str(found["line"]), "message": found["message"]})
 
     @action(detail=True, methods=["get"])
     def variances(self, request, pk=None):

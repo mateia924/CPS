@@ -6,12 +6,13 @@ import { useRouter } from "next/navigation";
 import { api, generalError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
+import { ChangeHistoryTab } from "@/components/ChangeHistoryTab";
 import { FormField } from "@/components/FormField";
 import { Money } from "@/components/Money";
 import { StatusBadge } from "@/components/StatusBadge";
 import { WarningsBanner } from "@/components/WarningsBanner";
 import { formatDate } from "@/lib/date";
-import type { CountDrift, CountVariances, StockDocument } from "@/lib/types";
+import type { AuditLogEntry, CountDrift, CountVariances, StockDocument } from "@/lib/types";
 
 interface ImportError {
   row: number;
@@ -20,6 +21,22 @@ interface ImportError {
 
 function splitSerials(text: string): string[] {
   return text.split(/[\n,;\t ]+/).map((s) => s.trim()).filter(Boolean);
+}
+
+interface SurplusCostChange {
+  item: string;
+  sku: string;
+  unit_cost: string | null;
+}
+
+/** «سجل التغييرات»: a surplus unit cost change, before -> after per item. */
+function describeChange(entry: AuditLogEntry, atAverage: string): string | null {
+  if (entry.action !== "stock_document.surplus_cost_set") return null;
+  const before = (entry.before as { lines?: SurplusCostChange[] } | null)?.lines ?? [];
+  const after = (entry.after as { lines?: SurplusCostChange[] } | null)?.lines ?? [];
+  return after
+    .map((a, i) => `${a.sku} — ${a.item}: ${before[i]?.unit_cost ?? atAverage} → ${a.unit_cost ?? atAverage}`)
+    .join("؛ ");
 }
 
 function csvCell(value: string): string {
@@ -43,6 +60,9 @@ export function CountSession({ doc, reload }: { doc: StockDocument; reload: () =
   const [tab, setTab] = useState<"count" | "variances">(isDraft ? "count" : "variances");
   const [qty, setQty] = useState<Record<string, string>>({});
   const [serials, setSerials] = useState<Record<string, string>>({});
+  const [costs, setCosts] = useState<Record<string, string>>({});
+  const [findQuery, setFindQuery] = useState("");
+  const [highlight, setHighlight] = useState<string | null>(null);
   const [variances, setVariances] = useState<CountVariances | null>(null);
   const [drift, setDrift] = useState<CountDrift[] | null>(null);
   const [importErrors, setImportErrors] = useState<ImportError[]>([]);
@@ -55,6 +75,7 @@ export function CountSession({ doc, reload }: { doc: StockDocument; reload: () =
   useEffect(() => {
     setQty(Object.fromEntries(doc.lines.map((l) => [l.id, l.counted_qty ?? ""])));
     setSerials(Object.fromEntries(doc.lines.map((l) => [l.id, l.counted_serial_numbers.join("\n")])));
+    setCosts(Object.fromEntries(doc.lines.map((l) => [l.id, l.surplus_unit_cost ?? ""])));
     api.get<CountVariances>(`/stock-documents/${doc.id}/variances/`).then(setVariances);
   }, [doc]);
 
@@ -85,6 +106,40 @@ export function CountSession({ doc, reload }: { doc: StockDocument; reload: () =
     } catch (err) {
       const body = (err as { body?: { errors?: ImportError[] } }).body;
       if (body?.errors) setImportErrors(body.errors);
+      fail(err);
+    }
+  };
+
+  // «حاول الإضافة»: the server never adds a line — it points to the line
+  // the session already has, or says by name why the thing can't be
+  // counted here (no balance row in this warehouse, a serial not here).
+  const findItem = async () => {
+    clearMessages();
+    setHighlight(null);
+    try {
+      const found = await api.post<{ line: string; message: string }>(`/stock-documents/${doc.id}/find-item/`, { q: findQuery });
+      setNotice(found.message);
+      setHighlight(found.line);
+      document.getElementById(`count-line-${found.line}`)?.scrollIntoView({ block: "center" });
+    } catch (err) {
+      fail(err);
+    }
+  };
+
+  const saveSurplusCosts = async () => {
+    clearMessages();
+    try {
+      await api.post(`/stock-documents/${doc.id}/surplus-costs/`, {
+        entries: surplusRows.map((row) => ({ line: Number(row.line), unit_cost: costs[row.line] ?? "" })),
+      });
+      setNotice(t("stockSurplusCostsSaved"));
+      reload();
+    } catch (err) {
+      const body = (err as { body?: { errors?: ImportError[] } }).body;
+      if (body?.errors) {
+        setError(body.errors.map((e) => e.reason).join(" "));
+        return;
+      }
       fail(err);
     }
   };
@@ -153,6 +208,8 @@ export function CountSession({ doc, reload }: { doc: StockDocument; reload: () =
   };
 
   const frozen = ["draft", "pending_approval", "approved"].includes(doc.status) && !doc.reverses;
+  const surplusRows = (variances?.lines ?? []).filter((r) => r.variance_qty !== null && Number(r.variance_qty) > 0);
+  const canEditCost = isDraft && canPost;
 
   return (
     <div>
@@ -218,9 +275,9 @@ export function CountSession({ doc, reload }: { doc: StockDocument; reload: () =
               {drift.map((d) => (
                 <tr key={d.line}>
                   <td>{d.item_name}{d.batch_number ? ` / ${d.batch_number}` : ""}</td>
-                  <td className="money">{d.expected_qty}</td>
-                  <td className="money">{d.current_qty}</td>
-                  <td className="money">{d.drift}</td>
+                  <td><span className="money">{d.expected_qty}</span></td>
+                  <td><span className="money">{d.current_qty}</span></td>
+                  <td><span className="money">{d.drift}</span></td>
                 </tr>
               ))}
             </tbody>
@@ -239,6 +296,25 @@ export function CountSession({ doc, reload }: { doc: StockDocument; reload: () =
 
       {tab === "count" && (
         <div className="card">
+          {isDraft && canManage && (
+            <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "end", marginBottom: "1rem" }}>
+              <FormField name="find_item" label={t("stockFindItem")} hint={t("stockFindItemHint")}>
+                <input
+                  value={findQuery}
+                  onChange={(e) => setFindQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      findItem();
+                    }
+                  }}
+                />
+              </FormField>
+              <button className="secondary" type="button" onClick={findItem} disabled={!findQuery.trim()}>
+                {t("stockFindItemButton")}
+              </button>
+            </div>
+          )}
           <table>
             <thead>
               <tr>
@@ -250,10 +326,14 @@ export function CountSession({ doc, reload }: { doc: StockDocument; reload: () =
             </thead>
             <tbody>
               {doc.lines.map((line) => (
-                <tr key={line.id}>
+                <tr
+                  key={line.id}
+                  id={`count-line-${line.id}`}
+                  style={highlight === line.id ? { outline: "2px solid var(--warning)" } : undefined}
+                >
                   <td>{line.item_sku} — {line.item_name}</td>
                   <td>{line.batch_number || "—"}</td>
-                  <td className="money">{line.expected_qty}</td>
+                  <td><span className="money">{line.expected_qty}</span></td>
                   <td>
                     {!isDraft || !canManage ? (
                       line.counted_qty === null ? t("stockNotCounted") : (
@@ -311,6 +391,7 @@ export function CountSession({ doc, reload }: { doc: StockDocument; reload: () =
                 <th>{t("stockCountedQty")}</th>
                 <th>{t("stockVarianceQty")}</th>
                 <th>{t("stockAvgCost")}</th>
+                <th>{t("stockSurplusUnitCost")}</th>
                 <th>{t("stockVarianceValue")}</th>
               </tr>
             </thead>
@@ -319,18 +400,37 @@ export function CountSession({ doc, reload }: { doc: StockDocument; reload: () =
                 <tr key={row.line}>
                   <td>{row.item_sku} — {row.item_name}</td>
                   <td>{row.batch_number || "—"}</td>
-                  <td className="money">{row.expected_qty}</td>
+                  <td><span className="money">{row.expected_qty}</span></td>
                   {row.current_qty !== null && (
-                    <td className="money">
-                      {row.current_qty}
+                    <td>
+                      <span className="money">{row.current_qty}</span>
                       {row.counted_qty !== null && row.drift && Number(row.drift) !== 0 && (
-                        <span style={{ color: "var(--warning)" }} title={t("stockDrift")}> ({row.drift})</span>
+                        <span className="money" style={{ color: "var(--warning)" }} title={t("stockDrift")}> ({row.drift})</span>
                       )}
                     </td>
                   )}
-                  <td className="money">{row.counted_qty ?? t("stockNotCounted")}</td>
-                  <td className="money">{row.variance_qty ?? "—"}</td>
+                  <td><span className="money">{row.counted_qty ?? t("stockNotCounted")}</span></td>
+                  <td><span className="money">{row.variance_qty ?? "—"}</span></td>
                   <td><Money amount={row.avg_cost} /></td>
+                  <td>
+                    {row.variance_qty === null || Number(row.variance_qty) <= 0 ? "—" : canEditCost ? (
+                      <FormField name={`surplus.${row.line}.unit_cost`} label={t("stockSurplusUnitCost")} style={{ width: "130px" }}>
+                        <input
+                          inputMode="decimal"
+                          value={costs[row.line] ?? ""}
+                          placeholder={row.avg_cost}
+                          onChange={(e) => setCosts({ ...costs, [row.line]: e.target.value })}
+                        />
+                      </FormField>
+                    ) : row.surplus_unit_cost !== null ? (
+                      <Money amount={row.surplus_unit_cost} />
+                    ) : (
+                      t("stockSurplusAtAverage")
+                    )}
+                    {row.needs_cost && (
+                      <div role="alert" style={{ color: "var(--danger)" }}>{t("stockSurplusNeedsCost")}</div>
+                    )}
+                  </td>
                   <td>{row.variance_value === null ? "—" : <Money amount={row.variance_value} />}</td>
                 </tr>
               ))}
@@ -343,6 +443,12 @@ export function CountSession({ doc, reload }: { doc: StockDocument; reload: () =
             {" — "}{t("stockNetVariance")}: <Money amount={variances.net_value} />
           </p>
           {doc.total_is_estimate && <p style={{ color: "var(--muted)" }}>{t("stockEstimate")}</p>}
+          {canEditCost && surplusRows.length > 0 && (
+            <div style={{ marginTop: "0.75rem" }}>
+              <p style={{ color: "var(--muted)" }}>{t("stockSurplusUnitCostHint")}</p>
+              <button className="primary" onClick={saveSurplusCosts}>{t("stockSaveSurplusCosts")}</button>
+            </div>
+          )}
         </div>
       )}
 
@@ -390,6 +496,12 @@ export function CountSession({ doc, reload }: { doc: StockDocument; reload: () =
           </Link>
         </div>
       )}
+
+      <ChangeHistoryTab
+        targetType="stock_document"
+        targetId={doc.id}
+        describe={(entry) => describeChange(entry, t("stockSurplusAtAverage"))}
+      />
     </div>
   );
 }

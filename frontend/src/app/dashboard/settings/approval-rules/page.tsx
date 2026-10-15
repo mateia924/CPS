@@ -18,8 +18,10 @@ const DOC_TYPES: ApprovalDocType[] = [
   "asset_depreciation", "asset_addition", "asset_disposal",
   // Sprint 7.4: a tenant registered after approvals/0019 has no stock
   // rule at all (registration doesn't seed one), so the picker is the
-  // only way to create it. stock_count stays out until COUNT exists.
-  "stock_receipt", "stock_issue", "stock_transfer",
+  // only way to create it. Sprint 7.5 follow-up: stock_count joins now
+  // that COUNT exists — registration seeds its rule, and until this the
+  // screen could neither name that row nor edit it.
+  "stock_receipt", "stock_issue", "stock_transfer", "stock_count",
 ];
 // iban_change/opening_balance are deliberately absent from DOC_TYPES
 // (below) — both are fixed, non-deletable system rules (approvals/
@@ -40,6 +42,7 @@ const DOC_TYPE_LABEL: Record<ApprovalDocType, string> = {
   stock_receipt: "stockReceiptDoc",
   stock_issue: "stockIssueDoc",
   stock_transfer: "stockTransferDoc",
+  stock_count: "stockCountDoc",
 };
 
 export default function ApprovalRulesPage() {

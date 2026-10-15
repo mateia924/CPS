@@ -32,6 +32,7 @@ const DOC_TYPE_LABEL: Record<PendingApproval["doc_type"], string> = {
   stock_receipt: "stockReceiptDoc",
   stock_issue: "stockIssueDoc",
   stock_transfer: "stockTransferDoc",
+  stock_count: "stockCountDoc",
 };
 
 // Sprint 6.3: fixes a pre-existing gap (sprint 5.5) — an "iban_change"
@@ -51,6 +52,7 @@ const DOC_TYPE_PATH: Record<PendingApproval["doc_type"], string> = {
   stock_receipt: "stock-documents",
   stock_issue: "stock-documents",
   stock_transfer: "stock-documents",
+  stock_count: "stock-documents",
 };
 
 // Sprint 6.9.1 (item C): the emergency tab can show doc_types the
@@ -71,6 +73,7 @@ const EMERGENCY_DOC_TYPE_LABEL: Record<string, string> = {
   stock_receipt: "stockReceiptDoc",
   stock_issue: "stockIssueDoc",
   stock_transfer: "stockTransferDoc",
+  stock_count: "stockCountDoc",
 };
 
 const EMERGENCY_DOC_TYPE_PATH: Record<string, string> = {
@@ -84,6 +87,7 @@ const EMERGENCY_DOC_TYPE_PATH: Record<string, string> = {
   stock_receipt: "inventory/stock",
   stock_issue: "inventory/stock",
   stock_transfer: "inventory/stock",
+  stock_count: "inventory/stock",
 };
 
 export default function ApprovalInboxPage() {

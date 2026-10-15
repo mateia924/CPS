@@ -12,7 +12,17 @@ import type { AuditLogEntry, Paginated } from "@/lib/types";
  * the backend wrote it (e.g. "sales.Invoice", "voucher", "journal_entry" —
  * see each app's log_action() calls), not the AttachmentTargetType
  * short names. */
-export function ChangeHistoryTab({ targetType, targetId }: { targetType: string; targetId: string }) {
+export function ChangeHistoryTab({
+  targetType,
+  targetId,
+  describe,
+}: {
+  targetType: string;
+  targetId: string;
+  // Optional: what changed, for the entries a screen knows how to read
+  // (e.g. a count's surplus unit cost, before -> after). null = no detail.
+  describe?: (entry: AuditLogEntry) => string | null;
+}) {
   const { t } = useLocale();
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<AuditLogEntry[]>([]);
@@ -43,6 +53,7 @@ export function ChangeHistoryTab({ targetType, targetId }: { targetType: string;
                 <th>{t("date")}</th>
                 <th>{t("actor")}</th>
                 <th>{t("action")}</th>
+                {describe && <th>{t("details")}</th>}
               </tr>
             </thead>
             <tbody>
@@ -51,6 +62,7 @@ export function ChangeHistoryTab({ targetType, targetId }: { targetType: string;
                   <td>{formatDateTime(entry.created_at)}</td>
                   <td>{entry.actor_id || "—"}</td>
                   <td>{entry.action}</td>
+                  {describe && <td>{describe(entry) ?? "—"}</td>}
                 </tr>
               ))}
             </tbody>
