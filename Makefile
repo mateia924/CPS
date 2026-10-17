@@ -165,6 +165,8 @@ deploy:
 ## now on happens here, never on port 3000. `staging-refresh` is the
 ## only way its data ever changes (restore latest dev backup + rewrite
 ## every user's password to a known UAT value) — never hand-edited.
+## The script itself requires an explicit --full or --code-only; this
+## target is --full.
 staging-up:
 	$(DC_STAGING) $(STAGING) up -d --build
 
@@ -175,7 +177,7 @@ staging-config:
 	$(DC_STAGING) $(STAGING) config
 
 staging-refresh:
-	./scripts/staging_refresh.sh
+	./scripts/staging_refresh.sh --full
 
 ## Prod (future production host only — never run on this dev host)
 prod-up:

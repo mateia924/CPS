@@ -213,7 +213,7 @@ docs/       SYSTEM_ANALYSIS.md (المرجع الملزم) + CPS_Technical_Archi
     + bind-mount، للكتابة والتجربة فقط — مستأجرات `smoke-*` فقط، لا
     Fatma/acme هنا أو في أي بيئة أخرى.
   - **3001 — staging:** نسخة كاملة مستقلة، حيث يُنفَّذ كل UAT بشري من
-    الآن (`scripts/staging_refresh.sh`).
+    الآن (`scripts/staging_refresh.sh --full`).
 
 ### المنافذ المحجوزة على هذا السيرفر — لا تستخدمها
 

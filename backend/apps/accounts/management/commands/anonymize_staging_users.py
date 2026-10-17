@@ -32,10 +32,21 @@ token. Every restore now also: wipes TOTP/backup codes entirely (2FA
 must be re-enrolled fresh on staging, by design — it was never the
 point of this command to preserve it), clears must_change_password,
 and blacklists every outstanding refresh token for every user.
+
+Pre-deploy 1 (2026-10-17): scripts/staging_refresh.sh --full now runs
+this RIGHT AFTER the restore, before the first gate — so on live's
+restored schema, BEFORE `migrate`, with the new code's models. Every
+query here therefore names its columns (values()/bulk_update(fields)/
+update()) and never loads a whole row: a model loaded whole SELECTs
+every field the NEW code has, and the first deploy that adds a column
+to User or Tenant would fail here on a column the restored schema does
+not have yet. Only columns this command itself rewrites are named —
+all of them present since 6.6.2.
 """
 
 import os
 
+from django.contrib.auth.hashers import make_password
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
@@ -57,33 +68,39 @@ class Command(BaseCommand):
             )
 
         password = options["password"]
-        users = list(User.objects.select_related("tenant").all())
+        rows = list(User.objects.values("pk", "email", "tenant_id", "tenant__subdomain"))
 
+        users = []
         used_emails_by_tenant = {}
-        for user in users:
-            local_part = user.email.split("@", 1)[0]
-            domain = f"{user.tenant.subdomain}.staging.test"
-            used = used_emails_by_tenant.setdefault(user.tenant_id, set())
+        for row in rows:
+            local_part = row["email"].split("@", 1)[0]
+            domain = f"{row['tenant__subdomain']}.staging.test"
+            used = used_emails_by_tenant.setdefault(row["tenant_id"], set())
             candidate = f"{local_part}@{domain}"
             suffix = 2
             while candidate in used:
                 candidate = f"{local_part}-{suffix}@{domain}"
                 suffix += 1
             used.add(candidate)
-            user.email = candidate
-            user.set_password(password)
-            user.must_change_password = False
-            user.totp_secret = ""
-            user.totp_confirmed = False
+            users.append(
+                User(
+                    pk=row["pk"],
+                    email=candidate,
+                    password=make_password(password),
+                    must_change_password=False,
+                    totp_secret="",
+                    totp_confirmed=False,
+                )
+            )
 
         User.objects.bulk_update(
             users, ["email", "password", "must_change_password", "totp_secret", "totp_confirmed"]
         )
         BackupCode.objects.all().delete()
 
-        outstanding = OutstandingToken.objects.all()
         BlacklistedToken.objects.bulk_create(
-            [BlacklistedToken(token=token) for token in outstanding], ignore_conflicts=True
+            [BlacklistedToken(token_id=pk) for pk in OutstandingToken.objects.values_list("pk", flat=True)],
+            ignore_conflicts=True,
         )
         UserSession.objects.filter(revoked_at__isnull=True).update(revoked_at=timezone.now())
 

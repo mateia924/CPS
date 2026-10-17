@@ -14,6 +14,7 @@ there, so the skip can never quietly become "never runs anywhere".
 """
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -94,3 +95,153 @@ def test_caller_runs_the_shared_gates_and_holds_none_of_its_own(caller):
     private = {gate: re.findall(rf"^.*{pattern}.*$", code, re.M) for gate, pattern in GATE_COMMANDS.items()}
     private = {gate: lines for gate, lines in private.items() if lines}
     assert not private, f"{caller} runs production gates of its own instead of the shared definition: {private}"
+
+
+# --- Pre-deploy 1 fixes: the scripts' behavior, not only their text. ---
+# Each test copies the real scripts into tmp_path and runs them with
+# stand-ins for docker, gpg, find and curl that log every call to CALLS
+# (and fail the call whose command line contains FAIL_ON), plus stub
+# backup.sh/smoke.sh. No container, database or port is ever touched.
+
+FAKE_DOCKER = r"""#!/usr/bin/env bash
+echo "docker $*" >> "$CALLS"
+[ -t 0 ] || cat > /dev/null
+if [ -n "${FAIL_ON:-}" ] && [[ "$*" == *"$FAIL_ON"* ]]; then exit 1; fi
+case "$*" in
+  "inspect -f {{.Config.Image}} "*) echo infra-backend ;;
+  "inspect -f {{.Image}} "*) echo sha256:0ld1mage ;;
+  *" ps -a -q") echo "${FAKE_CONTAINERS:-}" ;;
+esac
+"""
+
+
+def _fake_tree(tmp_path):
+    repo = tmp_path / "repo"
+    (repo / "scripts").mkdir(parents=True)
+    (repo / "infra").mkdir()
+    for name in ("staging_refresh.sh", "production_gates.sh"):
+        (repo / "scripts" / name).write_text((SCRIPTS / name).read_text(encoding="utf-8"), encoding="utf-8")
+    (repo / ".env").write_text("CPS_BACKUP_ENCRYPTION_PASSPHRASE=test-passphrase\n")
+    (repo / ".env.staging").write_text("POSTGRES_USER=postgres\nPOSTGRES_DB=cps\nSTAGING_UAT_PASSWORD=uat-pass\n")
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    stubs = {
+        bin_dir / "docker": FAKE_DOCKER,
+        bin_dir / "gpg": '#!/usr/bin/env bash\necho "gpg" >> "$CALLS"\nprintf "SELECT 1;\\n" | gzip -c\n',
+        bin_dir / "find": '#!/usr/bin/env bash\necho "1 /opt/cps-backups/cps-db-test.sql.gz.gpg"\n',
+        bin_dir / "curl": '#!/usr/bin/env bash\necho "curl" >> "$CALLS"\nprintf "%s" "${CURL_STATUS:-502}"\n',
+        repo / "scripts" / "backup.sh": '#!/usr/bin/env bash\necho "backup.sh $*" >> "$CALLS"\n',
+        repo / "scripts" / "smoke.sh": '#!/usr/bin/env bash\necho "smoke.sh $SMOKE_EMAIL" >> "$CALLS"\n',
+    }
+    for path, body in stubs.items():
+        path.write_text(body)
+        path.chmod(0o755)
+
+    calls = tmp_path / "calls.log"
+    calls.write_text("")
+    env = {"PATH": f"{bin_dir}:/usr/local/bin:/usr/bin:/bin", "CALLS": str(calls), "HOME": str(tmp_path)}
+    return repo, calls, env
+
+
+def _run(cmd, cwd, env, **extra_env):
+    return subprocess.run(
+        cmd, cwd=cwd, env={**env, **extra_env}, stdin=subprocess.DEVNULL,
+        capture_output=True, text=True, timeout=60,
+    )
+
+
+@pytest.mark.parametrize(
+    "args, named",
+    [
+        (["--code-onyl"], '"--code-onyl"'),
+        (["--full", "--code-onyl"], '"--code-onyl"'),
+        (["--full", "--code-only"], "--code-only"),
+        ([], "--full"),
+    ],
+)
+def test_staging_refresh_refuses_a_typo_or_a_missing_mode_before_touching_anything(tmp_path, args, named):
+    """`--code-onyl` used to mean "full": wipe staging's UAT data."""
+    repo, calls, env = _fake_tree(tmp_path)
+
+    result = _run(["bash", "scripts/staging_refresh.sh", *args], repo, env)
+
+    assert result.returncode == 2
+    assert named in result.stderr
+    assert "Usage: scripts/staging_refresh.sh --full | --code-only" in result.stderr
+    assert calls.read_text() == "", f"ran something before refusing: {calls.read_text()}"
+
+
+def test_full_refresh_anonymizes_before_the_first_gate_so_a_failed_gate_leaves_no_real_data(tmp_path):
+    repo, calls, env = _fake_tree(tmp_path)
+
+    result = _run(["bash", "scripts/staging_refresh.sh", "--full"], repo, env, FAIL_ON="manage.py migrate")
+
+    assert result.returncode == 1
+    assert 'failed production gate "migrate"' in result.stderr
+    log = calls.read_text().splitlines()
+    restore = next(i for i, line in enumerate(log) if line == "gpg")
+    anonymize = [i for i, line in enumerate(log) if "anonymize_staging_users" in line]
+    first_gate = next(i for i, line in enumerate(log) if "backup.sh --target staging staging_refresh.sh --full (pre-migrate" in line)
+    assert len(anonymize) == 1 and "run --rm --entrypoint  backend" in log[anonymize[0]]
+    assert restore < anonymize[0] < first_gate
+    assert any("manage.py migrate" in line for line in log[first_gate:])
+    # The gate's failure is not an anonymize failure: the data stays.
+    assert not any("--force" in line for line in log)
+
+
+def test_full_refresh_drops_the_database_if_anonymize_does_not_finish(tmp_path):
+    repo, calls, env = _fake_tree(tmp_path)
+
+    result = _run(["bash", "scripts/staging_refresh.sh", "--full"], repo, env, FAIL_ON="anonymize_staging_users")
+
+    assert result.returncode != 0
+    log = calls.read_text().splitlines()
+    assert "dropdb -U postgres --if-exists --force cps" in log[-1]
+    assert "Dropping the staging database" in result.stderr
+    assert not any("pre-migrate" in line or "manage.py migrate" in line for line in log), "a gate ran on real data"
+
+
+@pytest.mark.parametrize("status", ["502", "503", "504", "000"])
+def test_ready_waits_180s_and_on_timeout_says_502_and_prints_the_rollback(tmp_path, status):
+    """504 included: rule 36's outage — nginx's own 60s proxy timeout
+    while every container was `Up` — must not read as "ready"."""
+    shipped = re.search(r"^CPS_READY_TIMEOUT_SECONDS=(\d+)$", _code(GATES_FILE), re.M)
+    assert shipped and int(shipped.group(1)) >= 180
+    # One request outlives nginx's 60s, so a hung backend ends as a 504.
+    max_time = re.search(r"curl -s -o /dev/null --max-time (\d+) ", _code(GATES_FILE))
+    assert max_time and int(max_time.group(1)) > 60
+
+    repo, calls, env = _fake_tree(tmp_path)
+    script = """
+source scripts/production_gates.sh
+GATE_REPO_DIR="$PWD" GATE_COMPOSE="docker compose -p infra" GATE_BACKUP_TARGET=live GATE_HTTP_PORT=3000
+cps_gate_start || exit 9
+CPS_READY_TIMEOUT_SECONDS=3
+cps_gate_ready
+"""
+    result = _run(["bash", "-c", script], repo, env, FAKE_CONTAINERS="c1", CURL_STATUS=status)
+
+    assert result.returncode == 1
+    log = calls.read_text()
+    assert re.search(r"^docker tag sha256:0ld1mage infra-backend:rollback-\d{8}-\d{6}$", log, re.M)
+    assert log.index("tag sha256:0ld1mage") < log.index("compose -p infra up -d")
+    assert "live (port 3000) MAY BE SERVING 502" in result.stderr
+    assert re.search(
+        r"^  cd \S+/infra && docker tag infra-backend:rollback-\d{8}-\d{6} infra-backend:latest && "
+        r"docker compose -p infra up -d --no-build && docker compose -p infra restart nginx$",
+        result.stderr, re.M,
+    )
+    assert f"last status: {status}" in result.stderr
+    assert "Nothing was rolled back automatically" in result.stderr
+
+
+def test_ready_accepts_any_status_that_came_from_django(tmp_path):
+    repo, calls, env = _fake_tree(tmp_path)
+    script = """
+source scripts/production_gates.sh
+GATE_REPO_DIR="$PWD" GATE_COMPOSE="docker compose -p infra" GATE_BACKUP_TARGET=live GATE_HTTP_PORT=3000
+cps_gate_ready
+"""
+    result = _run(["bash", "-c", script], repo, env, CURL_STATUS="200")
+    assert result.returncode == 0, result.stderr

@@ -38,15 +38,87 @@ scripts/deploy.sh
    يطابق حقل `db=` في سطر النسخة بقاعدته هو، لا الوقت وحده) ← `setup_rls` ←
    `verify_rls` (عدد سياسات `tenant_isolation` = عدد الجداول) ←
    `add_missing_system_accounts` ← `check_chart_health --fail-on-findings` ←
-   `start` (`up -d` ثم إعادة تشغيل nginx) ← `ready` (انتظار فعلي حتى يردّ
-   الخادم الخلفي) ← `smoke`.
+   `start` (وسم الصور الحالية `:rollback-<وقت>`، `up -d`، إعادة تشغيل nginx) ←
+   `ready` (انتظار فعلي حتى يردّ الخادم الخلفي، 180 ثانية) ← `smoke`.
 
 `scripts/backup.sh --target dev|staging|live` (الافتراضي live): كل هدف يدمب
 قاعدته هو، وكل سطر في `backups.log` ينتهي بـ`db=<host>/<name>#<system_identifier>`.
 `CPS_SKIP_BACKUP_GUARD` و`CPS_BACKUPS_LOG_PATH` مرفوضان خارج `CPS_ENVIRONMENT=dev`.
 
+**حالة 2026-10-17:** البوابات المشتركة لم تُنفَّذ بعد ولو مرة؛ `tests/test_production_gates.py` يثبت النص لا التشغيل؛ وأول تنفيذ حقيقي سيكون `scripts/staging_refresh.sh --full` على staging.
+
 كل تشغيلة تُسجَّل سطرًا في `docs/ops/deploys.log` (الوقت، الهاش،
 النتيجة OK/FAILED والسبب عند الفشل).
+
+### إن انقضت مهلة `ready` — لا تراجع تلقائي (Pre-deploy 1، 2026-10-17)
+
+عند `ready` تكون `start` قد استبدلت الحاويات فعلًا، فالفشل السريع لا يعيد
+شيئًا؛ لذلك المهلة 180 ثانية لا 30. والطلب الواحد يُمهَل 70 ثانية، أطول من
+مهلة nginx (60) — القاعدة 36 — و`504` يُعَدّ «غير جاهز» مثل `502`/`503`
+(كان يمرّ قبل هذه الكتلة، وهو بالضبط ما ردّ به انقطاع 2026-10-13). إن انقضت يطبع السكربت صراحةً أن الهدف
+(live أو staging) **قد يكون على 502 الآن**، وحالة الحاويات (`ps`)، وسطرًا
+جاهزًا للنسخ يعيد الصور السابقة: `start` تَسِم صورة كل حاوية قائمة قبل
+`up -d` بـ`<image>:rollback-<YYYYmmdd-HHMMSS>`، والأمر يعيد كل وسم إلى
+مكانه ثم `up -d --no-build` وإعادة تشغيل nginx. لا شيء يُشغَّل تلقائيًا:
+اقرأ `logs --tail 100 backend` أولًا. التراجع للكود وحده — **الهجرات تبقى
+مطبَّقة**، والكود السابق يخدم المخطط المهاجَر كما كان يخدمه بين `migrate`
+و`start`. وسوم `rollback-*` القديمة تتراكم وسمًا لكل حاوية في كل نشر؛
+تُحذف يدويًا بـ`docker rmi <image>:rollback-<...>` متى لم تعد مطلوبة.
+
+### هجرة نصف مبنية — الهجرات الثلاث غير الذرية (مسار استئناف يدوي)
+
+ثلاث هجرات تستعمل `AddIndexConcurrently` مع `atomic = False` (`CREATE INDEX
+CONCURRENTLY` لا يعمل داخل معاملة):
+
+| الهجرة | الفهارس |
+|---|---|
+| `accounting.0034_journalentry_accounting_je_entity_date_idx_and_more` | `accounting_je_entity_date_idx`، `accounting_je_status_idx`، `jrnl_line_acct_entry_idx`، `accounting_obe_status_idx`، `accounting_re_status_idx` |
+| `sales.0023_invoice_sales_invoice_entity_date_idx_and_more` | `sales_invoice_entity_date_idx`، `sales_invoice_status_idx` |
+| `vouchers.0005_voucher_vouchers_entity_date_idx_and_more` | `vouchers_entity_date_idx`، `vouchers_status_idx` |
+
+إن سقطت إحداها في منتصفها (انقطاع، قفل، إلغاء) فلا شيء يُرجَع: الفهرس الذي
+كان يُبنى يبقى **غير صالح** (`pg_index.indisvalid = false`) — لا يُستعمل في
+الاستعلامات لكنه يُحدَّث مع كل كتابة — والفهارس التي اكتملت قبله تبقى صالحة،
+والهجرة نفسها **لا تُسجَّل** في `django_migrations`. فإعادة `migrate` تعيد
+الهجرة من أولها وتسقط على `relation "..." already exists`. الاكتشاف (على
+الهدف المعني؛ مثال الحي):
+
+```
+cd /opt/cps/infra && docker compose --env-file /opt/cps/.env -f docker-compose.yml -f docker-compose.local.yml \
+  exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+-- ثم داخل psql:
+SELECT c.relname, i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+ WHERE NOT i.indisvalid OR c.relname IN (
+  'accounting_je_entity_date_idx','accounting_je_status_idx','jrnl_line_acct_entry_idx',
+  'accounting_obe_status_idx','accounting_re_status_idx','sales_invoice_entity_date_idx',
+  'sales_invoice_status_idx','vouchers_entity_date_idx','vouchers_status_idx');
+SELECT app, name FROM django_migrations
+ WHERE name IN ('0034_journalentry_accounting_je_entity_date_idx_and_more',
+                '0023_invoice_sales_invoice_entity_date_idx_and_more',
+                '0005_voucher_vouchers_entity_date_idx_and_more');
+```
+
+الإزالة: لكل هجرة **غير مسجَّلة** في `django_migrations`، احذف كل فهرس من
+فهارسها موجودٍ (صالحًا كان أو لا) — واحدًا واحدًا، خارج أي معاملة:
+
+```
+DROP INDEX CONCURRENTLY IF EXISTS <اسم_الفهرس>;
+```
+
+ثم أعد التشغيل (`scripts/deploy.sh`، أو `staging_refresh.sh` على staging):
+بوابة `migrate` تعيد بناءها كاملة. لا `--fake` ولا حذف لهجرة مسجَّلة.
+
+### ما يكتبه `smoke` على الحي، وبأي حساب
+
+`scripts/smoke.sh` يسجّل الدخول فعلًا، فكل تشغيلة على الحي **تكتب**: سطر
+`AuditLog` (`tenant_user.login`)، وصف `UserSession`، و`OutstandingToken`
+(simplejwt)، وتحديث `last_login`. الحساب الافتراضي على الحي
+`accountant@fatma.test` — مستخدم أُنشئ في UAT سبرنت 4 **داخل مستأجر Fatma
+الحقيقي**، وكلمة سره مكتوبة في `smoke.sh` نفسه. أي أنه **ليس حساب فحص
+مخصصًا**: سجل تدقيق عميل حقيقي يحمل دخول الفحص، و«آخر نشاط» للمستأجر في
+لوحة المنصة يتحرك مع كل نشر. مفتوح: حساب فحص مخصص (مستأجر فحص منفصل) قبل
+أول نشر حي عبر البوابات. على staging يدخل `smoke` بحساب المحاسب المُخفى
+(`accountant@fatma.staging.test` وكلمة `STAGING_UAT_PASSWORD`) في النمطين.
 
 **قبل أي نشر حي: `make test-integration`** (سبرنت 7.0، CI #56/#61) —
 على صندوق التطوير أو staging، حيث ClamAV وMinIO يعملان فعليًا (CI لا
@@ -143,12 +215,17 @@ errors) الكاذبة بلا علاقة بأي تغيير كود حقيقي. **
 نفسها). لا تُعدَّل بياناتها يدويًا أبدًا — فقط عبر:
 
 ```
-scripts/staging_refresh.sh
-# أو: make staging-refresh
+scripts/staging_refresh.sh --full        # أو: make staging-refresh
+scripts/staging_refresh.sh --code-only   # الكود فقط، البيانات كما هي
 ```
 
-يستعيد آخر نسخة احتياطية من `/opt/cps-backups/` (نفس نسخ الحي) إلى
-قاعدة staging المستقلة، ثم يُشغِّل `manage.py anonymize_staging_users`
+النمط **مطلوب صراحةً**: بلا وسيط، أو بوسيط غير معروف (`--code-onyl`)، أو
+بالنمطين معًا، يرفض السكربت قبل أن يلمس أي شيء ويطبع الاستعمال (كان أي
+وسيط غير `--code-only` يعني «امسح staging»؛ Pre-deploy 1، 2026-10-17).
+
+`--full` يستعيد آخر نسخة احتياطية من `/opt/cps-backups/` (نفس نسخ الحي)
+إلى قاعدة staging المستقلة، ثم **مباشرةً، قبل أول بوابة**، يُشغِّل
+`manage.py anonymize_staging_users` في حاوية مؤقتة
 (يرفض العمل خارج `CPS_ENVIRONMENT=staging` بشكل صريح — لا يمكن
 تشغيله بالخطأ على الحي)، الذي:
 - يبقي **الجزء المحلي** من بريد كل مستخدم، ويستبدل النطاق بـ
@@ -171,8 +248,18 @@ scripts/staging_refresh.sh
 تهيئة 2FA (يمسح `totp_secret`/`totp_confirmed`/رموز الاسترداد) ويمسح
 `must_change_password` ويُبطل كل توكن/جلسة لكل مستخدم مُعمَّى — قبل أي
 جلسة UAT قادمة على هذا المنفذ. كما أضاف 6.6.3b خطوة `manage.py
-setup_rls` + فحص عدد سياسات RLS قبل هذه الخطوة مباشرة (التفاصيل
-والقاعدة الكاملة: `docs/ops/RLS.md`).
+setup_rls` + فحص عدد سياسات RLS — اليوم ضمن البوابات المشتركة، بعد
+الإخفاء (التفاصيل والقاعدة الكاملة: `docs/ops/RLS.md`).
+
+**الإخفاء يسبق البوابات (Pre-deploy 1، 2026-10-17):** كان يجري بعد آخر
+بوابة، فكانت بيانات الحي الحقيقية على staging طوال التشغيلة — وإلى الأبد إن
+سقطت بوابة — وكانت بوابة `backup` نفسها تكتبها في ملف ثانٍ تحت
+`/opt/cps-backups/staging`. لا بوابة تحتاج البيانات الأصلية (`smoke` يدخل
+بالحساب المُخفى). ولأنه يجري قبل `migrate`، أي بكود جديد على مخطط الحي،
+لا يحمّل الأمر صفًّا كاملًا بل يسمّي أعمدته. وإن توقف السكربت بين بدء
+الاستعادة ونهاية الإخفاء (استعادة ناقصة، إخفاء فاشل، Ctrl-C) **تُحذف قاعدة
+staging** في `trap EXIT` — قاعدة فارغة تُصلحها إعادة التشغيل، وقاعدة تحمل
+بيانات حقيقية لا.
 
 بعد كل تشغيلة: نفس عدد المستأجرات كالحي (تحقّق يدوي بسيط)، والسكربت
 نفسه يطبع بريد Owner مستأجر Fatma الجديد (بنمط `<subdomain>.staging.
@@ -190,7 +277,7 @@ RLS.md`. **القاعدة التي تهمّ هذا المستند بالتحدي
 > (`cps`/`cps_app`)، أو RLS نفسها (السياسات، `configure_database_
 > roles_and_rls`، الوسيط `AdminDatabaseRoutingMiddleware`/الموجِّه
 > `AdminBypassRouter`) — تُنشر على **staging أولًا** (`make
-> staging-up` + `scripts/staging_refresh.sh` إن احتاجت بيانات جديدة)،
+> staging-up` + `scripts/staging_refresh.sh --full` إن احتاجت بيانات جديدة)،
 > ثم `make smoke` هناك فعليًا، **ثم فقط** على الحي عبر `scripts/
 > deploy.sh` المعتاد. لا نشر مباشر على 3000 لأي كتلة من هذا النوع، بصرف
 > النظر عن نتيجة الاختبارات المحلية وحدها — حادثة 6.6.3 نفسها (ثلاث

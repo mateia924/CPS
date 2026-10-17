@@ -106,25 +106,79 @@ cps_gate_check_chart_health() {
   cps_gate_manage check_chart_health --fail-on-findings
 }
 
+# Pre-deploy 1 (2026-10-17): `build` has already moved every image tag
+# to the new code, but the existing containers still hold the previous
+# images by ID (stopped ones too: staging --full stops backend first) —
+# the last moment anything can name them. Each one is
+# tagged <image>:rollback-<time> (also keeps `docker image prune` off
+# it), and CPS_ROLLBACK_COMMAND is the command that puts them back:
+# printed when `ready` times out, run by a human, never automatically.
+# Migrations are not rolled back by it: the previous code would serve
+# the migrated schema, exactly as it did between `migrate` and `start`.
+CPS_ROLLBACK_COMMAND=""
+cps_record_previous_images() {
+  local stamp container image image_id tags=""
+  stamp="rollback-$(date +%Y%m%d-%H%M%S)"
+  for container in $($GATE_COMPOSE ps -a -q); do
+    image="$(docker inspect -f '{{.Config.Image}}' "$container")" || return 1
+    image_id="$(docker inspect -f '{{.Image}}' "$container")" || return 1
+    case "$image" in *:*) ;; *) image="$image:latest" ;; esac
+    docker tag "$image_id" "${image%:*}:$stamp" || return 1
+    tags="$tags docker tag ${image%:*}:$stamp $image &&"
+  done
+  if [ -z "$tags" ]; then
+    CPS_ROLLBACK_COMMAND=""
+    cps_gate_log "no running containers before start — nothing to roll back to."
+    return 0
+  fi
+  CPS_ROLLBACK_COMMAND="cd $GATE_REPO_DIR/infra &&$tags $GATE_COMPOSE up -d --no-build && $GATE_COMPOSE restart nginx"
+  cps_gate_log "previous images tagged :$stamp (rollback target)."
+}
+
 # nginx resolves "backend" once and keeps the old IP after backend is
 # recreated (6.6.0) — restarting it forces a fresh lookup.
 cps_gate_start() {
-  $GATE_COMPOSE up -d && $GATE_COMPOSE restart nginx
+  cps_record_previous_images && $GATE_COMPOSE up -d && $GATE_COMPOSE restart nginx
 }
 
 # nginx answers before gunicorn binds; any real status from
 # /admin/login/ (never rate-limited, unlike /api/auth/login/) means the
-# request reached Django.
+# request reached Django — except 502/503/504, which are nginx's own.
+# Pre-deploy 1 (2026-10-17): 180s, not 30. By now `start` has already
+# replaced the containers — failing fast brings nothing back, it only
+# gives up on a backend that may be a minute from binding (cold image,
+# collectstatic, a slow first import). Measured by the clock, not by
+# loop turns. Rule 36 (docs/SYSTEM_ANALYSIS.md §4): one request may run
+# 70s, longer than nginx's own 60s proxy timeout, so a backend that
+# accepts and never answers ends as nginx's 504 — counted as NOT ready
+# (before this, 504 passed: the 2026-10-13 outage answered exactly
+# that, with every container `Up`). On timeout it says what the stack
+# may be serving and prints the rollback, ready to copy.
+CPS_READY_TIMEOUT_SECONDS=180
 cps_gate_ready() {
-  local status=""
-  for _ in $(seq 1 30); do
-    status="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$GATE_HTTP_PORT/admin/login/" || true)"
-    if [ "$status" != "502" ] && [ "$status" != "503" ] && [ "$status" != "000" ]; then
+  local status="" deadline=$((SECONDS + CPS_READY_TIMEOUT_SECONDS))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    status="$(curl -s -o /dev/null --max-time 70 -w '%{http_code}' "http://localhost:$GATE_HTTP_PORT/admin/login/" || true)"
+    if [ "$status" != "502" ] && [ "$status" != "503" ] && [ "$status" != "504" ] && [ "$status" != "000" ]; then
       return 0
     fi
-    sleep 1
+    sleep 2
   done
-  echo "ERROR: backend never accepted a connection within 30s (last status: ${status:-none})" >&2
+  {
+    echo "ERROR: backend never accepted a connection within ${CPS_READY_TIMEOUT_SECONDS}s (last status: ${status:-none})."
+    echo "!!! $GATE_BACKUP_TARGET (port $GATE_HTTP_PORT) MAY BE SERVING 502 RIGHT NOW: the containers were already replaced by the new images."
+    echo "Container states:"
+    $GATE_COMPOSE ps 2>&1 || true
+    if [ -n "$CPS_ROLLBACK_COMMAND" ]; then
+      echo "To go back to the previous images (code only — migrations stay applied), copy and run:"
+      echo
+      echo "  $CPS_ROLLBACK_COMMAND"
+      echo
+    else
+      echo "No previous images were recorded (nothing was running before start) — there is nothing to roll back to."
+    fi
+    echo "Nothing was rolled back automatically. Check first: cd $GATE_REPO_DIR/infra && $GATE_COMPOSE logs --tail 100 backend"
+  } >&2
   return 1
 }
 

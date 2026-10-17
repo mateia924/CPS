@@ -36,14 +36,52 @@ set -euo pipefail
 # a migration in this same code change touched a tenant-scoped table)
 # and still runs a real smoke test before declaring success.
 #
-# Usage: scripts/staging_refresh.sh               (full restore, as always)
-#        scripts/staging_refresh.sh --code-only    (code only, data untouched)
-#        make staging-refresh
+# Usage: scripts/staging_refresh.sh --full        (wipe, restore, anonymize)
+#        scripts/staging_refresh.sh --code-only   (code only, data untouched)
+#        make staging-refresh                     (= --full)
+#
+# Pre-deploy 1 (2026-10-17): the mode is a required, explicit flag.
+# Before, only "--code-only" was checked and ANY other argument — or
+# none — meant full: `--code-onyl` (one typo) wiped staging's UAT data,
+# and `--full` worked only because it was not "--code-only". The most
+# destructive mode is now the one that has to be asked for by name, and
+# every argument is checked before anything else runs, .env included.
 
-CODE_ONLY=0
-if [ "${1:-}" = "--code-only" ]; then
-  CODE_ONLY=1
+usage() {
+  echo "Usage: scripts/staging_refresh.sh --full | --code-only" >&2
+  echo "  --full        back up staging's data, wipe it, restore the latest live backup, anonymize it" >&2
+  echo "  --code-only   ship the current code; staging's database is left exactly as it is" >&2
+}
+
+MODE=""
+for arg in "$@"; do
+  case "$arg" in
+    --full|--code-only)
+      if [ -n "$MODE" ]; then
+        echo "ERROR: give exactly one mode — got both $MODE and $arg." >&2
+        usage
+        exit 2
+      fi
+      MODE="$arg"
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "ERROR: unknown argument \"$arg\"." >&2
+      usage
+      exit 2
+      ;;
+  esac
+done
+if [ -z "$MODE" ]; then
+  echo "ERROR: no mode given — staging's data is wiped only on an explicit --full." >&2
+  usage
+  exit 2
 fi
+CODE_ONLY=0
+[ "$MODE" = "--full" ] || CODE_ONLY=1
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKUP_DIR="/opt/cps-backups"
@@ -86,8 +124,8 @@ fi
 # runs production's own gates — not a copy of them: scripts/
 # production_gates.sh, the same file scripts/deploy.sh sources. This
 # script's own steps are only what is truly staging's: build, and in
-# full mode back up staging's data, wipe it and restore live's dump;
-# after the gates, anonymize. Both modes reach the one cps_run_gates
+# full mode back up staging's data, wipe it, restore live's dump and
+# anonymize it — before the first gate. Both modes reach the one cps_run_gates
 # call below. (Before: full mode had no smoke and no readiness poll,
 # neither mode ran add_missing_system_accounts or check_chart_health,
 # and both "satisfied" the migrate guard by backing up LIVE — 2026-10-10
@@ -104,11 +142,51 @@ cd "$REPO_DIR/infra"
 log "building images from the current code"
 $COMPOSE build
 
+# Pre-deploy 1: smoke logs in with the anonymized credentials in both
+# modes — full mode anonymizes before the first gate now, so live's own
+# logins (smoke.sh's defaults) no longer exist on staging by the time
+# smoke runs.
+export SMOKE_SUBDOMAIN="${STAGING_SMOKE_SUBDOMAIN:-fatma}"
+export SMOKE_EMAIL="${STAGING_SMOKE_EMAIL:-accountant@fatma.staging.test}"
+export SMOKE_PASSWORD="${STAGING_SMOKE_PASSWORD:-$STAGING_UAT_PASSWORD}"
+
+# Pre-deploy 1 (2026-10-17): anonymize is what makes a restored copy
+# safe to hold at all, not a finishing touch. It used to run after every
+# gate passed, so live's real emails and password hashes sat on staging
+# for the whole run — and for good, if a gate failed (backend stopped,
+# data real, one `up -d` away from serving it). It also meant gate 1
+# (backup) wrote live's real data into a second file, under
+# /opt/cps-backups/staging. Now it runs straight after the restore, in a
+# one-off container (the persistent backend is stopped here), before
+# the first gate — no gate needs live's real logins: smoke uses the
+# anonymized ones above, and nothing else reads an email or a password.
+# It runs on live's schema BEFORE migrate, which is why the command
+# names every column it touches (its docstring).
+#
+# REAL_DATA_ON_STAGING marks the window from the start of the restore to
+# the end of anonymize. If the script leaves that window any way other
+# than through a finished anonymize — restore failed half-way, anonymize
+# failed, Ctrl-C — the EXIT trap drops the staging database: an empty
+# staging is a rerun away from fine; one holding live's real logins is
+# not. This mode's first step already backed up staging's own data.
+REAL_DATA_ON_STAGING=0
+drop_unanonymized_data() {
+  local rc=$?
+  trap - EXIT INT TERM HUP
+  if [ "$REAL_DATA_ON_STAGING" = "1" ]; then
+    echo "ERROR: stopped between the restore and the end of anonymize — staging may hold live's real logins. Dropping the staging database." >&2
+    if $COMPOSE exec -T postgres dropdb -U "$POSTGRES_USER" --if-exists --force "$POSTGRES_DB" </dev/null; then
+      echo "Dropped. Staging has no database now; backend/celery_worker stay stopped. Rerun scripts/staging_refresh.sh --full." >&2
+    else
+      echo "CRITICAL: could NOT drop $POSTGRES_DB — it may hold live's real, unanonymized users. Do not start backend; drop it by hand: cd $REPO_DIR/infra && $COMPOSE exec -T postgres dropdb -U $POSTGRES_USER --force $POSTGRES_DB" >&2
+    fi
+    rc=1
+  fi
+  exit "$rc"
+}
+
 if [ "$CODE_ONLY" = "0" ]; then
   GATE_BACKUP_REASON="staging_refresh.sh --full (pre-migrate, restored data)"
-  # smoke runs before anonymize: the restored users still carry live's
-  # logins, so smoke.sh's own defaults (Fatma's accountant) are right.
-  export SMOKE_SUBDOMAIN="${FULL_SMOKE_SUBDOMAIN:-fatma}"
 
   log "bringing up staging's postgres (project cps-staging) — the rest starts at the gates"
   $COMPOSE up -d postgres
@@ -127,6 +205,12 @@ if [ "$CODE_ONLY" = "0" ]; then
   $COMPOSE exec -T postgres dropdb -U "$POSTGRES_USER" --if-exists "$POSTGRES_DB"
   $COMPOSE exec -T postgres createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" "$POSTGRES_DB"
 
+  trap drop_unanonymized_data EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+  REAL_DATA_ON_STAGING=1
+
   # A LOGICAL restore (pg_dump's SQL into psql), and it must stay one —
   # never turn this into copying live's data directory or volume. The
   # migrate guard tells databases apart by the cluster's
@@ -139,13 +223,12 @@ if [ "$CODE_ONLY" = "0" ]; then
   log "decrypting and restoring the live backup into it"
   gpg --batch --yes --passphrase "$CPS_BACKUP_ENCRYPTION_PASSPHRASE" --decrypt "$LATEST_BACKUP" 2>/dev/null \
     | gunzip -c | $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 > /dev/null
+
+  log "anonymizing every user's email domain and rewriting their password, re-arming 2FA, and invalidating sessions — before any gate"
+  $COMPOSE run --rm --entrypoint '' backend python manage.py anonymize_staging_users --password "$STAGING_UAT_PASSWORD"
+  REAL_DATA_ON_STAGING=0
 else
   GATE_BACKUP_REASON="staging_refresh.sh --code-only"
-  # No anonymize ran, so this uses whatever the current UAT session's own
-  # Fatma Accountant credentials already are.
-  export SMOKE_SUBDOMAIN="${CODE_ONLY_SMOKE_SUBDOMAIN:-fatma}"
-  export SMOKE_EMAIL="${CODE_ONLY_SMOKE_EMAIL:-accountant@fatma.staging.test}"
-  export SMOKE_PASSWORD="${CODE_ONLY_SMOKE_PASSWORD:-$STAGING_UAT_PASSWORD}"
 fi
 
 if ! cps_run_gates; then
@@ -157,9 +240,6 @@ if [ "$CODE_ONLY" = "1" ]; then
   log "done — staging is now running the current code, UAT session data untouched."
   exit 0
 fi
-
-log "anonymizing every user's email domain and rewriting their password, re-arming 2FA, and invalidating sessions"
-$COMPOSE exec -T backend python manage.py anonymize_staging_users --password "$STAGING_UAT_PASSWORD"
 
 TENANT_COUNT="$($COMPOSE exec -T backend python manage.py shell -c \
   "from apps.tenants.models import Tenant; print(Tenant.objects.count())" | tail -1 | tr -d '\r')"

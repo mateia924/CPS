@@ -9,6 +9,7 @@ crashing. Real Postgres throughout (§11)."""
 
 import pytest
 from django.core.management import CommandError, call_command
+from django.db import connection
 from django.utils import timezone
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -116,6 +117,31 @@ def test_invalidates_outstanding_tokens_and_sessions_when_staging(monkeypatch):
     assert BlacklistedToken.objects.filter(token=outstanding).exists()
     session.refresh_from_db()
     assert session.revoked_at is not None
+
+
+@pytest.mark.django_db
+def test_runs_on_a_restored_schema_that_predates_the_new_codes_columns(monkeypatch):
+    """Pre-deploy 1: staging_refresh.sh --full runs this before `migrate`
+    — the NEW code's models on live's OLD schema. Simulated by dropping,
+    inside this test's own transaction (Postgres DDL rolls back with it),
+    a column of User and of Tenant that the models still declare but
+    this command never rewrites: exactly the shape of a pending
+    migration that adds one."""
+    monkeypatch.setenv("CPS_ENVIRONMENT", "staging")
+    tenant = TenantFactory(subdomain="fatma")
+    user = UserFactory(tenant=tenant, email="owner@gmail.com", totp_confirmed=True)
+    with connection.cursor() as cursor:
+        # The factories' deferred FK checks must fire first: ALTER TABLE
+        # refuses a table with pending trigger events.
+        cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+        cursor.execute("ALTER TABLE accounts_user DROP COLUMN notify_approvals_email")
+        cursor.execute("ALTER TABLE tenants_tenant DROP COLUMN storage_used_bytes")
+
+    call_command("anonymize_staging_users", "--password", "Staging@2026!")
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT email, totp_confirmed FROM accounts_user WHERE id = %s", [user.pk])
+        assert cursor.fetchone() == ("owner@fatma.staging.test", False)
 
 
 @pytest.mark.django_db
