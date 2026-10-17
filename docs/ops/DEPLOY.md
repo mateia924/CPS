@@ -30,16 +30,20 @@ scripts/deploy.sh
 
 الخطوات، بالترتيب، وتتوقف عند أول فشل:
 
-1. **نسخة احتياطية** (`scripts/backup.sh`) — تسجّل سطرًا في
-   `docs/ops/backups.log`؛ هذا ما يُرضي حارس migrate في الخطوة 3.
-2. **بناء الصور** من الشيفرة الحالية (`docker compose build`).
-3. **الهجرات** — بحاوية مؤقتة من الصورة الجديدة؛ حارس
-   `apps.tenants.management.commands.migrate` يرفض أي migration
-   معلَّقة بلا نسخة احتياطية أحدث من 15 دقيقة (الخطوة 1 أعلاه توفّرها).
-4. **إعادة التشغيل** من الصور الجديدة (`docker compose up -d`).
-5. **`make smoke`** — مع انتظار فعلي (لا تخمين) حتى يستجيب الخادم
-   الخلفي فعليًا قبل الفحص، لتفادي نافذة "502" اللحظية بين إقلاع nginx
-   وإقلاع gunicorn الكاملين.
+1. **بناء الصور** من الشيفرة الحالية (`docker compose build`).
+2. **بوابات الإنتاج** — معرَّفة مرة واحدة في `scripts/production_gates.sh`،
+   ويشغّلها `scripts/staging_refresh.sh` (البروفة، بنمطيها) بالتعريف نفسه
+   (القاعدة 32؛ Pre-deploy 1، 2026-10-17):
+   `backup` (`scripts/backup.sh --target live`) ← `migrate` (حاوية مؤقتة؛ الحارس
+   يطابق حقل `db=` في سطر النسخة بقاعدته هو، لا الوقت وحده) ← `setup_rls` ←
+   `verify_rls` (عدد سياسات `tenant_isolation` = عدد الجداول) ←
+   `add_missing_system_accounts` ← `check_chart_health --fail-on-findings` ←
+   `start` (`up -d` ثم إعادة تشغيل nginx) ← `ready` (انتظار فعلي حتى يردّ
+   الخادم الخلفي) ← `smoke`.
+
+`scripts/backup.sh --target dev|staging|live` (الافتراضي live): كل هدف يدمب
+قاعدته هو، وكل سطر في `backups.log` ينتهي بـ`db=<host>/<name>#<system_identifier>`.
+`CPS_SKIP_BACKUP_GUARD` و`CPS_BACKUPS_LOG_PATH` مرفوضان خارج `CPS_ENVIRONMENT=dev`.
 
 كل تشغيلة تُسجَّل سطرًا في `docs/ops/deploys.log` (الوقت، الهاش،
 النتيجة OK/FAILED والسبب عند الفشل).

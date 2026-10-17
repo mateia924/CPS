@@ -39,6 +39,12 @@ services:
              python manage.py collectstatic --noinput &&
              python manage.py ensure_attachments_bucket &&
              exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 3 --reload"
+    environment:
+      # Pre-deploy 1: the migrate guard's two escape hatches
+      # (CPS_SKIP_BACKUP_GUARD, CPS_BACKUPS_LOG_PATH) are refused unless
+      # CPS_ENVIRONMENT=dev. This sandbox is dev; CI's e2e stack (same
+      # file, .env.ci says CPS_ENVIRONMENT=ci) keeps its own value.
+      CPS_ENVIRONMENT: ${CPS_ENVIRONMENT:-dev}
     volumes:
       - ../backend:/app:Z
       # Sprint 6.5.16: apps.tenants's migrate override (the backup-
@@ -51,6 +57,8 @@ services:
   celery_worker:
     build:
       target: dev
+    environment:
+      CPS_ENVIRONMENT: ${CPS_ENVIRONMENT:-dev}
     volumes:
       - ../backend:/app:Z
 

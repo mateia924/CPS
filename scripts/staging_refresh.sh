@@ -82,129 +82,83 @@ else
   log "--code-only: staging's database is left exactly as it is — no drop, no restore, no anonymize."
 fi
 
+# Pre-deploy 1 (rule 32, docs/SYSTEM_ANALYSIS.md §4): this rehearsal
+# runs production's own gates — not a copy of them: scripts/
+# production_gates.sh, the same file scripts/deploy.sh sources. This
+# script's own steps are only what is truly staging's: build, and in
+# full mode back up staging's data, wipe it and restore live's dump;
+# after the gates, anonymize. Both modes reach the one cps_run_gates
+# call below. (Before: full mode had no smoke and no readiness poll,
+# neither mode ran add_missing_system_accounts or check_chart_health,
+# and both "satisfied" the migrate guard by backing up LIVE — 2026-10-10
+# that gap crash-looped cps-staging-backend-1.)
+# shellcheck source=production_gates.sh
+source "$REPO_DIR/scripts/production_gates.sh"
+GATE_REPO_DIR="$REPO_DIR"
+GATE_COMPOSE="$COMPOSE"
+GATE_BACKUP_TARGET="staging"
+GATE_HTTP_PORT="${STAGING_HTTP_PORT:-3001}"
+
 cd "$REPO_DIR/infra"
 
-if [ "$CODE_ONLY" = "0" ]; then
-  log "step 1/7: bringing up staging's own independent stack (project cps-staging)"
-  $COMPOSE up -d --build
+log "building images from the current code"
+$COMPOSE build
 
-  log "step 2/7: stopping backend/celery_worker to release their DB connections"
+if [ "$CODE_ONLY" = "0" ]; then
+  GATE_BACKUP_REASON="staging_refresh.sh --full (pre-migrate, restored data)"
+  # smoke runs before anonymize: the restored users still carry live's
+  # logins, so smoke.sh's own defaults (Fatma's accountant) are right.
+  export SMOKE_SUBDOMAIN="${FULL_SMOKE_SUBDOMAIN:-fatma}"
+
+  log "bringing up staging's postgres (project cps-staging) — the rest starts at the gates"
+  $COMPOSE up -d postgres
+
+  # Staging's own data — a UAT session's tenants and edits — is about to
+  # be wiped: dumped first, like any data that is about to go.
+  log "backing up staging's own data before wiping it"
+  cps_gate_backup "staging_refresh.sh --full (staging data before wipe)"
+
+  log "stopping backend/celery_worker to release their DB connections"
   $COMPOSE stop backend celery_worker
 
-  log "step 3/7: dropping and recreating the staging database"
+  log "dropping and recreating the staging database"
   $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 -c \
     "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$POSTGRES_DB' AND pid <> pg_backend_pid();"
   $COMPOSE exec -T postgres dropdb -U "$POSTGRES_USER" --if-exists "$POSTGRES_DB"
   $COMPOSE exec -T postgres createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" "$POSTGRES_DB"
 
-  log "step 4/7: decrypting and restoring the dev backup into it"
+  # A LOGICAL restore (pg_dump's SQL into psql), and it must stay one —
+  # never turn this into copying live's data directory or volume. The
+  # migrate guard tells databases apart by the cluster's
+  # system_identifier (pg_control_system(), fixed at initdb, stored in
+  # the data directory): a logical restore leaves staging's own
+  # identifier in place, a file copy carries live's over with it — and
+  # then only a database name stands between the two, the very thing
+  # that cannot tell live from dev (both postgres/cps). Nothing would
+  # fail; the distinction would just be gone.
+  log "decrypting and restoring the live backup into it"
   gpg --batch --yes --passphrase "$CPS_BACKUP_ENCRYPTION_PASSPHRASE" --decrypt "$LATEST_BACKUP" 2>/dev/null \
     | gunzip -c | $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 > /dev/null
-
-  # Rule 32 (docs/SYSTEM_ANALYSIS.md §4, item 32): rehearsal must run
-  # production's own gates — the migrate guard below requires a
-  # backups.log line newer than 15 minutes, same as deploy.sh's own
-  # live migrate step. --code-only already called this for exactly
-  # this reason; full mode did not, and on 2026-10-10 that gap failed
-  # a real run (last backup 69 minutes old) and crash-looped
-  # cps-staging-backend-1 until recovered by hand.
-  log "step 4.5/7: scripts/backup.sh (satisfies the migrate guard below; backs up live, not staging)"
-  "$REPO_DIR/scripts/backup.sh" "staging_refresh.sh --full (pre-migrate guard)"
-
-  log "step 5/7: bringing backend/celery_worker back up and applying any pending migration"
-  $COMPOSE up -d backend celery_worker
-  $COMPOSE exec -T backend python manage.py migrate --noinput
 else
-  log "step 1/6: building images from the current code (not starting backend/celery_worker yet — see next step)"
-  $COMPOSE build backend celery_worker frontend
-
-  # §0 rule 1 (docs/prompts/sprint-6.6.md): a backup before any
-  # migration, full stop — the guard in apps.tenants.management.
-  # commands.migrate enforces this universally (it checks "is there a
-  # recent docs/ops/backups.log line", not which specific database
-  # that backup covers), so even a code-only staging run needs one.
-  # This backs up the LIVE/infra database (backup.sh's own, fixed
-  # target) — never staging's, which --code-only leaves untouched by
-  # design — but that's exactly what the guard itself checks for, and
-  # a fresh live backup is never wasted effort anyway.
-  log "step 2/6: scripts/backup.sh (satisfies the migrate guard below; backs up live, not staging — staging's own data is untouched either way)"
-  "$REPO_DIR/scripts/backup.sh" "staging_refresh.sh --code-only"
-
-  # Deliberately a one-off throwaway container (`run --rm`), not
-  # `exec` on the persistent "backend" service and not relying on
-  # that service's own entrypoint chain (migrate && collectstatic &&
-  # ... && gunicorn) to do it implicitly — starting the PERSISTENT
-  # container first and only satisfying the guard afterward races its
-  # own startup migrate attempt and crash-loops it (found live:
-  # "Container ... is restarting, wait until running"). This runs to
-  # completion fully independently, with the guard already satisfied,
-  # before the persistent service ever starts.
-  log "step 3/6: applying any pending migration (one-off container, independent of backend's own startup)"
-  $COMPOSE run --rm --entrypoint '' backend python manage.py migrate --noinput
-
-  log "step 4/6: restarting backend/celery_worker/frontend/nginx from the freshly built images"
-  $COMPOSE up -d backend celery_worker frontend nginx
+  GATE_BACKUP_REASON="staging_refresh.sh --code-only"
+  # No anonymize ran, so this uses whatever the current UAT session's own
+  # Fatma Accountant credentials already are.
+  export SMOKE_SUBDOMAIN="${CODE_ONLY_SMOKE_SUBDOMAIN:-fatma}"
+  export SMOKE_EMAIL="${CODE_ONLY_SMOKE_EMAIL:-accountant@fatma.staging.test}"
+  export SMOKE_PASSWORD="${CODE_ONLY_SMOKE_PASSWORD:-$STAGING_UAT_PASSWORD}"
 fi
 
-# Sprint 6.6.0 (found while validating this exact script): nginx
-# resolves its "backend" upstream once and keeps that connection/IP —
-# recreating backend above (a new container, a new IP) left nginx
-# still holding the OLD IP, so every request 502'd until nginx itself
-# restarted. Restarting nginx here forces a fresh DNS lookup.
-log "restarting nginx so it re-resolves backend's new address"
-$COMPOSE restart nginx
-
-log "re-applying RLS roles/grants/policies, then verifying the policy count"
-$COMPOSE exec -T backend python manage.py setup_rls
-RLS_CHECK="$($COMPOSE exec -T backend python manage.py shell -c "
-from django.db import connection
-from apps.common.rls import tenant_scoped_tables
-tables = [name for name, _model in tenant_scoped_tables()]
-with connection.cursor() as cursor:
-    cursor.execute(
-        \"SELECT count(*) FROM pg_policies WHERE schemaname = 'public' \"
-        \"AND policyname = 'tenant_isolation' AND tablename = ANY(%s)\",
-        [tables],
-    )
-    policy_count = cursor.fetchone()[0]
-print(f'{len(tables)} {policy_count}')
-" | tail -1 | tr -d '\r')"
-TABLE_COUNT="$(echo "$RLS_CHECK" | cut -d' ' -f1)"
-POLICY_COUNT="$(echo "$RLS_CHECK" | cut -d' ' -f2)"
-if [ "$TABLE_COUNT" != "$POLICY_COUNT" ]; then
-  echo "ERROR: $TABLE_COUNT tenant-scoped table(s) but only $POLICY_COUNT tenant_isolation polic(y/ies) — RLS is not fully applied. Aborting before serving staging." >&2
+if ! cps_run_gates; then
+  echo "ERROR: staging failed production gate \"$CPS_FAILED_GATE\" — the same gate would stop a live deploy. Investigate before trusting this session." >&2
   exit 1
 fi
-log "RLS verified: $POLICY_COUNT/$TABLE_COUNT tenant-scoped tables have the tenant_isolation policy."
 
 if [ "$CODE_ONLY" = "1" ]; then
-  log "step 5/6: waiting for the backend to actually accept connections"
-  READY=0
-  for _ in $(seq 1 30); do
-    STATUS="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${STAGING_HTTP_PORT:-3001}/admin/login/" || true)"
-    if [ "$STATUS" != "502" ] && [ "$STATUS" != "503" ] && [ "$STATUS" != "000" ]; then
-      READY=1
-      break
-    fi
-    sleep 1
-  done
-  [ "$READY" = "1" ] || { echo "ERROR: backend never accepted a connection within 30s (last status: ${STATUS:-none})" >&2; exit 1; }
-
-  log "step 6/6: smoke test (staging's own real data — no anonymize ran, so this uses whatever the current UAT session's own Fatma Accountant credentials already are)"
-  cd "$REPO_DIR"
-  if ! SMOKE_BASE_URL="http://localhost:${STAGING_HTTP_PORT:-3001}/api" \
-     SMOKE_SUBDOMAIN="${CODE_ONLY_SMOKE_SUBDOMAIN:-fatma}" \
-     SMOKE_EMAIL="${CODE_ONLY_SMOKE_EMAIL:-accountant@fatma.staging.test}" \
-     SMOKE_PASSWORD="${CODE_ONLY_SMOKE_PASSWORD:-$STAGING_UAT_PASSWORD}" \
-     ./scripts/smoke.sh; then
-    echo "ERROR: smoke test failed against staging after the code-only deploy — investigate before trusting this session." >&2
-    exit 1
-  fi
   log "done — staging is now running the current code, UAT session data untouched."
   exit 0
 fi
 
-log "step 7/7: anonymizing every user's email domain and rewriting their password, re-arming 2FA, and invalidating sessions"
+log "anonymizing every user's email domain and rewriting their password, re-arming 2FA, and invalidating sessions"
 $COMPOSE exec -T backend python manage.py anonymize_staging_users --password "$STAGING_UAT_PASSWORD"
 
 TENANT_COUNT="$($COMPOSE exec -T backend python manage.py shell -c \

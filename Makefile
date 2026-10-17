@@ -95,9 +95,11 @@ lint:
 ## restart → smoke, as one atomic step). apps.tenants's own migrate
 ## command override still refuses any pending migration on a real
 ## (non-test) database without a backups.log entry newer than 15
-## minutes regardless of which path reaches it.
+## minutes FOR THAT SAME DATABASE (its db= identity) regardless of
+## which path reaches it — hence --target dev (Pre-deploy 1): this
+## backs up the sandbox it migrates, not live.
 migrate:
-	./scripts/backup.sh "make migrate"
+	./scripts/backup.sh --target dev "make migrate"
 	$(DC) $(DEV) exec backend python manage.py migrate
 
 ## Brand/money/forms structural checks (sprint 6.0.1, permanent rules

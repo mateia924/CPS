@@ -40,8 +40,39 @@ set -euo pipefail
 # when CPS_ENVIRONMENT=production, where backup durability stops
 # being optional.
 
+# Pre-deploy 1 (2026-10-17): --target dev|staging|live (default live —
+# root cron and every existing caller keep their exact behavior). Until
+# now this script could only ever dump live, so migrating dev or staging
+# meant either backing up live to satisfy the migrate guard (which
+# checked a timestamp, not a database) or CPS_SKIP_BACKUP_GUARD=1 — and
+# a guard every developer has to skip teaches everyone to skip it. Each
+# target dumps its own compose project's postgres, and every backups.log
+# line now ends with db=<host>/<name>#<system_identifier>, read from the
+# very database being dumped, in the same `exec` that dumps it — the
+# identity apps.tenants's migrate guard matches against its own
+# connection. Host and name alone would not do: live and dev are both
+# postgres/cps; the cluster's system_identifier (fixed at initdb) is what
+# separates them. dev/staging dumps go to their own subdirectory, so
+# nothing that picks "the latest cps-db-*" in $BACKUP_DIR (staging_
+# refresh.sh's restore, restore_test.sh) can ever pick one up, and are
+# never uploaded off-server: a working copy, not the insurance policy.
+#
+# Usage: scripts/backup.sh [--target dev|staging|live] ["reason"]
+
+TARGET="live"
+if [ "${1:-}" = "--target" ]; then
+  TARGET="${2:?usage: scripts/backup.sh [--target dev|staging|live] [\"reason\"]}"
+  shift 2
+fi
+case "$TARGET" in
+  live|dev|staging) ;;
+  *) echo "ERROR: unknown --target \"$TARGET\" (expected dev, staging or live)." >&2; exit 1 ;;
+esac
+
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BACKUP_DIR="/opt/cps-backups"
+BACKUP_ROOT="/opt/cps-backups"
+BACKUP_DIR="$BACKUP_ROOT"
+[ "$TARGET" = "live" ] || BACKUP_DIR="$BACKUP_ROOT/$TARGET"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 RAW_DUMP_FILE="$BACKUP_DIR/cps-db-$TIMESTAMP.sql.gz"
 DUMP_FILE="$RAW_DUMP_FILE.gpg"
@@ -53,13 +84,39 @@ OPS_LOG="$REPO_DIR/docs/ops/backups.log"
 # database/volume without explicit permission; a backup is the
 # insurance policy against ever needing to test that rule under duress).
 mkdir -p "$BACKUP_DIR"
-chmod 700 "$BACKUP_DIR"
+chmod 700 "$BACKUP_ROOT" "$BACKUP_DIR"
 
+# The encryption passphrase always comes from .env (staging_refresh.sh's
+# own rule): kept aside before .env.staging can shadow anything.
 set -a
 source "$REPO_DIR/.env"
 set +a
-COMPOSE="docker compose --env-file $REPO_DIR/.env"
+PASSPHRASE="${CPS_BACKUP_ENCRYPTION_PASSPHRASE:-}"
+case "$TARGET" in
+  live)
+    COMPOSE="docker compose --env-file $REPO_DIR/.env" ;;
+  dev)
+    COMPOSE="docker compose -p cps-dev --env-file $REPO_DIR/.env -f docker-compose.yml -f docker-compose.dev.yml" ;;
+  staging)
+    [ -f "$REPO_DIR/.env.staging" ] || { echo "ERROR: $REPO_DIR/.env.staging not found." >&2; exit 1; }
+    set -a
+    source "$REPO_DIR/.env.staging"
+    set +a
+    COMPOSE="docker compose -p cps-staging --env-file $REPO_DIR/.env.staging -f docker-compose.yml -f docker-compose.staging.yml" ;;
+esac
 cd "$REPO_DIR/infra"
+
+# "postgres" is the compose service every Django DATABASE_URL here names
+# as its host (infra/docker-compose.yml) — the only host this script can
+# dump. Read before the dump: a database that cannot say who it is gets
+# no backup line, so it can never satisfy the guard by accident.
+DB_SYSTEM_ID="$($COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc \
+  "SELECT system_identifier FROM pg_control_system()" | tr -d '\r')"
+case "$DB_SYSTEM_ID" in
+  ''|*[!0-9]*) echo "ERROR: could not read $TARGET's system_identifier (got \"$DB_SYSTEM_ID\") — refusing to log a backup with no database identity." >&2; exit 1 ;;
+esac
+DB_IDENTITY="postgres/$POSTGRES_DB#$DB_SYSTEM_ID"
+echo "[$(date -Iseconds)] Target: $TARGET ($DB_IDENTITY)"
 
 echo "[$(date -Iseconds)] Starting backup -> $RAW_DUMP_FILE"
 # Sprint 6.6.0 (found while validating scripts/staging_refresh.sh): a
@@ -81,20 +138,29 @@ if [ ! -s "$RAW_DUMP_FILE" ]; then
 fi
 echo "[$(date -Iseconds)] Backup OK: $(du -h "$RAW_DUMP_FILE" | cut -f1)"
 
-if [ -z "${CPS_BACKUP_ENCRYPTION_PASSPHRASE:-}" ]; then
+if [ -z "$PASSPHRASE" ]; then
   echo "[$(date -Iseconds)] ERROR: CPS_BACKUP_ENCRYPTION_PASSPHRASE is not set in .env — refusing to leave an unencrypted dump on disk. Generate one with: openssl rand -base64 48" >&2
   rm -f "$RAW_DUMP_FILE"
   exit 1
 fi
 echo "[$(date -Iseconds)] Encrypting -> $DUMP_FILE"
-gpg --batch --yes --passphrase "$CPS_BACKUP_ENCRYPTION_PASSPHRASE" --symmetric --cipher-algo AES256 -o "$DUMP_FILE" "$RAW_DUMP_FILE"
+gpg --batch --yes --passphrase "$PASSPHRASE" --symmetric --cipher-algo AES256 -o "$DUMP_FILE" "$RAW_DUMP_FILE"
 rm -f "$RAW_DUMP_FILE"
 echo "[$(date -Iseconds)] Encrypted OK: $(du -h "$DUMP_FILE" | cut -f1)"
 
 GIT_HASH="$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")"
 mkdir -p "$(dirname "$OPS_LOG")"
-printf '%s\t%s\t%s\t%s\n' "$(date -Iseconds)" "$GIT_HASH" "$(basename "$DUMP_FILE")" "$BACKUP_REASON" >> "$OPS_LOG"
+LOGGED_FILE="$(basename "$DUMP_FILE")"
+[ "$TARGET" = "live" ] || LOGGED_FILE="$TARGET/$LOGGED_FILE"
+printf '%s\t%s\t%s\t%s\tdb=%s\n' "$(date -Iseconds)" "$GIT_HASH" "$LOGGED_FILE" "$BACKUP_REASON" "$DB_IDENTITY" >> "$OPS_LOG"
 echo "[$(date -Iseconds)] Logged to $OPS_LOG"
+
+if [ "$TARGET" != "live" ]; then
+  echo "[$(date -Iseconds)] $TARGET dump: local copy only, never uploaded off-server."
+  "$REPO_DIR/scripts/prune_backups.sh" "$BACKUP_DIR"
+  echo "[$(date -Iseconds)] Done."
+  exit 0
+fi
 
 # Sprint 5.1 adds the MinIO attachments bucket here (mc mirror into
 # $BACKUP_DIR/attachments/) once the Attachment model/storage exists —

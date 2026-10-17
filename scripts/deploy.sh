@@ -14,16 +14,14 @@ set -euo pipefail
 # Usage: scripts/deploy.sh   (no arguments)
 #        make deploy         (same thing)
 #
-# Steps: record the git hash being deployed -> scripts/backup.sh (logs
-# to docs/ops/backups.log) -> build the local overlay's images from
-# the CURRENT working tree -> apply migrations (apps.tenants's own
-# migrate override still refuses a pending migration without a fresh
-# backup — this script's own backup step above is what satisfies it)
-# -> setup_rls -> add_missing_system_accounts -> check_chart_health
-# --fail-on-findings (sprint 7.0/7.0.2, sprint-7.md §0 rule 4 / D1 —
-# all idempotent, every deploy) -> recreate the containers from the
-# freshly built images -> make smoke -> one line in docs/ops/
-# deploys.log (time, hash, result).
+# Steps: record the git hash being deployed -> build the local overlay's
+# images from the CURRENT working tree -> the production gates, defined
+# ONCE in scripts/production_gates.sh and run identically by the
+# staging rehearsal (scripts/staging_refresh.sh): backup (--target live)
+# -> migrate (apps.tenants's guard matches that backup's db= identity)
+# -> setup_rls -> verify_rls -> add_missing_system_accounts ->
+# check_chart_health --fail-on-findings -> start -> ready -> smoke ->
+# one line in docs/ops/deploys.log (time, hash, result).
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEPLOYS_LOG="$REPO_DIR/docs/ops/deploys.log"
@@ -147,76 +145,22 @@ cd "$REPO_DIR"
 GIT_HASH="$(git rev-parse HEAD)"
 log "deploying commit $GIT_HASH"
 
-log "step 1/8: backup"
-./scripts/backup.sh "deploy.sh $GIT_HASH" || fail "backup.sh"
-
+# Pre-deploy 1 (rule 32): build is this script's own step; everything
+# after it is the shared gate sequence — this script holds no gate list
+# of its own (tests/test_production_gates.py).
+log "build images"
 cd "$REPO_DIR/infra"
-
-log "step 2/8: build images"
 $COMPOSE build || fail "build"
 
-log "step 3/8: migrate (apps.tenants's own guard enforces the fresh-backup rule)"
-$COMPOSE run --rm --entrypoint '' backend python manage.py migrate || fail "migrate"
-
-# Sprint 7.0 (sprint-7.md §0 rule 4): setup_rls after every migrate, not
-# just after a restore (scripts/staging_refresh.sh's own use) — this
-# script never called it at all before, relying only on migration
-# 0016's own one-time RunPython. Idempotent either way.
-log "step 4/8: setup_rls (re-apply cps_app grants/RLS policies)"
-$COMPOSE run --rm --entrypoint '' backend python manage.py setup_rls || fail "setup_rls"
-
-# Sprint 7.0 (D1): idempotent for every tenant, every deploy — the
-# generic replacement for a one-off backfill migration per new system
-# account (see apps/accounting/management/commands/
-# add_missing_system_accounts.py's own docstring).
-log "step 5/8: add_missing_system_accounts"
-$COMPOSE run --rm --entrypoint '' backend python manage.py add_missing_system_accounts || fail "add_missing_system_accounts"
-
-# Sprint 7.0.2 (incident #5/#6 — docs/SYSTEM_ANALYSIS.md §11): a
-# tenant's own chart can silently disable an automated posting path
-# with no event logged anywhere (Account.can_post is computed, not
-# stored) — this caught 3 real tenants broken for over a week before
-# anyone noticed. --fail-on-findings: every tenant a deploy touches is
-# live by this project's own definition; a committed exception
-# (docs/ops/chart_health_exceptions.json) is the only way past this,
-# never silent.
-log "step 6/8: check_chart_health"
-$COMPOSE run --rm --entrypoint '' backend python manage.py check_chart_health --fail-on-findings || fail "check_chart_health"
-
-log "step 7/8: restart from the freshly built images"
-$COMPOSE up -d || fail "restart"
-
-# Sprint 6.6.0 (found while validating this exact script): nginx starts
-# and accepts connections well before gunicorn finishes migrate/
-# collectstatic/ensure_attachments_bucket and actually binds — a smoke
-# check that races this window gets one spurious 502, not a real
-# failure. Poll (not sleep-once) until the backend answers or this
-# many tries are exhausted, then hand off to smoke.sh for the real check.
-# Polls /admin/login/ (Django, always present, never rate-limited) —
-# NOT /api/auth/login/: a first cut of this polled that endpoint
-# directly and burned through nginx's own login rate limit (auth_login
-# zone, burst=5) before smoke.sh ever got to make its own real login
-# call, failing smoke with a spurious 429 instead of ever finishing.
-log "waiting for the backend to actually accept connections"
-READY=0
-for _ in $(seq 1 30); do
-  STATUS="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${HTTP_PORT:-3000}/admin/login/" || true)"
-  # nginx itself always answers (curl's own exit code alone can't tell
-  # "backend is up" from "backend refused the connection" — nginx
-  # returns a real 502/503 to the client either way) — any real HTTP
-  # status here (200 for the login page) means the request actually
-  # reached Django, proof the backend is genuinely serving.
-  if [ "$STATUS" != "502" ] && [ "$STATUS" != "503" ] && [ "$STATUS" != "000" ]; then
-    READY=1
-    break
-  fi
-  sleep 1
-done
-[ "$READY" = "1" ] || fail "backend never accepted a connection within 30s (last status: ${STATUS:-none})"
-
-log "step 8/8: smoke test"
+# shellcheck source=production_gates.sh
+source "$REPO_DIR/scripts/production_gates.sh"
+GATE_REPO_DIR="$REPO_DIR"
+GATE_COMPOSE="$COMPOSE"
+GATE_BACKUP_TARGET="live"
+GATE_BACKUP_REASON="deploy.sh $GIT_HASH"
+GATE_HTTP_PORT="${HTTP_PORT:-3000}"
+cps_run_gates || fail "$CPS_FAILED_GATE"
 cd "$REPO_DIR"
-./scripts/smoke.sh || fail "smoke"
 
 mkdir -p "$(dirname "$DEPLOYS_LOG")"
 printf '%s\t%s\tOK\t%s%s\n' "$(date -Iseconds)" "$GIT_HASH" "deploy.sh" "$DIRTY_NOTE" >> "$DEPLOYS_LOG"
