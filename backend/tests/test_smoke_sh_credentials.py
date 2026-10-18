@@ -86,13 +86,11 @@ SECRET_ON_ARGV = re.compile(
 
 # Known, still open — each one named, so the list can only shrink: a new
 # offender fails, and so does a fixed one left on the list. Not fixed in
-# Pre-deploy 3 because they sit on live's backup/restore path (cron 03:00)
-# or are throwaway CI/e2e values; each needs its own block.
+# Pre-deploy 3 (backup.sh/restore*.sh gpg: fixed in Pre-deploy 4, all three
+# together); backup.sh's upload key sits on live's backup path (cron 03:00),
+# the rest are throwaway CI/e2e values. Each needs its own block.
 KNOWN_OPEN_SECRET_ON_ARGV = {
-    ("backup.sh", 'gpg --batch --yes --passphrase "$PASSPHRASE"'),
     ("backup.sh", '-e CPS_UPLOAD_SECRET_KEY="$UPLOAD_SECRET_KEY"'),
-    ("restore.sh", 'gpg --batch --yes --passphrase "$CPS_BACKUP_ENCRYPTION_PASSPHRASE"'),
-    ("restore_test.sh", 'gpg --batch --yes --passphrase "$CPS_BACKUP_ENCRYPTION_PASSPHRASE"'),
     ("ci_local.sh", "-e POSTGRES_PASSWORD=postgres"),
     ("ci_local.sh", '-e DJANGO_SECRET_KEY="$DJANGO_SECRET_KEY"'),
     ("e2e.sh", '--password "SmokeE2E!2026"'),

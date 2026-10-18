@@ -229,9 +229,12 @@ if [ "$CODE_ONLY" = "0" ]; then
   # fail; the distinction would just be gone.
   # Rule 50 (Pre-deploy 3): no secret on a command line — `ps` shows
   # every process's arguments to every user on the host. The passphrase
-  # reaches gpg through a file descriptor (printf is a builtin: no
-  # process of its own, no argv); the anonymize password through the
-  # environment, `-e` naming the variable, never its value.
+  # reaches gpg through a file descriptor; the anonymize password
+  # through the environment, `-e` naming the variable, never its value.
+  # The fd is safe ONLY because `printf` is a bash BUILTIN: the <(...)
+  # subshell writes the value into the pipe without exec'ing a program,
+  # so no process carries it as an argument. /bin/echo, /usr/bin/printf
+  # or any external command there puts it back in `ps`, silently.
   log "decrypting and restoring the live backup into it"
   gpg --batch --yes --passphrase-file <(printf '%s' "$CPS_BACKUP_ENCRYPTION_PASSPHRASE") --decrypt "$LATEST_BACKUP" 2>/dev/null \
     | gunzip -c | $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 > /dev/null

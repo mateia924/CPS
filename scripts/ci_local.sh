@@ -95,7 +95,7 @@ docker run -d --name ci-local-backend --network host \
   -v "$ROOT_DIR:/workspace" -w /workspace \
   python:3.12 sleep infinity >/dev/null
 
-run_step "install system dependencies (libmagic, git)" docker exec ci-local-backend bash -c "apt-get update -qq && apt-get install -y --no-install-recommends libmagic1 make git >/tmp/apt.log 2>&1"
+run_step "install system dependencies (libmagic, git, gnupg)" docker exec ci-local-backend bash -c "apt-get update -qq && apt-get install -y --no-install-recommends libmagic1 make git gnupg >/tmp/apt.log 2>&1"
 run_step "install dependencies (requirements-dev.txt)" docker exec ci-local-backend bash -c "pip install -q -r backend/requirements-dev.txt"
 run_step "ruff (lint) — same gate as \`make lint\`" docker exec -w /workspace/backend ci-local-backend ruff check .
 run_step "manage.py check" docker exec -w /workspace/backend ci-local-backend python manage.py check
@@ -107,6 +107,9 @@ run_step "deploy.sh guards actually RUN here (they skip in the dev container: no
 run_step "production gates are one shared definition (skips in the dev container: no scripts/)" docker exec -w /workspace/backend ci-local-backend bash -c "pytest -q tests/test_production_gates.py > /tmp/pg.txt 2>&1; tail -3 /tmp/pg.txt; grep -q '31 passed' /tmp/pg.txt"
 # Rule 50: tests/test_smoke_sh_credentials.py runs scripts/smoke.sh — same skip, same assertion.
 run_step "smoke.sh has no default credential (skips in the dev container: no scripts/)" docker exec -w /workspace/backend ci-local-backend bash -c "pytest -q tests/test_smoke_sh_credentials.py > /tmp/sc.txt 2>&1; tail -3 /tmp/sc.txt; grep -q '5 passed' /tmp/sc.txt"
+# Pre-deploy 4: tests/test_backup_gpg_passphrase.py runs the scripts' real gpg lines — needs
+# gpg (installed above) and scripts/; skips in the dev container, asserted to PASS here.
+run_step "backups open both ways after the passphrase left argv (skips in the dev container: no gpg, no scripts/)" docker exec -w /workspace/backend ci-local-backend bash -c "pytest -q tests/test_backup_gpg_passphrase.py > /tmp/bg.txt 2>&1; tail -3 /tmp/bg.txt; grep -q '4 passed' /tmp/bg.txt"
 run_step "pytest (full deterministic suite) — same gate as \`make test\`" env PYTEST_WORKDIR=/workspace/backend "$ROOT_DIR/scripts/pytest_run.sh" ci-local-backend -q --create-db
 
 docker rm -f ci-local-backend ci-local-postgres ci-local-redis >/dev/null 2>&1 || true

@@ -85,7 +85,17 @@ $COMPOSE exec -T postgres createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" "$RES
   || fail "could not create $RESTORE_TEST_DB"
 
 log "decrypting and restoring into it"
-if ! gpg --batch --yes --passphrase "$CPS_BACKUP_ENCRYPTION_PASSPHRASE" --decrypt "$LATEST_BACKUP" 2>/dev/null \
+# Rule 50 (Pre-deploy 4): the passphrase reaches gpg through a file
+# descriptor, never argv — `ps` shows every process's arguments to every
+# user on the host. Safe ONLY because `printf` is a bash BUILTIN: the
+# <(...) subshell writes the value into the pipe without exec'ing a
+# program, so no process ever carries it as an argument. Replace it with
+# /bin/echo, /usr/bin/printf, cat <<< or any external command and the
+# value is back in `ps`, silently. `--passphrase-file` reads the FIRST
+# LINE, the whole of it (spaces included) — the same bytes `--passphrase`
+# used for any single-line .env value, so backups made either way open
+# either way (tests/test_backup_gpg_passphrase.py proves both directions).
+if ! gpg --batch --yes --passphrase-file <(printf '%s' "$CPS_BACKUP_ENCRYPTION_PASSPHRASE") --decrypt "$LATEST_BACKUP" 2>/dev/null \
   | gunzip -c | $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$RESTORE_TEST_DB" -v ON_ERROR_STOP=1 > /dev/null; then
   fail "decrypt/restore of $BACKUP_NAME into $RESTORE_TEST_DB failed"
 fi

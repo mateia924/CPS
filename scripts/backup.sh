@@ -144,7 +144,17 @@ if [ -z "$PASSPHRASE" ]; then
   exit 1
 fi
 echo "[$(date -Iseconds)] Encrypting -> $DUMP_FILE"
-gpg --batch --yes --passphrase "$PASSPHRASE" --symmetric --cipher-algo AES256 -o "$DUMP_FILE" "$RAW_DUMP_FILE"
+# Rule 50 (Pre-deploy 4): the passphrase reaches gpg through a file
+# descriptor, never argv — `ps` shows every process's arguments to every
+# user on the host. Safe ONLY because `printf` is a bash BUILTIN: the
+# <(...) subshell writes the value into the pipe without exec'ing a
+# program, so no process ever carries it as an argument. Replace it with
+# /bin/echo, /usr/bin/printf, cat <<< or any external command and the
+# value is back in `ps`, silently. `--passphrase-file` reads the FIRST
+# LINE, the whole of it (spaces included) — the same bytes `--passphrase`
+# used for any single-line .env value, so backups made either way open
+# either way (tests/test_backup_gpg_passphrase.py proves both directions).
+gpg --batch --yes --passphrase-file <(printf '%s' "$PASSPHRASE") --symmetric --cipher-algo AES256 -o "$DUMP_FILE" "$RAW_DUMP_FILE"
 rm -f "$RAW_DUMP_FILE"
 echo "[$(date -Iseconds)] Encrypted OK: $(du -h "$DUMP_FILE" | cut -f1)"
 
