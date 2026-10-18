@@ -119,6 +119,7 @@ case "$*" in
   "inspect -f {{.Config.Image}} "*) echo infra-backend ;;
   "inspect -f {{.Image}} "*) echo sha256:0ld1mage ;;
   *" ps -a -q") echo "${FAKE_CONTAINERS:-}" ;;
+  *pg_policies*) echo "3 3" ;;
 esac
 """
 
@@ -295,8 +296,7 @@ cps_gate_ready
 _GATES_SCRIPT = """
 source scripts/production_gates.sh
 GATE_REPO_DIR="$PWD" GATE_COMPOSE="docker compose -p infra" GATE_BACKUP_TARGET=live
-GATE_BACKUP_REASON=test GATE_HTTP_PORT=3000 GATE_SMOKE_PASSWORD_FROM=file
-CPS_SECRETS_DIR="$TEST_SECRETS_DIR"
+GATE_BACKUP_REASON=test GATE_HTTP_PORT=3000
 cps_run_gates
 rc=$?
 echo "failed gate: $CPS_FAILED_GATE"
@@ -304,12 +304,19 @@ exit $rc
 """
 
 
-def _secrets_dir(tmp_path, content=None, mode=0o600):
+def _secrets_dir(tmp_path, repo, content=None, mode=0o600):
+    """A stand-in for /etc/cps-secrets. The path is a literal in
+    production_gates.sh, with no variable to point it elsewhere — so the
+    test rewrites its own copy of the script, never the real one."""
     secrets = tmp_path / "secrets"
     secrets.mkdir()
     if content is not None:
         (secrets / "smoke_password").write_text(content)
         (secrets / "smoke_password").chmod(mode)
+    gates = repo / "scripts" / "production_gates.sh"
+    text = gates.read_text(encoding="utf-8")
+    assert "/etc/cps-secrets" in text
+    gates.write_text(text.replace("/etc/cps-secrets", str(secrets)), encoding="utf-8")
     return secrets
 
 
@@ -317,11 +324,9 @@ def test_secrets_preflight_stops_the_deploy_before_the_first_gate_when_the_smoke
     tmp_path,
 ):
     repo, calls, env = _fake_tree(tmp_path)
-    secrets = _secrets_dir(tmp_path)
+    secrets = _secrets_dir(tmp_path, repo)
 
-    result = _run(
-        ["bash", "-c", _GATES_SCRIPT], repo, env, TEST_SECRETS_DIR=str(secrets), CURL_STATUS="200"
-    )
+    result = _run(["bash", "-c", _GATES_SCRIPT], repo, env, CURL_STATUS="200")
 
     assert result.returncode == 1
     assert "failed gate: secrets preflight" in result.stdout
@@ -333,11 +338,9 @@ def test_secrets_preflight_stops_the_deploy_before_the_first_gate_when_the_smoke
 @pytest.mark.parametrize("mode", [0o644, 0o640, 0o604])
 def test_secrets_preflight_refuses_a_smoke_password_file_others_can_read(tmp_path, mode):
     repo, calls, env = _fake_tree(tmp_path)
-    secrets = _secrets_dir(tmp_path, "s3cret-value\n", mode)
+    _secrets_dir(tmp_path, repo, "s3cret-value\n", mode)
 
-    result = _run(
-        ["bash", "-c", _GATES_SCRIPT], repo, env, TEST_SECRETS_DIR=str(secrets), CURL_STATUS="200"
-    )
+    result = _run(["bash", "-c", _GATES_SCRIPT], repo, env, CURL_STATUS="200")
 
     assert result.returncode == 1
     assert f"mode {mode:o}" in result.stderr and "must be root:root, mode 600" in result.stderr
@@ -347,7 +350,7 @@ def test_secrets_preflight_refuses_a_smoke_password_file_others_can_read(tmp_pat
 
 def test_secrets_preflight_hands_smoke_the_password_without_its_trailing_newline(tmp_path):
     repo, calls, env = _fake_tree(tmp_path)
-    secrets = _secrets_dir(tmp_path, "s3cret-value\r\n")
+    _secrets_dir(tmp_path, repo, "s3cret-value\r\n")
     (repo / "scripts" / "smoke.sh").write_text(
         '#!/usr/bin/env bash\n[ "$SMOKE_PASSWORD" = "s3cret-value" ] && echo "smoke.sh exact" >> "$CALLS"\n'
     )
@@ -355,15 +358,13 @@ def test_secrets_preflight_hands_smoke_the_password_without_its_trailing_newline
     # verify_rls and the rest need a real stack: preflight, then gate smoke alone.
     script = """
 source scripts/production_gates.sh
-GATE_REPO_DIR="$PWD" GATE_HTTP_PORT=3000 GATE_SMOKE_PASSWORD_FROM=file
-CPS_SECRETS_DIR="$TEST_SECRETS_DIR"
+GATE_REPO_DIR="$PWD" GATE_HTTP_PORT=3000 GATE_BACKUP_TARGET=live
 cps_gates_preflight && cps_gate_smoke
 """
     result = _run(
         ["bash", "-c", script],
         repo,
         env,
-        TEST_SECRETS_DIR=str(secrets),
         SMOKE_PASSWORD="stale-shell-value",
     )
 
@@ -377,7 +378,6 @@ def test_deploy_runs_the_secrets_preflight_before_build():
     preflight = re.search(r"^cps_gates_preflight \|\| fail ", code, re.M)
     build = re.search(r"^\$COMPOSE build\b", code, re.M)
     assert preflight and build and preflight.start() < build.start()
-    assert re.search(r'^GATE_SMOKE_PASSWORD_FROM="file"$', code, re.M)
 
 
 @pytest.mark.parametrize("mode", ["--code-only", "--full"])
@@ -392,3 +392,68 @@ def test_staging_refresh_passes_the_same_preflight_before_build_or_wipe(tmp_path
     if mode == "--full":
         assert "secrets preflight: STAGING_UAT_PASSWORD is empty" in result.stderr
     assert calls.read_text() == "", f"ran something before the preflight: {calls.read_text()}"
+
+
+@pytest.mark.parametrize(
+    "injected",
+    [
+        {"GATE_SMOKE_PASSWORD_FROM": "env"},
+        {"GATE_SMOKE_PASSWORD_FROM": "staging"},
+        {"CPS_SECRETS_DIR": "elsewhere"},
+    ],
+)
+def test_secrets_preflight_on_live_has_no_switch_that_skips_the_file_check(tmp_path, injected):
+    """Rules 49/50: a variable that turns a guard off is a kill switch, not
+    a guard. Whatever the environment says, live reads the one fixed path
+    and checks it — here it is missing, so the run must stop."""
+    repo, calls, env = _fake_tree(tmp_path)
+    secrets = _secrets_dir(tmp_path, repo)
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    (other / "smoke_password").write_text("s3cret-value\n")
+    (other / "smoke_password").chmod(0o600)
+    extra = {k: (str(other) if v == "elsewhere" else v) for k, v in injected.items()}
+
+    result = _run(
+        ["bash", "-c", _GATES_SCRIPT],
+        repo,
+        env,
+        CURL_STATUS="200",
+        SMOKE_PASSWORD="from-the-shell",
+        **extra,
+    )
+
+    assert result.returncode == 1
+    assert "failed gate: secrets preflight" in result.stdout
+    assert f"{secrets}/smoke_password does not exist" in result.stderr
+    assert calls.read_text() == ""
+
+
+def test_secrets_preflight_refuses_a_target_that_is_neither_live_nor_staging(tmp_path):
+    repo, calls, env = _fake_tree(tmp_path)
+    script = _GATES_SCRIPT.replace("GATE_BACKUP_TARGET=live", "GATE_BACKUP_TARGET=dev")
+
+    result = _run(["bash", "-c", script], repo, env, CURL_STATUS="200", SMOKE_PASSWORD="x")
+
+    assert result.returncode == 1
+    assert "failed gate: secrets preflight" in result.stdout
+    assert 'knows GATE_BACKUP_TARGET live and staging only, got "dev"' in result.stderr
+    assert calls.read_text() == ""
+
+
+@pytest.mark.parametrize("mode", ["--full", "--code-only"])
+def test_staging_refresh_runs_to_the_end_without_printing_the_staging_password(tmp_path, mode):
+    """Rule 50 (2026-10-18): the end of a full run used to print
+    STAGING_UAT_PASSWORD "once" — into every terminal scrollback, CI log
+    and Claude Code session log that captured it. It names the variable
+    and its source now, never the value."""
+    repo, calls, env = _fake_tree(tmp_path)
+
+    result = _run(["bash", "scripts/staging_refresh.sh", mode], repo, env, CURL_STATUS="200")
+
+    assert result.returncode == 0, result.stderr
+    assert any(line.startswith("smoke.sh ") for line in calls.read_text().splitlines())
+    output = result.stdout + result.stderr
+    assert "uat-pass" not in output
+    if mode == "--full":
+        assert "STAGING_UAT_PASSWORD from .env.staging" in result.stdout

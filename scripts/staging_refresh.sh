@@ -148,7 +148,6 @@ export SMOKE_PASSWORD="${STAGING_SMOKE_PASSWORD:-${STAGING_UAT_PASSWORD:-}}"
 # Pre-deploy 2 (rule 50): the same secrets preflight as deploy.sh, before
 # build and before full mode's wipe — staging's password comes from
 # .env.staging, not /etc/cps-secrets/, but the check is one definition.
-GATE_SMOKE_PASSWORD_FROM="env"
 GATE_ENV_SECRETS=""
 [ "$CODE_ONLY" = "1" ] || GATE_ENV_SECRETS="STAGING_UAT_PASSWORD"
 cps_gates_preflight || exit 1
@@ -257,10 +256,13 @@ FATMA_OWNER_EMAIL="$($COMPOSE exec -T backend python manage.py shell -c \
   "from apps.accounts.models import User; u = User.objects.filter(tenant__subdomain='fatma', role='owner').first(); print(u.email if u else '')" \
   | tail -1 | tr -d '\r')"
 
-log "done. Email pattern: <local part>@<tenant subdomain>.staging.test — password: the one value below."
+log "done. Email pattern: <local part>@<tenant subdomain>.staging.test — every user's password: STAGING_UAT_PASSWORD from .env.staging."
 if [ -n "$FATMA_OWNER_EMAIL" ]; then
   log "Fatma's Owner login on http://<this-host>:${STAGING_HTTP_PORT:-3001} -> $FATMA_OWNER_EMAIL"
 fi
-# Sprint 6.6.0 (owner decision): printed once, here, at the very end —
-# never logged anywhere persistent (docs/ops/*.log never see it).
-log "staging password for every user: $STAGING_UAT_PASSWORD"
+# Rule 50 (2026-10-18, reverses the sprint 6.6.0 decision to print the
+# value once here): the script names the account and where its password
+# lives, never the value. "Never logged anywhere persistent" did not hold:
+# a terminal's scrollback, `script`, a CI log and a Claude Code session
+# log all keep what is printed. Fixed here rather than filtered by
+# whoever runs it — then it does not matter who runs it, or how.

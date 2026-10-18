@@ -27,12 +27,10 @@
 #   GATE_HTTP_PORT       host port nginx serves this stack on
 # Optional: SMOKE_BASE_URL/SMOKE_SUBDOMAIN/SMOKE_EMAIL, exported by the
 # caller, reach scripts/smoke.sh unchanged. SMOKE_PASSWORD comes from
-# cps_gates_preflight (below), never from a default (rule 50):
-#   GATE_SMOKE_PASSWORD_FROM  required: "file" (live's
-#                        $CPS_SECRETS_DIR/smoke_password) or "env" (the
-#                        caller exported SMOKE_PASSWORD — staging)
-#   GATE_ENV_SECRETS     space-separated names of further variables the
-#                        caller's run needs non-empty
+# cps_gates_preflight (below), never from a default (rule 50), and where
+# it comes from follows GATE_BACKUP_TARGET alone — no switch of its own.
+# Optional: GATE_ENV_SECRETS, space-separated names of further variables
+# the caller's run needs non-empty (it can only add checks).
 
 CPS_PRODUCTION_GATES=(
   backup
@@ -56,12 +54,20 @@ cps_gate_log() { echo "[gates $(date -Iseconds)] $1"; }
 # Messages name the path and the permissions it needs, never a value.
 # The file's trailing newline (an editor's, `echo >`'s) is stripped, and
 # a CR with it.
-CPS_SECRETS_DIR=/etc/cps-secrets
+#
+# Where SMOKE_PASSWORD comes from is decided by GATE_BACKUP_TARGET — the
+# parameter the migrate guard already binds to the database's identity —
+# and by nothing else: live reads the file below (fixed path, checked
+# owner and mode), staging takes the value its caller exported from
+# .env.staging, any other target is refused. Until the follow-up to 907f5e3
+# there were two more variables (the directory, and a "file"/"env"
+# mode): one edited line could switch live off the file check, with no
+# guard to refuse it — a kill switch, not a guard (rules 49, 50).
 CPS_PREFLIGHT_PASSED=0
 cps_gates_preflight() {
-  local file="$CPS_SECRETS_DIR/smoke_password" owner mode value var failed=0
-  case "${GATE_SMOKE_PASSWORD_FROM-}" in
-    file)
+  local file=/etc/cps-secrets/smoke_password owner mode value var failed=0
+  case "${GATE_BACKUP_TARGET-}" in
+    live)
       if [ ! -f "$file" ]; then
         echo "ERROR: secrets preflight: $file does not exist — gate smoke logs in with it. Create it root:root, mode 600, holding only the password." >&2
         failed=1
@@ -85,14 +91,14 @@ cps_gates_preflight() {
         fi
       fi
       ;;
-    env)
+    staging)
       if [ -z "${SMOKE_PASSWORD:-}" ]; then
-        echo "ERROR: secrets preflight: SMOKE_PASSWORD is empty — this caller exports it for gate smoke (GATE_SMOKE_PASSWORD_FROM=env)." >&2
+        echo "ERROR: secrets preflight: SMOKE_PASSWORD is empty — staging_refresh.sh exports it from .env.staging for gate smoke." >&2
         failed=1
       fi
       ;;
     *)
-      echo "ERROR: secrets preflight: GATE_SMOKE_PASSWORD_FROM must be set to \"file\" or \"env\" by the caller, got \"${GATE_SMOKE_PASSWORD_FROM-}\"." >&2
+      echo "ERROR: secrets preflight: knows GATE_BACKUP_TARGET live and staging only, got \"${GATE_BACKUP_TARGET-}\" — refusing." >&2
       failed=1
       ;;
   esac

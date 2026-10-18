@@ -104,7 +104,7 @@ run_step "collect-only (fast import/collection check — seconds, not minutes)" 
 run_step "deploy.sh guards actually RUN here (they skip in the dev container: no repo root, no git)" docker exec -w /workspace/backend ci-local-backend bash -c "pytest -q tests/test_deploy_sh_guards.py > /tmp/dg.txt 2>&1; tail -3 /tmp/dg.txt; grep -q '4 passed' /tmp/dg.txt"
 # Pre-deploy 1: tests/test_production_gates.py reads scripts/ — skipped in
 # the dev container for the same reason; asserted to PASS here.
-run_step "production gates are one shared definition (skips in the dev container: no scripts/)" docker exec -w /workspace/backend ci-local-backend bash -c "pytest -q tests/test_production_gates.py > /tmp/pg.txt 2>&1; tail -3 /tmp/pg.txt; grep -q '22 passed' /tmp/pg.txt"
+run_step "production gates are one shared definition (skips in the dev container: no scripts/)" docker exec -w /workspace/backend ci-local-backend bash -c "pytest -q tests/test_production_gates.py > /tmp/pg.txt 2>&1; tail -3 /tmp/pg.txt; grep -q '28 passed' /tmp/pg.txt"
 # Rule 50: tests/test_smoke_sh_credentials.py runs scripts/smoke.sh — same skip, same assertion.
 run_step "smoke.sh has no default credential (skips in the dev container: no scripts/)" docker exec -w /workspace/backend ci-local-backend bash -c "pytest -q tests/test_smoke_sh_credentials.py > /tmp/sc.txt 2>&1; tail -3 /tmp/sc.txt; grep -q '3 passed' /tmp/sc.txt"
 run_step "pytest (full deterministic suite) — same gate as \`make test\`" env PYTEST_WORKDIR=/workspace/backend "$ROOT_DIR/scripts/pytest_run.sh" ci-local-backend -q --create-db

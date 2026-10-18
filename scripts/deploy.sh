@@ -152,7 +152,6 @@ GATE_COMPOSE="$COMPOSE"
 GATE_BACKUP_TARGET="live"
 GATE_BACKUP_REASON="deploy.sh $GIT_HASH"
 GATE_HTTP_PORT="${HTTP_PORT:-3000}"
-GATE_SMOKE_PASSWORD_FROM="file"
 
 # Pre-deploy 2 (rule 50): every secret is checked before anything runs —
 # a missing /etc/cps-secrets/smoke_password used to surface at gate 9,
