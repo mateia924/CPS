@@ -79,18 +79,18 @@ def test_no_script_carries_a_literal_credential_default():
 # goes through the environment (`-e NAME`, never `-e NAME=value`), a file
 # descriptor (`--passphrase-file <(printf ...)`) or stdin.
 SECRET_ON_ARGV = re.compile(
-    r"--passphrase(?!-file)[ =]|--password[ =]|-e [A-Z_]*(PASSWORD|PASSPHRASE|SECRET|TOKEN|API_KEY)[A-Z_]*="
+    r"--passphrase(?!-file)[ =]|--password[ =]|-e [A-Z_]*(PASSWORD|PASSPHRASE|SECRET|TOKEN|API_KEY|ACCESS_KEY)[A-Z_]*="
     # A body or header that interpolates one (smoke.sh's login until Pre-deploy 3).
     r"|-d \".*\$[A-Z_]*(PASSWORD|SECRET|TOKEN)|Authorization: Bearer \$"
 )
 
-# Known, still open — each one named, so the list can only shrink: a new
-# offender fails, and so does a fixed one left on the list. Not fixed in
-# Pre-deploy 3 (backup.sh/restore*.sh gpg: fixed in Pre-deploy 4, all three
-# together); backup.sh's upload key sits on live's backup path (cron 03:00),
-# the rest are throwaway CI/e2e values. Each needs its own block.
+# The binding open list (docs/SYSTEM_ANALYSIS.md §4, rule 50): each entry
+# named, so it can only shrink — a new offender fails, and so does a fixed
+# one left on the list. An entry is added only by a written decision in that
+# table, and the table and this set must agree (test below). Pre-deploy 5
+# closed the last entry on live's path (backup.sh's upload key); what is
+# left never runs against live.
 KNOWN_OPEN_SECRET_ON_ARGV = {
-    ("backup.sh", '-e CPS_UPLOAD_SECRET_KEY="$UPLOAD_SECRET_KEY"'),
     ("ci_local.sh", "-e POSTGRES_PASSWORD=postgres"),
     ("ci_local.sh", '-e DJANGO_SECRET_KEY="$DJANGO_SECRET_KEY"'),
     ("e2e.sh", '--password "SmokeE2E!2026"'),
@@ -110,6 +110,33 @@ def test_no_script_puts_a_secret_on_a_command_line_beyond_the_known_open_list():
             ]
             found.add((path.name, known[0]) if known else (path.name, line.strip()))
     assert found == KNOWN_OPEN_SECRET_ON_ARGV
+
+
+# Scripts that run against live: deploy.sh and everything it or cron calls.
+# An open-list entry here would be a known leak on live's own path — the
+# owner's rule is that such an entry is closed before any deploy.
+LIVE_PATH_SCRIPTS = {
+    "deploy.sh",
+    "production_gates.sh",
+    "backup.sh",
+    "smoke.sh",
+    "restore.sh",
+    "restore_test.sh",
+    "prune_backups.sh",
+}
+OPEN_LIST_ROW = re.compile(r"^\s*\| `scripts/([^`]+)` — `([^`]+)` \|")
+
+
+def test_the_open_list_in_section_4_matches_the_guard():
+    """docs/SYSTEM_ANALYSIS.md §4 rule 50's table IS the written decision for
+    each entry: the guard's set and the table must name the same sites."""
+    doc = (SCRIPTS.parent / "docs" / "SYSTEM_ANALYSIS.md").read_text(encoding="utf-8")
+    rows = {m.groups() for line in doc.splitlines() if (m := OPEN_LIST_ROW.match(line))}
+    assert rows == KNOWN_OPEN_SECRET_ON_ARGV
+
+
+def test_no_open_list_entry_runs_on_lives_path():
+    assert {name for name, _ in KNOWN_OPEN_SECRET_ON_ARGV} & LIVE_PATH_SCRIPTS == set()
 
 
 def test_smoke_sends_the_password_and_the_token_off_the_command_line(tmp_path):

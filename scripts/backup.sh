@@ -218,11 +218,18 @@ if [ -n "$UPLOAD_ENDPOINT" ]; then
   # an ad hoc mount to an already-running container, so this depends on
   # the NEXT `deploy.sh` having already recreated the container at
   # least once since that mount was added.
-  if ! $COMPOSE exec -T \
+  # Pre-deploy 5 (rule 50): the two keys travel by NAME only. `-e NAME`
+  # with no `=` makes compose read the value from its own environment,
+  # set here by the prefix assignments — an environment, unlike argv, is
+  # not readable in `ps` by other users. Until this block the secret key
+  # sat in `docker compose exec ... -e CPS_UPLOAD_SECRET_KEY=<value>`
+  # every night at 03:00 on live. Never write `-e NAME="$VALUE"` back.
+  if ! CPS_UPLOAD_ACCESS_KEY="$UPLOAD_ACCESS_KEY" CPS_UPLOAD_SECRET_KEY="$UPLOAD_SECRET_KEY" \
+    $COMPOSE exec -T \
     -e CPS_UPLOAD_BUCKET="$UPLOAD_BUCKET" \
     -e CPS_UPLOAD_ENDPOINT_URL="$UPLOAD_ENDPOINT" \
-    -e CPS_UPLOAD_ACCESS_KEY="$UPLOAD_ACCESS_KEY" \
-    -e CPS_UPLOAD_SECRET_KEY="$UPLOAD_SECRET_KEY" \
+    -e CPS_UPLOAD_ACCESS_KEY \
+    -e CPS_UPLOAD_SECRET_KEY \
     -e CPS_UPLOAD_REGION="$UPLOAD_REGION" \
     -e CPS_UPLOAD_ENSURE_BUCKET="$UPLOAD_ENSURE_BUCKET" \
     -e CPS_UPLOAD_FILE="/opt/cps-backups/$(basename "$DUMP_FILE")" \
