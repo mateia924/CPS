@@ -137,18 +137,26 @@ GATE_COMPOSE="$COMPOSE"
 GATE_BACKUP_TARGET="staging"
 GATE_HTTP_PORT="${STAGING_HTTP_PORT:-3001}"
 
-cd "$REPO_DIR/infra"
-
-log "building images from the current code"
-$COMPOSE build
-
 # Pre-deploy 1: smoke logs in with the anonymized credentials in both
 # modes — full mode anonymizes before the first gate now, so live's own
 # logins (smoke.sh's defaults) no longer exist on staging by the time
 # smoke runs.
 export SMOKE_SUBDOMAIN="${STAGING_SMOKE_SUBDOMAIN:-fatma}"
 export SMOKE_EMAIL="${STAGING_SMOKE_EMAIL:-accountant@fatma.staging.test}"
-export SMOKE_PASSWORD="${STAGING_SMOKE_PASSWORD:-$STAGING_UAT_PASSWORD}"
+export SMOKE_PASSWORD="${STAGING_SMOKE_PASSWORD:-${STAGING_UAT_PASSWORD:-}}"
+
+# Pre-deploy 2 (rule 50): the same secrets preflight as deploy.sh, before
+# build and before full mode's wipe — staging's password comes from
+# .env.staging, not /etc/cps-secrets/, but the check is one definition.
+GATE_SMOKE_PASSWORD_FROM="env"
+GATE_ENV_SECRETS=""
+[ "$CODE_ONLY" = "1" ] || GATE_ENV_SECRETS="STAGING_UAT_PASSWORD"
+cps_gates_preflight || exit 1
+
+cd "$REPO_DIR/infra"
+
+log "building images from the current code"
+$COMPOSE build
 
 # Pre-deploy 1 (2026-10-17): anonymize is what makes a restored copy
 # safe to hold at all, not a finishing touch. It used to run after every

@@ -145,13 +145,6 @@ cd "$REPO_DIR"
 GIT_HASH="$(git rev-parse HEAD)"
 log "deploying commit $GIT_HASH"
 
-# Pre-deploy 1 (rule 32): build is this script's own step; everything
-# after it is the shared gate sequence — this script holds no gate list
-# of its own (tests/test_production_gates.py).
-log "build images"
-cd "$REPO_DIR/infra"
-$COMPOSE build || fail "build"
-
 # shellcheck source=production_gates.sh
 source "$REPO_DIR/scripts/production_gates.sh"
 GATE_REPO_DIR="$REPO_DIR"
@@ -159,6 +152,20 @@ GATE_COMPOSE="$COMPOSE"
 GATE_BACKUP_TARGET="live"
 GATE_BACKUP_REASON="deploy.sh $GIT_HASH"
 GATE_HTTP_PORT="${HTTP_PORT:-3000}"
+GATE_SMOKE_PASSWORD_FROM="file"
+
+# Pre-deploy 2 (rule 50): every secret is checked before anything runs —
+# a missing /etc/cps-secrets/smoke_password used to surface at gate 9,
+# after migrate and start.
+cps_gates_preflight || fail "secrets preflight"
+
+# Pre-deploy 1 (rule 32): build is this script's own step; everything
+# after it is the shared gate sequence — this script holds no gate list
+# of its own (tests/test_production_gates.py).
+log "build images"
+cd "$REPO_DIR/infra"
+$COMPOSE build || fail "build"
+
 cps_run_gates || fail "$CPS_FAILED_GATE"
 cd "$REPO_DIR"
 

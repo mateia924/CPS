@@ -10,17 +10,18 @@ set -euo pipefail
 # `make smoke` (see Makefile). Fails loudly and stops at the first
 # broken step.
 #
-# Credentials: defaults to the Accountant test user created during
-# sprint 4's UAT run (docs/UAT_LOG.md) on tenant "fatma" — this script
-# needs a real, known password, and Fatma the Owner's own password was
-# never set by/disclosed to this session. Override with
-# SMOKE_SUBDOMAIN/SMOKE_EMAIL/SMOKE_PASSWORD to point at Fatma's own
-# Owner login (once you have it) or any other real tenant.
+# Credentials: tenant/user default to the Accountant test user created
+# during sprint 4's UAT run (docs/UAT_LOG.md) on tenant "fatma"; override
+# with SMOKE_SUBDOMAIN/SMOKE_EMAIL. The password has NO default (rule 50,
+# docs/SYSTEM_ANALYSIS.md §4): SMOKE_PASSWORD comes from the environment
+# or the script stops before any request. Its value lives outside the
+# repo, in /etc/cps-secrets/ (root:root 600) — never in this file. Until
+# 2026-10-17 line 23 carried a buried default, published with the repo.
 
 BASE_URL="${SMOKE_BASE_URL:-http://localhost:${HTTP_PORT:-3000}/api}"
 SUBDOMAIN="${SMOKE_SUBDOMAIN:-fatma}"
 EMAIL="${SMOKE_EMAIL:-accountant@fatma.test}"
-PASSWORD="${SMOKE_PASSWORD:-AccountantPass!2026}"
+PASSWORD="${SMOKE_PASSWORD:-}"
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -29,6 +30,8 @@ fail() {
   echo "SMOKE TEST FAILED: $1" >&2
   exit 1
 }
+
+[ -n "$PASSWORD" ] || fail "SMOKE_PASSWORD is not set — smoke.sh has no default credential (rule 50, docs/SYSTEM_ANALYSIS.md §4). The value lives in /etc/cps-secrets/smoke_password: SMOKE_PASSWORD=\"\$(sudo cat /etc/cps-secrets/smoke_password)\" make smoke"
 
 echo "[smoke] target: $BASE_URL (subdomain=$SUBDOMAIN, email=$EMAIL)"
 

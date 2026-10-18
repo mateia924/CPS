@@ -25,8 +25,14 @@
 #   GATE_BACKUP_TARGET   scripts/backup.sh --target (live|staging|dev)
 #   GATE_BACKUP_REASON   the reason written to docs/ops/backups.log
 #   GATE_HTTP_PORT       host port nginx serves this stack on
-# Optional: SMOKE_BASE_URL/SMOKE_SUBDOMAIN/SMOKE_EMAIL/SMOKE_PASSWORD,
-# exported by the caller, reach scripts/smoke.sh unchanged.
+# Optional: SMOKE_BASE_URL/SMOKE_SUBDOMAIN/SMOKE_EMAIL, exported by the
+# caller, reach scripts/smoke.sh unchanged. SMOKE_PASSWORD comes from
+# cps_gates_preflight (below), never from a default (rule 50):
+#   GATE_SMOKE_PASSWORD_FROM  required: "file" (live's
+#                        $CPS_SECRETS_DIR/smoke_password) or "env" (the
+#                        caller exported SMOKE_PASSWORD — staging)
+#   GATE_ENV_SECRETS     space-separated names of further variables the
+#                        caller's run needs non-empty
 
 CPS_PRODUCTION_GATES=(
   backup
@@ -41,6 +47,65 @@ CPS_PRODUCTION_GATES=(
 )
 
 cps_gate_log() { echo "[gates $(date -Iseconds)] $1"; }
+
+# Pre-deploy 2 (2026-10-17), rule 50: every secret the run needs is
+# checked BEFORE the first gate — and callers call this before their own
+# first step too (build; staging's wipe). A secret first read by gate 9
+# (smoke) is found missing after migrate and start already changed the
+# stack; this check changes nothing, so failing here costs nothing.
+# Messages name the path and the permissions it needs, never a value.
+# The file's trailing newline (an editor's, `echo >`'s) is stripped, and
+# a CR with it.
+CPS_SECRETS_DIR=/etc/cps-secrets
+CPS_PREFLIGHT_PASSED=0
+cps_gates_preflight() {
+  local file="$CPS_SECRETS_DIR/smoke_password" owner mode value var failed=0
+  case "${GATE_SMOKE_PASSWORD_FROM-}" in
+    file)
+      if [ ! -f "$file" ]; then
+        echo "ERROR: secrets preflight: $file does not exist — gate smoke logs in with it. Create it root:root, mode 600, holding only the password." >&2
+        failed=1
+      else
+        read -r owner mode < <(stat -c '%u %a' "$file")
+        if [ "$owner" != "0" ] || [ $((8#$mode & 8#077)) -ne 0 ]; then
+          echo "ERROR: secrets preflight: $file is owned by uid $owner with mode $mode — it must be root:root, mode 600 (no group or other access)." >&2
+          failed=1
+        elif [ ! -r "$file" ]; then
+          echo "ERROR: secrets preflight: $file is not readable by $(id -un) — run as root (the file is root:root, mode 600)." >&2
+          failed=1
+        else
+          value="$(<"$file")"
+          value="${value%$'\r'}"
+          if [ -z "$value" ]; then
+            echo "ERROR: secrets preflight: $file is empty — it must hold the smoke password (root:root, mode 600)." >&2
+            failed=1
+          else
+            export SMOKE_PASSWORD="$value"
+          fi
+        fi
+      fi
+      ;;
+    env)
+      if [ -z "${SMOKE_PASSWORD:-}" ]; then
+        echo "ERROR: secrets preflight: SMOKE_PASSWORD is empty — this caller exports it for gate smoke (GATE_SMOKE_PASSWORD_FROM=env)." >&2
+        failed=1
+      fi
+      ;;
+    *)
+      echo "ERROR: secrets preflight: GATE_SMOKE_PASSWORD_FROM must be set to \"file\" or \"env\" by the caller, got \"${GATE_SMOKE_PASSWORD_FROM-}\"." >&2
+      failed=1
+      ;;
+  esac
+  for var in ${GATE_ENV_SECRETS:-}; do
+    if [ -z "${!var:-}" ]; then
+      echo "ERROR: secrets preflight: $var is empty — set it in the caller's env file." >&2
+      failed=1
+    fi
+  done
+  [ "$failed" -eq 0 ] || return 1
+  CPS_PREFLIGHT_PASSED=1
+  cps_gate_log "secrets preflight passed."
+}
 
 # One-off containers (`run --rm`), never the persistent service's own
 # startup chain: starting the persistent backend first races its own
@@ -197,6 +262,11 @@ cps_run_gates() {
       return 1
     fi
   done
+  if [ "$CPS_PREFLIGHT_PASSED" != "1" ] && ! cps_gates_preflight; then
+    CPS_FAILED_GATE="secrets preflight"
+    cps_gate_log "FAILED before gate 1/$n: secrets preflight"
+    return 1
+  fi
   for gate in "${CPS_PRODUCTION_GATES[@]}"; do
     i=$((i + 1))
     cps_gate_log "gate $i/$n: $gate"

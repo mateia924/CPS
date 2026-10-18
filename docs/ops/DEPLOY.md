@@ -114,7 +114,13 @@ DROP INDEX CONCURRENTLY IF EXISTS <اسم_الفهرس>;
 `AuditLog` (`tenant_user.login`)، وصف `UserSession`، و`OutstandingToken`
 (simplejwt)، وتحديث `last_login`. الحساب الافتراضي على الحي
 `accountant@fatma.test` — مستخدم أُنشئ في UAT سبرنت 4 **داخل مستأجر Fatma
-الحقيقي**، وكلمة سره مكتوبة في `smoke.sh` نفسه. أي أنه **ليس حساب فحص
+الحقيقي**. كلمة سره لا تُكتب في المستودع (القاعدة 50، 2026-10-17): `smoke.sh`
+يقرأ `SMOKE_PASSWORD` من البيئة ويتوقف إن غاب، والقيمة في
+`/etc/cps-secrets/smoke_password` (root:root، 600). `deploy.sh` يتحقق منه
+بالفحص التمهيدي (`cps_gates_preflight`) قبل build وقبل أول بوابة، ويتوقف
+إن غاب أو كانت أذوناته أوسع. إنشاؤه (مرة واحدة، كـroot، بلا أن تمر القيمة
+بسجل الصدفة): `install -m 600 -o root -g root /dev/null /etc/cps-secrets/smoke_password`
+ثم `read -rs p && printf '%s\n' "$p" > /etc/cps-secrets/smoke_password; unset p`. أي أنه **ليس حساب فحص
 مخصصًا**: سجل تدقيق عميل حقيقي يحمل دخول الفحص، و«آخر نشاط» للمستأجر في
 لوحة المنصة يتحرك مع كل نشر. مفتوح: حساب فحص مخصص (مستأجر فحص منفصل) قبل
 أول نشر حي عبر البوابات. على staging يدخل `smoke` بحساب المحاسب المُخفى
