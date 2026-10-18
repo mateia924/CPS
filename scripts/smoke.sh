@@ -35,30 +35,37 @@ fail() {
 
 echo "[smoke] target: $BASE_URL (subdomain=$SUBDOMAIN, email=$EMAIL)"
 
+# Rule 50 (Pre-deploy 3, 2026-10-18): no secret on a command line — `ps`
+# shows curl's arguments to every user on the host while it runs. The
+# login body (with the password) goes on stdin, the access token in a
+# header file under $TMP_DIR (mktemp -d: mode 700, removed by the trap).
+# Found by sampling `ps` during staging_refresh.sh --full: `-d '{...
+# "password":...}'` and `-H "Authorization: Bearer ..."` were both there.
 echo "[smoke] POST /auth/login/"
 LOGIN_STATUS="$(curl -s -o "$TMP_DIR/login.json" -w '%{http_code}' -X POST "$BASE_URL/auth/login/" \
-  -H "Content-Type: application/json" \
-  -d "{\"subdomain\":\"$SUBDOMAIN\",\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}")"
+  -H "Content-Type: application/json" --data-binary @- \
+  <<< "{\"subdomain\":\"$SUBDOMAIN\",\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}")"
 [ "$LOGIN_STATUS" = "200" ] || fail "login returned $LOGIN_STATUS (expected 200) — body: $(cat "$TMP_DIR/login.json")"
 ACCESS_TOKEN="$(python3 -c "import json; print(json.load(open('$TMP_DIR/login.json'))['access'])")" \
   || fail "login response had no access token: $(cat "$TMP_DIR/login.json")"
+( umask 077; printf 'Authorization: Bearer %s\n' "$ACCESS_TOKEN" > "$TMP_DIR/auth.header" )
 echo "[smoke] login OK"
 
 echo "[smoke] GET /auth/me/"
 ME_STATUS="$(curl -s -o "$TMP_DIR/me.json" -w '%{http_code}' \
-  -H "Authorization: Bearer $ACCESS_TOKEN" "$BASE_URL/auth/me/")"
+  -H @"$TMP_DIR/auth.header" "$BASE_URL/auth/me/")"
 [ "$ME_STATUS" = "200" ] || fail "/auth/me/ returned $ME_STATUS (expected 200) — body: $(cat "$TMP_DIR/me.json")"
 echo "[smoke] /auth/me/ OK (200)"
 
 echo "[smoke] GET /invoices/"
 INVOICES_STATUS="$(curl -s -o "$TMP_DIR/invoices.json" -w '%{http_code}' \
-  -H "Authorization: Bearer $ACCESS_TOKEN" "$BASE_URL/invoices/")"
+  -H @"$TMP_DIR/auth.header" "$BASE_URL/invoices/")"
 [ "$INVOICES_STATUS" = "200" ] || fail "/invoices/ returned $INVOICES_STATUS (expected 200) — body: $(cat "$TMP_DIR/invoices.json")"
 echo "[smoke] /invoices/ OK (200)"
 
 echo "[smoke] GET /journal-entries/trial_balance/"
 TB_STATUS="$(curl -s -o "$TMP_DIR/tb.json" -w '%{http_code}' \
-  -H "Authorization: Bearer $ACCESS_TOKEN" "$BASE_URL/journal-entries/trial_balance/")"
+  -H @"$TMP_DIR/auth.header" "$BASE_URL/journal-entries/trial_balance/")"
 [ "$TB_STATUS" = "200" ] || fail "/journal-entries/trial_balance/ returned $TB_STATUS (expected 200) — body: $(cat "$TMP_DIR/tb.json")"
 TB_MESSAGE="$(python3 -c "
 import json

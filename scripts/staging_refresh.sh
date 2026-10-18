@@ -227,12 +227,17 @@ if [ "$CODE_ONLY" = "0" ]; then
   # then only a database name stands between the two, the very thing
   # that cannot tell live from dev (both postgres/cps). Nothing would
   # fail; the distinction would just be gone.
+  # Rule 50 (Pre-deploy 3): no secret on a command line — `ps` shows
+  # every process's arguments to every user on the host. The passphrase
+  # reaches gpg through a file descriptor (printf is a builtin: no
+  # process of its own, no argv); the anonymize password through the
+  # environment, `-e` naming the variable, never its value.
   log "decrypting and restoring the live backup into it"
-  gpg --batch --yes --passphrase "$CPS_BACKUP_ENCRYPTION_PASSPHRASE" --decrypt "$LATEST_BACKUP" 2>/dev/null \
+  gpg --batch --yes --passphrase-file <(printf '%s' "$CPS_BACKUP_ENCRYPTION_PASSPHRASE") --decrypt "$LATEST_BACKUP" 2>/dev/null \
     | gunzip -c | $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 > /dev/null
 
   log "anonymizing every user's email domain and rewriting their password, re-arming 2FA, and invalidating sessions — before any gate"
-  $COMPOSE run --rm --entrypoint '' backend python manage.py anonymize_staging_users --password "$STAGING_UAT_PASSWORD"
+  $COMPOSE run --rm -e STAGING_UAT_PASSWORD --entrypoint '' backend python manage.py anonymize_staging_users
   REAL_DATA_ON_STAGING=0
 else
   GATE_BACKUP_REASON="staging_refresh.sh --code-only"
@@ -252,14 +257,17 @@ TENANT_COUNT="$($COMPOSE exec -T backend python manage.py shell -c \
   "from apps.tenants.models import Tenant; print(Tenant.objects.count())" | tail -1 | tr -d '\r')"
 log "staging now has $TENANT_COUNT tenant(s) — compare against dev's own count to confirm the restore."
 
-FATMA_OWNER_EMAIL="$($COMPOSE exec -T backend python manage.py shell -c \
-  "from apps.accounts.models import User; u = User.objects.filter(tenant__subdomain='fatma', role='owner').first(); print(u.email if u else '')" \
+# Pre-deploy 3 (rule 50): the account is described, not printed. The
+# local part of an email survives anonymize — it is the real person's
+# (Fatma's Owner logs in with their real Gmail local part) — so printing
+# it put personal data in every scrollback and session log, like the
+# password before it.
+FATMA_OWNER_COUNT="$($COMPOSE exec -T backend python manage.py shell -c \
+  "from apps.accounts.models import User; print(User.objects.filter(tenant__subdomain='fatma', role='owner').count())" \
   | tail -1 | tr -d '\r')"
 
 log "done. Email pattern: <local part>@<tenant subdomain>.staging.test — every user's password: STAGING_UAT_PASSWORD from .env.staging."
-if [ -n "$FATMA_OWNER_EMAIL" ]; then
-  log "Fatma's Owner login on http://<this-host>:${STAGING_HTTP_PORT:-3001} -> $FATMA_OWNER_EMAIL"
-fi
+log "Fatma's Owner (${FATMA_OWNER_COUNT:-?} owner account(s) on tenant fatma) logs in on http://<this-host>:${STAGING_HTTP_PORT:-3001} with their own email's local part @fatma.staging.test — not printed (rule 50)."
 # Rule 50 (2026-10-18, reverses the sprint 6.6.0 decision to print the
 # value once here): the script names the account and where its password
 # lives, never the value. "Never logged anywhere persistent" did not hold:

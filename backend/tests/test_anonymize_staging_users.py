@@ -19,6 +19,12 @@ from apps.accounts.models import BackupCode, UserSession
 from .factories import TenantFactory, UserFactory
 
 
+@pytest.fixture(autouse=True)
+def _uat_password(monkeypatch):
+    # Pre-deploy 3: the command reads it from the environment, never an option.
+    monkeypatch.setenv("STAGING_UAT_PASSWORD", "Staging@2026!")
+
+
 @pytest.mark.django_db
 def test_refuses_outside_staging(monkeypatch):
     monkeypatch.delenv("CPS_ENVIRONMENT", raising=False)
@@ -27,7 +33,7 @@ def test_refuses_outside_staging(monkeypatch):
     old_password_hash = user.password
 
     with pytest.raises(CommandError, match="staging"):
-        call_command("anonymize_staging_users", "--password", "Whatever123!")
+        call_command("anonymize_staging_users")
 
     user.refresh_from_db()
     assert user.password == old_password_hash
@@ -39,7 +45,7 @@ def test_refuses_when_environment_is_production(monkeypatch):
     monkeypatch.setenv("CPS_ENVIRONMENT", "production")
     TenantFactory()
     with pytest.raises(CommandError, match="staging"):
-        call_command("anonymize_staging_users", "--password", "Whatever123!")
+        call_command("anonymize_staging_users")
 
 
 @pytest.mark.django_db
@@ -53,7 +59,7 @@ def test_rewrites_email_domain_and_password_when_staging(monkeypatch):
     user_a = UserFactory(tenant=tenant_a, email="fatmaelzhraaabukhdra@gmail.com")
     user_b = UserFactory(tenant=tenant_b, email="owner@acme.test")
 
-    call_command("anonymize_staging_users", "--password", "Staging@2026!")
+    call_command("anonymize_staging_users")
 
     user_a.refresh_from_db()
     user_b.refresh_from_db()
@@ -71,7 +77,7 @@ def test_local_part_collision_within_a_tenant_gets_disambiguated(monkeypatch):
     user_a = UserFactory(tenant=tenant, email="owner@gmail.com")
     user_b = UserFactory(tenant=tenant, email="owner@yahoo.com")
 
-    call_command("anonymize_staging_users", "--password", "Staging@2026!")
+    call_command("anonymize_staging_users")
 
     user_a.refresh_from_db()
     user_b.refresh_from_db()
@@ -92,7 +98,7 @@ def test_clears_2fa_and_must_change_password_when_staging(monkeypatch):
     )
     BackupCode.objects.create(user=user, code_hash="irrelevant-hash")
 
-    call_command("anonymize_staging_users", "--password", "Staging@2026!")
+    call_command("anonymize_staging_users")
 
     user.refresh_from_db()
     assert user.must_change_password is False
@@ -112,7 +118,7 @@ def test_invalidates_outstanding_tokens_and_sessions_when_staging(monkeypatch):
         user=user, jti=str(refresh["jti"]), expires_at=timezone.now() + timezone.timedelta(days=1)
     )
 
-    call_command("anonymize_staging_users", "--password", "Staging@2026!")
+    call_command("anonymize_staging_users")
 
     assert BlacklistedToken.objects.filter(token=outstanding).exists()
     session.refresh_from_db()
@@ -137,7 +143,7 @@ def test_runs_on_a_restored_schema_that_predates_the_new_codes_columns(monkeypat
         cursor.execute("ALTER TABLE accounts_user DROP COLUMN notify_approvals_email")
         cursor.execute("ALTER TABLE tenants_tenant DROP COLUMN storage_used_bytes")
 
-    call_command("anonymize_staging_users", "--password", "Staging@2026!")
+    call_command("anonymize_staging_users")
 
     with connection.cursor() as cursor:
         cursor.execute("SELECT email, totp_confirmed FROM accounts_user WHERE id = %s", [user.pk])
@@ -154,4 +160,25 @@ def test_skip_guard_env_var_does_not_bypass_this_command(monkeypatch):
     monkeypatch.delenv("CPS_ENVIRONMENT", raising=False)
     TenantFactory()
     with pytest.raises(CommandError, match="staging"):
-        call_command("anonymize_staging_users", "--password", "Whatever123!")
+        call_command("anonymize_staging_users")
+
+
+@pytest.mark.django_db
+def test_takes_the_password_from_the_environment_never_from_the_command_line(monkeypatch):
+    """Rule 50 (2026-10-18): `--password <value>` put the secret in `ps`
+    for every process on the host. The option no longer exists, and an
+    empty STAGING_UAT_PASSWORD stops the command before it writes."""
+    monkeypatch.setenv("CPS_ENVIRONMENT", "staging")
+    tenant = TenantFactory(subdomain="fatma")
+    user = UserFactory(tenant=tenant, email="owner@gmail.com")
+    old_password_hash = user.password
+
+    with pytest.raises(CommandError, match="unrecognized arguments: --password"):
+        call_command("anonymize_staging_users", "--password", "on-the-command-line")
+
+    monkeypatch.delenv("STAGING_UAT_PASSWORD")
+    with pytest.raises(CommandError, match="STAGING_UAT_PASSWORD is empty"):
+        call_command("anonymize_staging_users")
+    user.refresh_from_db()
+    assert user.password == old_password_hash
+    assert user.email == "owner@gmail.com"

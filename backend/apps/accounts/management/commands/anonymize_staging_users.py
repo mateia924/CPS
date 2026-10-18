@@ -42,6 +42,14 @@ every field the NEW code has, and the first deploy that adds a column
 to User or Tenant would fail here on a column the restored schema does
 not have yet. Only columns this command itself rewrites are named —
 all of them present since 6.6.2.
+
+Pre-deploy 3 (2026-10-18), rule 50: the password comes from the
+STAGING_UAT_PASSWORD environment variable, never from an option. It was
+`--password <value>`, which put it on the command line — readable in
+`ps` by every process on the host for as long as the command ran
+(scripts/staging_refresh.sh passes the variable's NAME to `compose run
+-e`, the value travels in the environment). There is no option at all
+now, so a secret on the command line cannot happen by habit either.
 """
 
 import os
@@ -55,10 +63,10 @@ from apps.accounts.models import BackupCode, User, UserSession
 
 
 class Command(BaseCommand):
-    help = "Rewrites every tenant User's password/email and clears 2FA/sessions for a staging UAT session. Staging only."
-
-    def add_arguments(self, parser):
-        parser.add_argument("--password", required=True, help="The known UAT password to set for every user.")
+    help = (
+        "Rewrites every tenant User's password (STAGING_UAT_PASSWORD from the environment)/email "
+        "and clears 2FA/sessions for a staging UAT session. Staging only."
+    )
 
     def handle(self, *args, **options):
         if os.environ.get("CPS_ENVIRONMENT") != "staging":
@@ -67,7 +75,12 @@ class Command(BaseCommand):
                 "This command only ever runs inside docker-compose.staging.yml."
             )
 
-        password = options["password"]
+        password = os.environ.get("STAGING_UAT_PASSWORD", "")
+        if not password:
+            raise CommandError(
+                "STAGING_UAT_PASSWORD is empty — set it in .env.staging; it is read from the "
+                "environment, never from the command line."
+            )
         rows = list(User.objects.values("pk", "email", "tenant_id", "tenant__subdomain"))
 
         users = []
@@ -99,7 +112,10 @@ class Command(BaseCommand):
         BackupCode.objects.all().delete()
 
         BlacklistedToken.objects.bulk_create(
-            [BlacklistedToken(token_id=pk) for pk in OutstandingToken.objects.values_list("pk", flat=True)],
+            [
+                BlacklistedToken(token_id=pk)
+                for pk in OutstandingToken.objects.values_list("pk", flat=True)
+            ],
             ignore_conflicts=True,
         )
         UserSession.objects.filter(revoked_at__isnull=True).update(revoked_at=timezone.now())

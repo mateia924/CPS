@@ -180,30 +180,52 @@ cps_gate_check_chart_health() {
 # Pre-deploy 1 (2026-10-17): `build` has already moved every image tag
 # to the new code, but the existing containers still hold the previous
 # images by ID (stopped ones too: staging --full stops backend first) —
-# the last moment anything can name them. Each one is
-# tagged <image>:rollback-<time> (also keeps `docker image prune` off
-# it), and CPS_ROLLBACK_COMMAND is the command that puts them back:
-# printed when `ready` times out, run by a human, never automatically.
-# Migrations are not rolled back by it: the previous code would serve
-# the migrated schema, exactly as it did between `migrate` and `start`.
+# the last moment anything can name them. Each one is tagged
+# <image>:rollback-<time> (also keeps `docker image prune` off it), and
+# CPS_ROLLBACK_COMMAND is the command that puts them back: printed when
+# `ready` times out, run by a human, never automatically. Migrations are
+# not rolled back by it: the previous code would serve the migrated
+# schema, exactly as it did between `migrate` and `start`.
+#
+# Pre-deploy 3 (2026-10-18): ONLY images this project builds itself.
+# staging and live share the host's one image store, and both pull the
+# same external images by the same tags (postgres:16-alpine, nginx,
+# redis, minio, clamav). Tagging every container's image made the
+# printed rollback re-point `postgres:16-alpine` & co. — tags live's
+# containers read — to whatever image staging had: harmless only while
+# both happened to hold the same ID (2026-10-18 they did). An external
+# image is pinned by its own tag, is not changed by `build`, and is
+# never tagged or re-tagged here. A built image is one compose named
+# after its project and service, <project>-<service> (no `image:` in
+# the compose files): cps-staging-backend vs infra-backend — so every
+# rollback tag carries the project's name, and one stack's tag cannot
+# be read by the other's containers. A built service that ever gets an
+# `image:` of its own is left untagged (named in the log), never tagged
+# under a name another stack might read.
 CPS_ROLLBACK_COMMAND=""
 cps_record_previous_images() {
-  local stamp container image image_id tags=""
+  local stamp container info image image_id project service tags="" built="" external=""
   stamp="rollback-$(date +%Y%m%d-%H%M%S)"
   for container in $($GATE_COMPOSE ps -a -q); do
-    image="$(docker inspect -f '{{.Config.Image}}' "$container")" || return 1
-    image_id="$(docker inspect -f '{{.Image}}' "$container")" || return 1
+    info="$(docker inspect -f '{{.Config.Image}} {{.Image}} {{index .Config.Labels "com.docker.compose.project"}} {{index .Config.Labels "com.docker.compose.service"}}' "$container")" || return 1
+    read -r image image_id project service <<< "$info"
     case "$image" in *:*) ;; *) image="$image:latest" ;; esac
+    if [ -z "$project" ] || [ "${image%:*}" != "$project-$service" ]; then
+      external="$external $image"
+      continue
+    fi
     docker tag "$image_id" "${image%:*}:$stamp" || return 1
     tags="$tags docker tag ${image%:*}:$stamp $image &&"
+    built="$built ${image%:*}"
   done
+  [ -z "$external" ] || cps_gate_log "not tagged (external, pinned by their own tag — rollback never touches them):$external"
   if [ -z "$tags" ]; then
     CPS_ROLLBACK_COMMAND=""
-    cps_gate_log "no running containers before start — nothing to roll back to."
+    cps_gate_log "no built image running before start — nothing to roll back to."
     return 0
   fi
   CPS_ROLLBACK_COMMAND="cd $GATE_REPO_DIR/infra &&$tags $GATE_COMPOSE up -d --no-build && $GATE_COMPOSE restart nginx"
-  cps_gate_log "previous images tagged :$stamp (rollback target)."
+  cps_gate_log "previous built images tagged :$stamp (rollback target):$built"
 }
 
 # nginx resolves "backend" once and keeps the old IP after backend is

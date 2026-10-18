@@ -116,8 +116,8 @@ echo "docker $*" >> "$CALLS"
 [ -t 0 ] || cat > /dev/null
 if [ -n "${FAIL_ON:-}" ] && [[ "$*" == *"$FAIL_ON"* ]]; then exit 1; fi
 case "$*" in
-  "inspect -f {{.Config.Image}} "*) echo infra-backend ;;
-  "inspect -f {{.Image}} "*) echo sha256:0ld1mage ;;
+  "inspect -f "*) var="FAKE_INSPECT_${@: -1}"; echo "${!var:-infra-backend sha256:0ld1mage infra backend}" ;;
+  *"u.email"*) echo "real.local.part@fatma.staging.test" ;;
   *" ps -a -q") echo "${FAKE_CONTAINERS:-}" ;;
   *pg_policies*) echo "3 3" ;;
 esac
@@ -142,7 +142,7 @@ def _fake_tree(tmp_path):
     stubs = {
         bin_dir / "docker": FAKE_DOCKER,
         bin_dir
-        / "gpg": '#!/usr/bin/env bash\necho "gpg" >> "$CALLS"\nprintf "SELECT 1;\\n" | gzip -c\n',
+        / "gpg": '#!/usr/bin/env bash\necho "gpg $*" >> "$CALLS"\nprintf "SELECT 1;\\n" | gzip -c\n',
         bin_dir / "find": '#!/usr/bin/env bash\necho "1 /opt/cps-backups/cps-db-test.sql.gz.gpg"\n',
         bin_dir
         / "curl": '#!/usr/bin/env bash\necho "curl" >> "$CALLS"\nprintf "%s" "${CURL_STATUS:-502}"\n',
@@ -212,14 +212,17 @@ def test_full_refresh_anonymizes_before_the_first_gate_so_a_failed_gate_leaves_n
     assert result.returncode == 1
     assert 'failed production gate "migrate"' in result.stderr
     log = calls.read_text().splitlines()
-    restore = next(i for i, line in enumerate(log) if line == "gpg")
+    restore = next(i for i, line in enumerate(log) if line.startswith("gpg "))
     anonymize = [i for i, line in enumerate(log) if "anonymize_staging_users" in line]
     first_gate = next(
         i
         for i, line in enumerate(log)
         if "backup.sh --target staging staging_refresh.sh --full (pre-migrate" in line
     )
-    assert len(anonymize) == 1 and "run --rm --entrypoint  backend" in log[anonymize[0]]
+    assert (
+        len(anonymize) == 1
+        and "run --rm -e STAGING_UAT_PASSWORD --entrypoint  backend" in log[anonymize[0]]
+    )
     assert restore < anonymize[0] < first_gate
     assert any("manage.py migrate" in line for line in log[first_gate:])
     # The gate's failure is not an anonymize failure: the data stays.
@@ -457,3 +460,96 @@ def test_staging_refresh_runs_to_the_end_without_printing_the_staging_password(t
     assert "uat-pass" not in output
     if mode == "--full":
         assert "STAGING_UAT_PASSWORD from .env.staging" in result.stdout
+
+
+def _live_reads():
+    """Every image tag live's containers read: the external images the
+    shared compose file pins, and infra-<service> for each built one."""
+    compose = (SCRIPTS.parent / "infra" / "docker-compose.yml").read_text(encoding="utf-8")
+    external = set(re.findall(r"^\s+image:\s*(\S+)\s*$", compose, re.M))
+    assert {"postgres:16-alpine", "redis:7-alpine"} <= external
+    built = {f"infra-{name}:latest" for name in ("backend", "celery_worker", "frontend")}
+    return external | built
+
+
+def test_start_on_staging_changes_no_image_tag_that_live_reads(tmp_path):
+    """Pre-deploy 3: staging and live share the host's one image store.
+    `start` tagged every container's image, and the printed rollback
+    re-tagged postgres:16-alpine & co. — tags live's containers read —
+    to staging's images. Run `start` on staging, then the rollback it
+    prints: neither may write a tag live reads, and every tag either
+    writes must carry the staging project's name."""
+    repo, calls, env = _fake_tree(tmp_path)
+    containers = {
+        "sb": "cps-staging-backend sha256:stagingbackend cps-staging backend",
+        "sw": "cps-staging-celery_worker sha256:stagingworker cps-staging celery_worker",
+        "sp": "postgres:16-alpine sha256:stagingpostgres cps-staging postgres",
+        "sn": "nginx:1.27-alpine sha256:stagingnginx cps-staging nginx",
+        "sr": "redis:7-alpine sha256:stagingredis cps-staging redis",
+    }
+    script = """
+source scripts/production_gates.sh
+GATE_REPO_DIR="$PWD" GATE_COMPOSE="docker compose -p cps-staging" GATE_BACKUP_TARGET=staging GATE_HTTP_PORT=3001
+cps_gate_start || exit 9
+echo "ROLLBACK=$CPS_ROLLBACK_COMMAND"
+eval "$CPS_ROLLBACK_COMMAND"
+"""
+    result = _run(
+        ["bash", "-c", script],
+        repo,
+        env,
+        FAKE_CONTAINERS=" ".join(containers),
+        **{f"FAKE_INSPECT_{cid}": info for cid, info in containers.items()},
+    )
+
+    assert result.returncode == 0, result.stderr
+    written = [
+        line.split()[-1]
+        for line in calls.read_text().splitlines()
+        if line.startswith("docker tag ")
+    ]
+    assert written, "start tagged nothing — the rollback target is gone"
+    assert not set(written) & _live_reads(), (
+        f"wrote a tag live reads: {set(written) & _live_reads()}"
+    )
+    assert all(tag.startswith("cps-staging-") for tag in written), written
+    rollback = re.search(r"^ROLLBACK=(.*)$", result.stdout, re.M).group(1)
+    # Image references, not service names (`restart nginx` is the service).
+    for external in ("postgres:", "nginx:", "redis:"):
+        assert external not in rollback, rollback
+    assert "not tagged (external, pinned by their own tag" in result.stdout
+
+
+def test_staging_refresh_puts_no_secret_on_a_command_line(tmp_path):
+    """Rule 50 (Pre-deploy 3): `ps` shows every process's arguments to
+    every user on the host. The fake docker and gpg log their own argv:
+    neither the anonymize password nor the backup passphrase may be in
+    it — the password travels in the environment (`-e` names it), the
+    passphrase through a file descriptor."""
+    repo, calls, env = _fake_tree(tmp_path)
+
+    result = _run(["bash", "scripts/staging_refresh.sh", "--full"], repo, env, CURL_STATUS="200")
+
+    assert result.returncode == 0, result.stderr
+    argv = calls.read_text()
+    assert "uat-pass" not in argv
+    assert "test-passphrase" not in argv
+    assert re.search(
+        r"^docker compose .* run --rm -e STAGING_UAT_PASSWORD .*anonymize_staging_users$",
+        argv,
+        re.M,
+    )
+    assert re.search(r"^gpg .*--passphrase-file /dev/fd/\d+ ", argv, re.M)
+
+
+def test_staging_refresh_describes_the_owner_account_without_printing_their_email(tmp_path):
+    """Pre-deploy 3: the local part of an email survives anonymize — it is
+    the real person's. The last lines describe the account; the fake
+    answers an email query with one, and it must not reach the output."""
+    repo, calls, env = _fake_tree(tmp_path)
+
+    result = _run(["bash", "scripts/staging_refresh.sh", "--full"], repo, env, CURL_STATUS="200")
+
+    assert result.returncode == 0, result.stderr
+    assert "real.local.part" not in result.stdout + result.stderr
+    assert "Fatma's Owner (" in result.stdout and "not printed (rule 50)" in result.stdout
