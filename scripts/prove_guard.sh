@@ -112,10 +112,16 @@ run_tests() {
     repo_mount=(-v "$REPO_DIR:/workspace:ro")
     workdir="/workspace/backend"
   fi
+  # 2026-10-19: --repo tests may also drive git (test_deploy_sh_guards.py
+  # clones the repo). The dev image has no git, so they would SKIP — and a
+  # skip is never a FAILED, so the proof could not pass, only stall. Git
+  # goes into this throwaway container, as scripts/ci_local.sh does.
+  local setup=":"
+  [ "$CONTAINER" != "--repo" ] || setup="apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends git >/dev/null && git config --global --add safe.directory '*'"
   docker run --rm --name "$TEST_CONTAINER" --network "$network" \
     --env-file <(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$TEMPLATE") \
     --volumes-from "$TEMPLATE" "${repo_mount[@]}" -w "$workdir" \
-    --entrypoint pytest "$image" -q -p no:cacheprovider "$TEST_PATH"
+    --entrypoint bash "$image" -c "$setup && exec pytest -q -p no:cacheprovider \"\$0\"" "$TEST_PATH"
 }
 
 OUTPUT_FILE="$(mktemp -t cps-prove-guard.XXXXXX)"

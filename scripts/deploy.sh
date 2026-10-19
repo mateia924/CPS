@@ -47,7 +47,26 @@ log() { echo "[deploy $(date -Iseconds)] $1"; }
 # auto-commit would create a commit AFTER the one being deployed, so
 # deploys.log would record a SHA that is not what is running.
 # Anything else modified, and any untracked file, still blocks.
-DIRTY_STATUS="$(git -C "$REPO_DIR" status --porcelain | grep -v -E "^ ?M +docs/ops/[^/]+\\.log$" || true)"
+# 2026-10-19: the standing exclusion list (scripts/standing_exclusions.sh,
+# the same file the pre-commit guard reads) is not counted either — paths
+# dirty on purpose by owner decision (regenerated screenshots, the
+# untracked fail2ban config). Each one is named in the log, never
+# skipped silently. A path that is quoted, renamed or only resembles an
+# entry does not match, and still blocks.
+source "$REPO_DIR/scripts/standing_exclusions.sh"
+DIRTY_STATUS=""
+while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  if [[ "$line" =~ ^\ ?M\ +docs/ops/[^/]+\.log$ ]]; then
+    continue
+  fi
+  if excluded="$(cps_standing_exclusion "${line:3}")"; then
+    log "not counted as dirty (standing exclusion $excluded): $line"
+    continue
+  fi
+  DIRTY_STATUS+="$line"$'\n'
+done < <(git -C "$REPO_DIR" status --porcelain)
+DIRTY_STATUS="${DIRTY_STATUS%$'\n'}"
 DIRTY_NOTE=""
 if [ -n "$DIRTY_STATUS" ]; then
   if [ "${ALLOW_DIRTY_DEPLOY:-}" = "1" ] && [ -n "${DIRTY_DEPLOY_REASON:-}" ]; then

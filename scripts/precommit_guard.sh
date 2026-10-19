@@ -6,7 +6,7 @@ set -euo pipefail
 # .githooks` wires it). It is what makes `git commit`/`git push` safe to
 # run without a prompt: a commit that stages any of the following is
 # refused, loudly, before it exists:
-#   1. a path on the standing exclusion list (EXCLUDED below) — added,
+#   1. a path on the standing exclusion list (scripts/standing_exclusions.sh) — added,
 #      modified or deleted;
 #   2. a secret in a staged ADDED line: a password/secret/api_key/token
 #      with a literal value, a private key header, or an email address
@@ -22,28 +22,19 @@ set -euo pipefail
 # Usage: scripts/precommit_guard.sh   (from inside the repo; reads the index)
 # Exit 0 = nothing found; 1 = refused (each finding on stderr).
 
-EXCLUDED=(
-  "infra/fail2ban/"
-  "docs/ops/backups.log"
-  "docs/ops/ci-local.log"
-  "frontend/next-env.d.ts"
-  "docs/uat/screens/6.5.8/"
-)
 MAX_NEW_FILE_BYTES=1048576
 
 cd "$(git rev-parse --show-toplevel)"
+# The exclusion list lives in one file, also read by deploy.sh.
+source scripts/standing_exclusions.sh
 GIT=(git -c core.quotePath=false)
 FINDINGS=()
 
 # 1. Exclusion list — every staged path, deletions included.
 while IFS= read -r -d '' path; do
-  for excluded in "${EXCLUDED[@]}"; do
-    case "$excluded" in
-      */) [[ "$path" == "$excluded"* ]] || continue ;;
-      *) [ "$path" = "$excluded" ] || continue ;;
-    esac
+  if excluded="$(cps_standing_exclusion "$path")"; then
     FINDINGS+=("$path: on the standing exclusion list ($excluded)")
-  done
+  fi
 done < <("${GIT[@]}" diff --cached --name-only --no-renames -z)
 
 # 3. New files over 1 MB (a path HEAD already tracks may keep growing).
