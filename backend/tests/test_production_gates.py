@@ -118,6 +118,7 @@ if [ -n "${FAIL_ON:-}" ] && [[ "$*" == *"$FAIL_ON"* ]]; then exit 1; fi
 case "$*" in
   "inspect -f "*) var="FAKE_INSPECT_${@: -1}"; echo "${!var:-infra-backend sha256:0ld1mage infra backend}" ;;
   *"u.email"*) echo "real.local.part@fatma.staging.test" ;;
+  *"settings.EMAIL_BACKEND"*) echo "${FAKE_EMAIL_BACKEND-django.core.mail.backends.dummy.EmailBackend}" ;;
   *" ps -a -q") echo "${FAKE_CONTAINERS:-}" ;;
   *pg_policies*) echo "3 3" ;;
 esac
@@ -553,3 +554,34 @@ def test_staging_refresh_describes_the_owner_account_without_printing_their_emai
     assert result.returncode == 0, result.stderr
     assert "real.local.part" not in result.stdout + result.stderr
     assert "Fatma's Owner (" in result.stdout and "not printed (rule 50)" in result.stdout
+
+
+# --- 2026-10-19: what the target does with mail is printed before gate 1. ---
+
+
+def test_the_email_backend_the_new_image_selects_is_printed_before_the_first_gate(tmp_path):
+    repo, calls, env = _fake_tree(tmp_path)
+    _secrets_dir(tmp_path, repo, content="pw\n")
+
+    result = _run(["bash", "-c", _GATES_SCRIPT], repo, env, CURL_STATUS="200")
+
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    line = "email backend for live: django.core.mail.backends.dummy.EmailBackend"
+    assert line in out
+    assert out.index("secrets preflight passed.") < out.index(line) < out.index("gate 1/9: backup")
+    assert "manage.py shell -c from django.conf import settings" in calls.read_text()
+
+
+@pytest.mark.parametrize("answer", ["", "Traceback (most recent call last):"])
+def test_no_readable_email_backend_stops_the_run_before_the_first_gate(tmp_path, answer):
+    repo, calls, env = _fake_tree(tmp_path)
+    _secrets_dir(tmp_path, repo, content="pw\n")
+
+    result = _run(["bash", "-c", _GATES_SCRIPT], repo, env, CURL_STATUS="200", FAKE_EMAIL_BACKEND=answer)
+
+    assert result.returncode == 1
+    assert "failed gate: email backend report" in result.stdout
+    assert "could not read the email backend" in result.stderr
+    assert "gate 1/9: backup" not in result.stdout
+    assert "backup.sh" not in calls.read_text()

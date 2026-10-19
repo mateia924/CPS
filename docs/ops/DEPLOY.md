@@ -243,6 +243,32 @@ ls -l /etc/cps-secrets/smoke_password     # يجب أن يظهر -rw------- root
 - **سبب عدم النشر:** نشر `main` لإصلاح خمس قواعد اعتماد على مستأجر تجريبي واحد يشحن معه
   7.3 و7.4 بلا UAT، وواجهة استعادة كلمة المرور في 7.2.9 دون مزوّد بريد مهيَّأ.
 
+## Declared exception: live mail goes nowhere (`EMAIL_BACKEND` = dummy), 2026-10-19
+
+- **What:** live's `.env` holds, in its email block, the line
+  `EMAIL_BACKEND=django.core.mail.backends.dummy.EmailBackend`.
+  The dummy backend sends nothing and logs nothing: password-reset mails (7.2.9) and the
+  approvals digest are dropped silently.
+- **Why:** before this, live had no `EMAIL_HOST`, so `config/settings.py` fell back to the
+  console backend, and from 7.2.9 on every password-reset link, token included, would have
+  been written to the backend/celery_worker log. `settings.py` did not read `EMAIL_BACKEND`
+  from the environment at all until the commit that added this section; a `.env` line alone
+  would have changed nothing.
+- **Visible on every deploy:** `cps_run_gates` prints
+  `email backend for <target>: <class path>` before gate 1 (asked of the newly built image
+  with the target's env file), and every Django process logs `email backend: <class path>`
+  at startup. Staging always prints the console backend (its hard override).
+- **Temporary, until Phase B** (a real mail provider). Phase B uses the same variable, so the
+  change back is exactly this one line in live's `.env`:
+  - from: `EMAIL_BACKEND=django.core.mail.backends.dummy.EmailBackend`
+  - to: `EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend` (plus `EMAIL_HOST`,
+    `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD` filled in), then `deploy.sh`.
+  - Do **not** just delete the line before Phase B: with `EMAIL_HOST` still empty, that
+    falls back to the console backend, and reset tokens go to the log again.
+- **Cost while it lasts:** "forgot password" on live answers normally but no mail arrives;
+  a locked-out user needs the owner (see the live password-change paths report,
+  `docs/reports/2026-10-19-live-password-change-paths.md`).
+
 ## `make ci-local` — البوابة الحقيقية طوال ثمانية أيام (سبرنت 7.0)
 
 ثبت أن CI (`.github/workflows/ci.yml`) **لم تنجح ولا مرة واحدة منذ

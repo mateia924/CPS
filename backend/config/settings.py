@@ -460,6 +460,15 @@ elif EMAIL_HOST:
     EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
 else:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+# 2026-10-19 (pre-deploy of 7.2.9): an explicit EMAIL_BACKEND in the
+# environment wins over the choice above — on live, the dummy backend
+# keeps password-reset links out of the worker log until Phase B, and
+# Phase B names its real provider's backend the same way. Staging keeps
+# its hard console override: nothing in its env file can make it send.
+# The selected backend is logged at startup (AccountsConfig.ready) and
+# printed before the first deploy gate, so this is never silent.
+if env("CPS_ENVIRONMENT", default="") != "staging":
+    EMAIL_BACKEND = env("EMAIL_BACKEND", default=EMAIL_BACKEND)
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@cps-erp.com")
 # The link inside the digest email — points at the frontend, not this
 # API. Dev default matches this host's own frontend port (README
@@ -470,3 +479,14 @@ FRONTEND_BASE_URL = env("FRONTEND_BASE_URL", default="http://localhost:3000")
 # stays valid after issuance — same unit any admin reading this file
 # expects, overridable without a code change.
 PASSWORD_RESET_TOKEN_TTL_MINUTES = env.int("PASSWORD_RESET_TOKEN_TTL_MINUTES", default=30)
+
+# 2026-10-19: Django configures no handler of its own for INFO, so the
+# startup line naming the email backend (AccountsConfig.ready) would be
+# dropped. One logger, "cps", printed to the container log; every other
+# logger keeps Django's defaults.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"cps_console": {"class": "logging.StreamHandler"}},
+    "loggers": {"cps": {"handlers": ["cps_console"], "level": "INFO", "propagate": False}},
+}

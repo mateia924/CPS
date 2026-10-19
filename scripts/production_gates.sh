@@ -279,6 +279,23 @@ cps_gate_smoke() {
   SMOKE_BASE_URL="${SMOKE_BASE_URL:-http://localhost:$GATE_HTTP_PORT/api}" "$GATE_REPO_DIR/scripts/smoke.sh"
 }
 
+# 2026-10-19: what the target does with mail, stated on the record
+# before gate 1. Asked of the image just built, with the target's own
+# env file — the same settings the started containers will read — not
+# derived here from .env (a second copy of settings.py's choice would
+# drift). Not in cps_gates_preflight: that runs before build, when only
+# the previous image exists. Live printed the console backend for weeks
+# (every password-reset link into the worker log) and nobody saw it.
+cps_report_email_backend() {
+  local backend
+  backend="$(cps_gate_manage shell -c 'from django.conf import settings; print(settings.EMAIL_BACKEND)' | tail -n 1)"
+  if [[ ! "$backend" =~ ^[A-Za-z_][A-Za-z0-9_.]*$ ]]; then
+    echo "ERROR: production_gates.sh: could not read the email backend the new image selects for $GATE_BACKUP_TARGET (got \"$backend\")." >&2
+    return 1
+  fi
+  cps_gate_log "email backend for $GATE_BACKUP_TARGET: $backend"
+}
+
 # Runs every gate in order and stops at the first failure, leaving its
 # name in CPS_FAILED_GATE for the caller's own failure record.
 cps_run_gates() {
@@ -293,6 +310,11 @@ cps_run_gates() {
   if [ "$CPS_PREFLIGHT_PASSED" != "1" ] && ! cps_gates_preflight; then
     CPS_FAILED_GATE="secrets preflight"
     cps_gate_log "FAILED before gate 1/$n: secrets preflight"
+    return 1
+  fi
+  if ! cps_report_email_backend; then
+    CPS_FAILED_GATE="email backend report"
+    cps_gate_log "FAILED before gate 1/$n: email backend report"
     return 1
   fi
   for gate in "${CPS_PRODUCTION_GATES[@]}"; do
