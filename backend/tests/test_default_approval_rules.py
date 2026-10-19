@@ -25,6 +25,12 @@ EXPECTED_DEFAULT_DOC_TYPES = {
     "stock_issue",
     "stock_transfer",
     "stock_count",
+    # Sprint 8.0 (D3): registration only, no backfill onto existing tenants.
+    "purchase_order",
+    "supplier_bill",
+    "purchase_return",
+    "landed_cost",
+    "party_netting",
 }
 
 
@@ -102,7 +108,9 @@ def test_backfill_adds_only_the_named_doc_types_to_only_the_named_tenant_and_a_s
 
     assert _active(tenant_a) == EXPECTED_DEFAULT_DOC_TYPES
     assert _active(tenant_b) == before_b  # the other tenant is untouched
-    assert "BEFORE — tenant-a: 6 active rule(s)" in first and "AFTER — tenant-a: 11 active rule(s)" in first
+    # 6 -> 11 when written (7.4); 8.0's five purchasing defaults raised both by 5.
+    assert f"BEFORE — tenant-a: {len(others)} active rule(s)" in first
+    assert f"AFTER — tenant-a: {len(EXPECTED_DEFAULT_DOC_TYPES)} active rule(s)" in first
     assert f"added 5: {', '.join(sorted(FIVE))}" in first
 
     count = ApprovalRule.objects.filter(tenant=tenant_a).count()

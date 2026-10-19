@@ -33,6 +33,15 @@ DEFAULT_PREFIXES = {
     "stock_issue": "SI",
     "stock_transfer": "ST",
     "stock_count": "SC",
+    # Sprint 8.0 (D3): purchasing, same code-at-first-exit-from-DRAFT
+    # timing. A supplier bill is PINV ("BILL (PINV)" in D3); its own
+    # bill_number field is the supplier's number, not this one.
+    "purchase_order": "PO",
+    "goods_receipt": "GRN",
+    "supplier_bill": "PINV",
+    "purchase_return": "PRET",
+    "landed_cost": "LC",
+    "party_netting": "NET",
 }
 
 

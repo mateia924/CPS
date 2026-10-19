@@ -23,6 +23,7 @@ from apps.common.validators import validate_tenant_subdomain
 from apps.organization.services import create_default_legal_entities
 from apps.platform.models import AuditLog, Plan
 from apps.platform.services import log_action
+from apps.purchasing.services import load_withholding_codes
 from apps.tenants.models import Tenant
 from apps.tenants.services import apply_plan_to_tenant
 
@@ -129,6 +130,9 @@ class RegisterSerializer(serializers.Serializer):
             # لكل مستأجر سعودي عند التسجيل" — keyed off the default
             # branch's country (every LegalEntity defaults to SA today).
             seed_tax_codes_for_country(tenant, branch.country_code)
+            # Sprint 8.0 (D6): the same country's withholding codes, as
+            # examples (is_example=True) until the owner approves them.
+            load_withholding_codes(tenant, branch.country_code)
             generate_tax_periods_for_year(branch, timezone.now().year)
 
             # Sprint 6.1 (decision 2): "لا مستأجر بلا سنة مالية في أي

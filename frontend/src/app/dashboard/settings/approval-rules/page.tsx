@@ -22,6 +22,9 @@ const DOC_TYPES: ApprovalDocType[] = [
   // that COUNT exists — registration seeds its rule, and until this the
   // screen could neither name that row nor edit it.
   "stock_receipt", "stock_issue", "stock_transfer", "stock_count",
+  // Sprint 8.0: registration seeds a rule for each purchasing document,
+  // so the screen must be able to name and edit those rows.
+  "purchase_order", "supplier_bill", "purchase_return", "landed_cost", "party_netting",
 ];
 // iban_change/opening_balance are deliberately absent from DOC_TYPES
 // (below) — both are fixed, non-deletable system rules (approvals/
@@ -43,6 +46,11 @@ const DOC_TYPE_LABEL: Record<ApprovalDocType, string> = {
   stock_issue: "stockIssueDoc",
   stock_transfer: "stockTransferDoc",
   stock_count: "stockCountDoc",
+  purchase_order: "purchaseOrderDoc",
+  supplier_bill: "supplierBillDoc",
+  purchase_return: "purchaseReturnDoc",
+  landed_cost: "landedCostDoc",
+  party_netting: "partyNettingDoc",
 };
 
 export default function ApprovalRulesPage() {

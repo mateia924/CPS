@@ -66,6 +66,16 @@ class ApprovalRule(TenantScopedModel, SoftDeleteModelMixin):
         STOCK_ISSUE = "stock_issue", _("Stock Issue")
         STOCK_TRANSFER = "stock_transfer", _("Stock Transfer")
         STOCK_COUNT = "stock_count", _("Stock Count")
+        # Sprint 8.0 (D3): the five purchasing documents, default rule
+        # min_amount=0 -> Owner for every tenant born from now on
+        # (apps/approvals/defaults.py), freely editable/deletable.
+        # R-8.4: a direct bill is a SUPPLIER_BILL like any other — no
+        # approval path of its own.
+        PURCHASE_ORDER = "purchase_order", _("Purchase Order")
+        SUPPLIER_BILL = "supplier_bill", _("Supplier Bill")
+        PURCHASE_RETURN = "purchase_return", _("Purchase Return")
+        LANDED_COST = "landed_cost", _("Landed Cost")
+        PARTY_NETTING = "party_netting", _("Party Netting")
 
     doc_type = models.CharField(_("document type"), max_length=30, choices=DocType.choices)
     min_amount = models.DecimalField(

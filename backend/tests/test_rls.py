@@ -537,3 +537,104 @@ def test_stock_count_posted_over_http_under_the_restricted_role(settings):
                 cur.execute(f"SELECT count(*) FROM {table}")  # noqa: S608 — fixed table names
                 assert cur.fetchone()[0] == 0, table
         conn.rollback()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_purchasing_endpoints_over_http_under_the_restricted_role(settings):
+    """Sprint 8.0 (rule 34): the block's new endpoints on RLS tables —
+    /api/purchasing/settings/ (purchasing_purchasesettings: get_or_create
+    then UPDATE), /api/purchasing/withholding-codes/ (purchasing_
+    withholdingtaxcode) and a supplier written with D2's new PartyRole
+    columns, whose FK checks read both tables — run over HTTP with a real
+    JWT on a connection swapped to the restricted role. A query that
+    silently sees zero rows without `cps.tenant_id` shows up here as an
+    empty list, a 400 on the code's own id, or a missing row."""
+    from datetime import date
+    from decimal import Decimal
+
+    from django.test import Client as DjangoTestClient
+
+    from apps.access.services import seed_default_roles
+    from apps.accounting.models import Account
+    from apps.accounting.periods import seed_fiscal_year_for_tenant
+    from apps.accounting.services import seed_chart_of_accounts
+    from apps.organization.services import create_default_legal_entities
+    from apps.purchasing.models import WithholdingTaxCode
+    from apps.purchasing.services import load_withholding_codes, withholding_table
+    from apps.tenants.models import TenantFeatures
+
+    login_secret = "-".join(["RlsPurch", "2026!"])
+    tenant = TenantFactory(subdomain="rls-purchasing-test")
+    create_default_legal_entities(tenant, tenant.name)
+    seed_chart_of_accounts(tenant)
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
+    TenantFeatures.objects.create(tenant_id=tenant.id, purchasing=True)
+    load_withholding_codes(tenant, "SA")
+    owner = UserFactory(tenant=tenant, email="owner@rls-purchasing-test.test", password=login_secret)
+    owner.roles.add(seed_default_roles(tenant)["Owner"])
+    code = WithholdingTaxCode.objects.filter(tenant=tenant, applies_to="non_resident").first()
+    expense = Account.objects.filter(tenant=tenant, type=Account.Type.EXPENSE, allow_posting=True).first()
+    tenant_id = str(tenant.id)
+
+    original = settings.DATABASES["default"].copy()
+    settings.DATABASES["default"]["USER"] = settings.POSTGRES_APP_USER
+    settings.DATABASES["default"]["PASSWORD"] = settings.POSTGRES_APP_PASSWORD
+    connection.close()
+    connection.settings_dict.update(settings.DATABASES["default"])
+    try:
+        with connection.cursor() as cur:
+            cur.execute("SELECT current_user, rolbypassrls FROM pg_roles WHERE rolname = current_user")
+            assert cur.fetchone() == (settings.POSTGRES_APP_USER, False)  # really the restricted role
+        connection.close()
+        client = DjangoTestClient()
+        login = client.post(
+            "/api/auth/login/",
+            {"subdomain": "rls-purchasing-test", "email": "owner@rls-purchasing-test.test", "password": login_secret},
+            content_type="application/json",
+        )
+        assert login.status_code == 200, login.content
+        auth = {"HTTP_AUTHORIZATION": f"Bearer {login.json()['access']}"}
+
+        got = client.get("/api/purchasing/settings/", **auth)
+        assert got.status_code == 200, got.content
+        patched = client.patch(
+            "/api/purchasing/settings/", {"match_tolerance_amount": "75.00"}, content_type="application/json", **auth
+        )
+        assert patched.status_code == 200, patched.content
+
+        listed = client.get("/api/purchasing/withholding-codes/", **auth)
+        assert listed.status_code == 200, listed.content
+        assert {row["code"] for row in listed.json()["results"]} == {e["code"] for e in withholding_table("SA")}
+
+        supplier = client.post(
+            "/api/parties/suppliers/",
+            {
+                "name": "مورد أجنبي", "wht_applicable": True, "wht_default_code": str(code.id),
+                "is_resident": False, "default_expense_account": str(expense.id),
+            },
+            content_type="application/json", **auth,
+        )
+        assert supplier.status_code == 201, supplier.content
+        party_id = supplier.json()["id"]
+    finally:
+        connection.close()
+        connection.settings_dict.update(original)
+
+    with _app_role_connection() as conn:
+        with conn.cursor() as cur:
+            set_local_tenant_id(cur, tenant_id)
+            cur.execute("SELECT match_tolerance_amount FROM purchasing_purchasesettings WHERE tenant_id = %s", [tenant_id])
+            assert cur.fetchall() == [(Decimal("75.00"),)]
+            cur.execute(
+                "SELECT wht_applicable, wht_default_code_id, is_resident, default_expense_account_id "
+                "FROM parties_partyrole WHERE party_id = %s AND role = 'supplier'",
+                [party_id],
+            )
+            assert cur.fetchall() == [(True, code.id, False, expense.id)]
+            # And the same tenant's rows are invisible with a different tenant id set:
+            set_local_tenant_id(cur, "00000000-0000-0000-0000-000000000000")
+            cur.execute("SELECT count(*) FROM purchasing_withholdingtaxcode")
+            assert cur.fetchone()[0] == 0
+            cur.execute("SELECT count(*) FROM purchasing_purchasesettings")
+            assert cur.fetchone()[0] == 0
+        conn.rollback()

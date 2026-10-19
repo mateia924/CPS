@@ -30,6 +30,13 @@ DEFAULT_APPROVAL_RULES = {
     "stock_issue": "Owner",  # 0019
     "stock_transfer": "Owner",  # 0019
     "stock_count": "Owner",  # 0019
+    # Sprint 8.0 (D3): registration only — no backfill migration onto
+    # existing tenants (owner's call per tenant, backfill_default_approval_rules).
+    "purchase_order": "Owner",
+    "supplier_bill": "Owner",
+    "purchase_return": "Owner",
+    "landed_cost": "Owner",
+    "party_netting": "Owner",
 }
 
 

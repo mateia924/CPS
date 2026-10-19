@@ -111,6 +111,26 @@ export interface InventorySettingsData {
   barcode_enabled: boolean;
 }
 
+// Sprint 8.0: apps.purchasing.serializers.PurchaseSettingsSerializer.
+export interface PurchaseSettingsData {
+  match_tolerance_pct: string;
+  match_tolerance_amount: string;
+  default_grni_policy: "prorate";
+}
+
+// Sprint 8.0 (D6): apps.purchasing.serializers.WithholdingTaxCodeSerializer.
+export interface WithholdingTaxCode {
+  id: string;
+  country: string;
+  code: string;
+  name_ar: string;
+  rate: string;
+  base: "net" | "gross";
+  applies_to: "resident" | "non_resident" | "both";
+  is_example: boolean;
+  is_active: boolean;
+}
+
 export interface InvoiceLine {
   id: string;
   product: string;
@@ -961,7 +981,17 @@ export type ApprovalDocType =
   // Sprint 7.4: stock documents (registered on the backend since 7.0).
   | "stock_receipt" | "stock_issue" | "stock_transfer"
   // Sprint 7.5 follow-up: the count rule registration seeds (approvals/defaults.py).
-  | "stock_count";
+  | "stock_count"
+  // Sprint 8.0 (D3): purchasing documents, seeded at registration.
+  | PurchasingApprovalDocType;
+
+// Sprint 8.0: rules exist for these from registration on, but none of the
+// documents does yet — so none can be pending. PendingApproval leaves them
+// out until each document lands (8.1 supplier_bill, 8.4 purchase_order,
+// ...); adding one there makes the inbox's exhaustive label/path maps
+// fail to compile until its screen path is wired.
+export type PurchasingApprovalDocType =
+  | "purchase_order" | "supplier_bill" | "purchase_return" | "landed_cost" | "party_netting";
 
 // Sprint 6.3 (3.10/3.16.3): opening balances.
 export type OpeningBalanceKind = "initial" | "adjustment";
@@ -1263,7 +1293,9 @@ export type AttachmentTargetType =
   // Sprint 6.3: bank/cash-box readiness attachment on the entry itself.
   | "opening_balance"
   // Sprint 7.4: stock document detail screen.
-  | "stock_document";
+  | "stock_document"
+  // Sprint 8.0: the advisor's approved table, attached to its codes.
+  | "withholding_tax_code";
 
 export type AttachmentCategory =
   | "fatura_original" | "receipt" | "contract" | "bank_letter"
@@ -1296,7 +1328,7 @@ export interface Attachment {
 }
 
 export interface PendingApproval {
-  doc_type: ApprovalDocType;
+  doc_type: Exclude<ApprovalDocType, PurchasingApprovalDocType>;
   id: string;
   number: string;
   date: string;

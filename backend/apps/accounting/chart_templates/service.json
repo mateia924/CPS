@@ -4,6 +4,7 @@
     {"code": "1110", "name": "البنوك", "type": "asset", "system_key": "BANKS"},
     {"code": "1200", "name": "العملاء", "type": "asset", "system_key": "CUSTOMERS"},
     {"code": "1300", "name": "عُهد الموظفين", "type": "asset", "system_key": "CUSTODIES"},
+    {"code": "1350", "name": "دفعات مقدمة للموردين", "type": "asset", "system_key": "SUPPLIER_ADVANCES"},
     {"code": "1400", "name": "المخزون", "type": "asset", "system_key": "INVENTORY"},
     {"code": "1450", "name": "بضاعة بالطريق", "type": "asset", "system_key": "GOODS_IN_TRANSIT"},
     {"code": "1700", "name": "الأصول الثابتة", "type": "asset", "system_key": "FIXED_ASSETS"},
@@ -13,8 +14,10 @@
   {"code": "2000", "name": "الالتزامات", "type": "liability", "children": [
     {"code": "2100", "name": "الموردون", "type": "liability", "system_key": "SUPPLIERS"},
     {"code": "2120", "name": "بضاعة مستلمة لم تُفوتر (GRNI)", "type": "liability", "system_key": "GRNI"},
+    {"code": "2130", "name": "تسوية مصروفات الشراء", "type": "liability", "system_key": "LANDED_COST_CLEARING"},
     {"code": "2150", "name": "رواتب الموظفين المستحقة", "type": "liability", "system_key": "EMPLOYEES"},
     {"code": "2200", "name": "ضريبة المخرجات", "type": "liability", "system_key": "VAT_OUTPUT"},
+    {"code": "2250", "name": "ضريبة استقطاع مستحقة", "type": "liability", "system_key": "WHT_PAYABLE"},
     {"code": "2300", "name": "ضريبة المدخلات", "type": "liability", "system_key": "VAT_INPUT"}
   ]},
   {"code": "3000", "name": "حقوق الملكية", "type": "equity", "children": [
@@ -28,6 +31,7 @@
   {"code": "5000", "name": "المصروفات", "type": "expense", "children": [
     {"code": "5050", "name": "تكلفة البضاعة المباعة", "type": "expense", "system_key": "COGS"},
     {"code": "5070", "name": "فروق وتسويات المخزون", "type": "expense", "system_key": "INVENTORY_ADJUSTMENT"},
+    {"code": "5080", "name": "فروق أسعار الشراء", "type": "expense", "system_key": "PURCHASE_PRICE_VARIANCE"},
     {"code": "5100", "name": "مصروفات عمومية وإدارية", "type": "expense"},
     {"code": "5150", "name": "مصروف إهلاك الأصول الثابتة", "type": "expense", "system_key": "DEPRECIATION_EXPENSE"},
     {"code": "5900", "name": "فروق تقريب العملة", "type": "expense", "system_key": "ROUNDING"},

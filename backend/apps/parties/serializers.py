@@ -5,6 +5,7 @@ from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
+from apps.accounting.models import Account
 from apps.accounting.services import get_or_create_party_role_account
 from apps.common.constants import MONEY_DECIMAL_PLACES, MONEY_MAX_DIGITS
 from apps.common.serializers import validate_iban_field
@@ -14,6 +15,7 @@ from apps.common.validators import (
     validate_saudi_tax_number,
 )
 from apps.organization.models import LegalEntity
+from apps.purchasing.models import WithholdingTaxCode
 
 from .models import Party, PartyRole
 from .services import generate_party_code, link_employee_cost_center
@@ -309,13 +311,101 @@ class CustomerPartySerializer(_SaudiFormatValidationMixin, _RoleDetailsMixin, se
 
 
 class SupplierPartySerializer(_SaudiFormatValidationMixin, _RoleDetailsMixin, serializers.ModelSerializer):
-    """Backs `/api/parties/suppliers/`."""
+    """Backs `/api/parties/suppliers/`.
+
+    Sprint 8.0 (D2): the supplier role's purchasing defaults are real
+    PartyRole columns (see the model), written and read by hand below the
+    way CustomerPartySerializer handles credit_limit. Checked together,
+    against the role's current values on a partial update: a default
+    withholding code needs wht_applicable and must fit the supplier's
+    residency; the default expense account must be one of the tenant's
+    own postable expense accounts."""
 
     role_const = PartyRole.Role.SUPPLIER
     detail_field_names = ("payment_terms_days",)
+    role_column_names = ("wht_applicable", "wht_default_code", "is_resident", "vat_registered", "default_expense_account")
 
     roles = PartyRoleSerializer(many=True, read_only=True)
     payment_terms_days = serializers.IntegerField(required=False, allow_null=True, write_only=True)
+    wht_applicable = serializers.BooleanField(required=False, write_only=True)
+    wht_default_code = serializers.PrimaryKeyRelatedField(
+        queryset=WithholdingTaxCode.objects.none(), required=False, allow_null=True, write_only=True
+    )
+    is_resident = serializers.BooleanField(required=False, write_only=True)
+    vat_registered = serializers.BooleanField(required=False, allow_null=True, write_only=True)
+    default_expense_account = serializers.PrimaryKeyRelatedField(
+        queryset=Account.objects.none(), required=False, allow_null=True, write_only=True
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        if request is not None and request.user.is_authenticated:
+            tenant = request.user.tenant
+            self.fields["wht_default_code"].queryset = WithholdingTaxCode.objects.filter(tenant=tenant, is_active=True)
+            self.fields["default_expense_account"].queryset = Account.objects.filter(tenant=tenant)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        role = self.instance.roles.filter(role=self.role_const).first() if self.instance else None
+
+        def current(name, default):
+            if name in attrs:
+                return attrs[name]
+            return getattr(role, name) if role is not None else default
+
+        code = current("wht_default_code", None)
+        if code is not None:
+            if not current("wht_applicable", False):
+                raise serializers.ValidationError(
+                    {"wht_default_code": [_("A default withholding code needs withholding tax to apply to this supplier.")]}
+                )
+            resident = current("is_resident", True)
+            if code.applies_to == WithholdingTaxCode.AppliesTo.RESIDENT and not resident:
+                raise serializers.ValidationError(
+                    {"wht_default_code": [_("This withholding code is for resident suppliers only.")]}
+                )
+            if code.applies_to == WithholdingTaxCode.AppliesTo.NON_RESIDENT and resident:
+                raise serializers.ValidationError(
+                    {"wht_default_code": [_("This withholding code is for non-resident suppliers only.")]}
+                )
+        account = attrs.get("default_expense_account")
+        if account is not None and (account.type != Account.Type.EXPENSE or not account.allow_posting or not account.is_active):
+            raise serializers.ValidationError(
+                {"default_expense_account": [_("Choose an active expense account that accepts postings.")]}
+            )
+        return attrs
+
+    def _pop_role_columns(self, validated_data):
+        return {name: validated_data.pop(name) for name in self.role_column_names if name in validated_data}
+
+    @transaction.atomic
+    def create(self, validated_data):
+        columns = self._pop_role_columns(validated_data)
+        party = super().create(validated_data)
+        if columns:
+            party.roles.filter(role=self.role_const).update(**columns)
+        return party
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        columns = self._pop_role_columns(validated_data)
+        instance = super().update(instance, validated_data)
+        if columns:
+            instance.roles.filter(role=self.role_const).update(**columns)
+        return instance
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        role = instance.roles.filter(role=self.role_const).first()
+        rep["wht_applicable"] = role.wht_applicable if role else False
+        rep["wht_default_code"] = str(role.wht_default_code_id) if role and role.wht_default_code_id else None
+        rep["is_resident"] = role.is_resident if role else True
+        rep["vat_registered"] = role.vat_registered if role else None
+        rep["default_expense_account"] = (
+            str(role.default_expense_account_id) if role and role.default_expense_account_id else None
+        )
+        return rep
 
     class Meta:
         model = Party
@@ -325,7 +415,9 @@ class SupplierPartySerializer(_SaudiFormatValidationMixin, _RoleDetailsMixin, se
         # plain edit, any change to an already-set value is rejected by
         # validate_iban below and must go through
         # treasury.IbanChangeRequest instead.
-        fields = _PARTY_BASE_FIELDS + ("payment_terms_days", "iban")
+        fields = _PARTY_BASE_FIELDS + ("payment_terms_days", "iban") + (
+            "wht_applicable", "wht_default_code", "is_resident", "vat_registered", "default_expense_account",
+        )
         read_only_fields = _PARTY_BASE_READ_ONLY
 
     def validate_iban(self, value):

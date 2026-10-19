@@ -1,0 +1,5 @@
+[
+  {"code": "NR-SERVICES", "name_ar": "خدمات فنية واستشارية — غير مقيم", "rate": "5.00", "base": "net", "applies_to": "non_resident"},
+  {"code": "NR-ROYALTIES", "name_ar": "إتاوات — غير مقيم", "rate": "15.00", "base": "net", "applies_to": "non_resident"},
+  {"code": "NR-MANAGEMENT", "name_ar": "أتعاب إدارة — غير مقيم", "rate": "20.00", "base": "net", "applies_to": "non_resident"}
+]

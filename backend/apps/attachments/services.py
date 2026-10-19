@@ -48,6 +48,12 @@ ALLOWED_TARGETS = {
     # delivery note, a signed handover sheet. Voided with the document when
     # a draft is deleted (StockDocumentViewSet._after_soft_delete).
     "stock_document": ("inventory", "stockdocument"),
+    # Sprint 8.0: a withholding code's evidence — the tax advisor's
+    # approved table (S2) is attached to the codes it approves. The
+    # purchasing documents (supplier_bill, purchase_order, ...) join
+    # this list with their models in 8.1/8.4, not before: a target
+    # whose model does not exist yet would fail resolve_target.
+    "withholding_tax_code": ("purchasing", "withholdingtaxcode"),
 }
 
 # extension -> allowed MIME types (from magic bytes, never trusted from

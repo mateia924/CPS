@@ -147,6 +147,13 @@ CONTROL_SYSTEM_KEYS = {
     # below flips allow_manual_posting to False on any tenant's
     # existing COGS account too, not just new ones.
     "INVENTORY", "COGS", "INVENTORY_ADJUSTMENT", "GRNI", "GOODS_IN_TRANSIT",
+    # Sprint 8.0 (D1): purchasing's four. Each moves only through a
+    # purchasing document — WHT_PAYABLE through a payment allocation
+    # (8.3) or a remittance voucher, the variance and clearing accounts
+    # through GRNI settlement/landed cost (8.5/8.6), SUPPLIER_ADVANCES
+    # through a payment voucher (8.2): sprint-8.md §0 rule 5, no supplier
+    # balance without a document. A manual JV needs the override.
+    "WHT_PAYABLE", "PURCHASE_PRICE_VARIANCE", "LANDED_COST_CLEARING", "SUPPLIER_ADVANCES",
 }
 
 # Sprint 7.0.2 (incident #5 follow-up — docs/SYSTEM_ANALYSIS.md §11):
@@ -185,6 +192,10 @@ SYSTEM_ACCOUNT_SPECS = [
     {"system_key": "BANKS", "code": "1110", "name": "البنوك", "type": "asset", "parent_code": "1000"},
     {"system_key": "CUSTOMERS", "code": "1200", "name": "العملاء", "type": "asset", "parent_code": "1000"},
     {"system_key": "CUSTODIES", "code": "1300", "name": "عُهد الموظفين", "type": "asset", "parent_code": "1000"},
+    {
+        "system_key": "SUPPLIER_ADVANCES", "code": "1350", "name": "دفعات مقدمة للموردين", "type": "asset",
+        "parent_code": "1000",
+    },
     {"system_key": "INVENTORY", "code": "1400", "name": "المخزون", "type": "asset", "parent_code": "1000"},
     {
         "system_key": "GOODS_IN_TRANSIT", "code": "1450", "name": "بضاعة بالطريق", "type": "asset",
@@ -205,10 +216,18 @@ SYSTEM_ACCOUNT_SPECS = [
         "parent_code": "2000",
     },
     {
+        "system_key": "LANDED_COST_CLEARING", "code": "2130", "name": "تسوية مصروفات الشراء", "type": "liability",
+        "parent_code": "2000",
+    },
+    {
         "system_key": "EMPLOYEES", "code": "2150", "name": "رواتب الموظفين المستحقة", "type": "liability",
         "parent_code": "2000",
     },
     {"system_key": "VAT_OUTPUT", "code": "2200", "name": "ضريبة المخرجات", "type": "liability", "parent_code": "2000"},
+    {
+        "system_key": "WHT_PAYABLE", "code": "2250", "name": "ضريبة استقطاع مستحقة", "type": "liability",
+        "parent_code": "2000",
+    },
     {"system_key": "VAT_INPUT", "code": "2300", "name": "ضريبة المدخلات", "type": "liability", "parent_code": "2000"},
     {
         "system_key": "VAT_NON_DEDUCTIBLE", "code": "2350", "name": "ضريبة غير قابلة للخصم", "type": "liability",
@@ -230,6 +249,10 @@ SYSTEM_ACCOUNT_SPECS = [
     {"system_key": "COGS", "code": "5050", "name": "تكلفة البضاعة المباعة", "type": "expense", "parent_code": "5000"},
     {
         "system_key": "INVENTORY_ADJUSTMENT", "code": "5070", "name": "فروق وتسويات المخزون", "type": "expense",
+        "parent_code": "5000",
+    },
+    {
+        "system_key": "PURCHASE_PRICE_VARIANCE", "code": "5080", "name": "فروق أسعار الشراء", "type": "expense",
         "parent_code": "5000",
     },
     {

@@ -239,6 +239,23 @@ count_check "after reverse" \
   "{'E2E-SN-1': 'in_stock', 'E2E-SN-2': 'in_stock', 'E2E-SN-3': 'in_stock'}" \
   "('6.00', '600.00', '100.0000')" "('3.00', '1500.00', '500.0000')"
 
+# Sprint 8.0: purchasing settings + withholding codes as registration
+# seeded them. No screen turns the module on yet, so this does.
+echo "[e2e] enabling the purchasing module for phase 13"
+docker exec cps-dev-backend-1 python manage.py shell -c "
+from apps.tenants.models import Tenant
+t = Tenant.objects.get(subdomain='$SUBDOMAIN')
+t.features.purchasing = True
+t.features.save(update_fields=['purchasing'])
+"
+
+echo "[e2e] phase 13: purchasing settings — withholding codes carry the examples badge, tolerance saves, supplier-bill rule named"
+docker run --rm --network host \
+  -e E2E_BASE_URL="$BASE_URL" \
+  -v "$ROOT_DIR:/repo" -w /repo/frontend/e2e \
+  "$PLAYWRIGHT_IMAGE" \
+  sh -c "npx playwright test 13-purchasing-settings.spec.ts --reporter=list"
+
 echo "[e2e] archiving the smoke-* tenant this run created"
 docker exec cps-dev-backend-1 python manage.py archive_smoke_tenants \
   --force --reason "e2e.sh: disposable smoke tenant this run created, never meant to be reversed"

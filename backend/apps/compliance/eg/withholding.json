@@ -1,0 +1,5 @@
+[
+  {"code": "LOC-SUPPLIES", "name_ar": "توريدات — محلي", "rate": "1.00", "base": "net", "applies_to": "resident"},
+  {"code": "LOC-SERVICES", "name_ar": "خدمات — محلي", "rate": "3.00", "base": "net", "applies_to": "resident"},
+  {"code": "LOC-COMMISSIONS", "name_ar": "عمولات وسمسرة — محلي", "rate": "5.00", "base": "net", "applies_to": "resident"}
+]

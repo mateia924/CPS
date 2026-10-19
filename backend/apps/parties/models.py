@@ -114,6 +114,25 @@ class PartyRole(models.Model):
     legal_entity = models.ForeignKey(
         "organization.LegalEntity", null=True, blank=True, on_delete=models.PROTECT, related_name="affiliate_roles"
     )
+    # Sprint 8.0 (D2): the supplier's purchasing defaults — meaningful for
+    # SUPPLIER only (the other roles keep the defaults below untouched).
+    # Real columns, not `details` keys: two are FKs, and a supplier bill
+    # (8.1/8.3) reads every one of them. D2's sixth field,
+    # default_payment_terms_days, is NOT a column: suppliers already carry
+    # it as details["payment_terms_days"] (3.3, SupplierPartySerializer),
+    # and a second home for the same number would be a second source of
+    # truth (credit_limit's 6.8 move needed a backfill for exactly that).
+    wht_applicable = models.BooleanField(_("withholding tax applies"), default=False)
+    wht_default_code = models.ForeignKey(
+        "purchasing.WithholdingTaxCode", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    is_resident = models.BooleanField(_("resident"), default=True)
+    # None = not stated yet: every existing supplier is in that state, and
+    # "not registered" would be a claim nobody made.
+    vat_registered = models.BooleanField(_("VAT registered"), null=True, blank=True, default=None)
+    default_expense_account = models.ForeignKey(
+        "accounting.Account", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -106,6 +106,14 @@ DEFAULT_PERMISSIONS = [
     ("inventory.view", _("View items, warehouses and stock documents")),
     ("inventory.manage", _("Create and edit items, warehouses and inventory settings")),
     ("inventory.post", _("Post stock receipt/issue/transfer/count documents and confirm transfers")),
+    # Sprint 8.0: purchasing. override_match is R-8.5's own authority — a
+    # bill outside the three-way match tolerance passes only with it and
+    # a recorded reason — kept apart from post so a tenant can grant
+    # posting widely and the override narrowly.
+    ("purchasing.view", _("View purchase orders, receipts, supplier bills and purchase settings")),
+    ("purchasing.manage", _("Create and edit purchase documents and purchase settings")),
+    ("purchasing.post", _("Post purchase receipts, supplier bills, returns and landed costs")),
+    ("purchasing.override_match", _("Accept a supplier bill outside the three-way match tolerance, with a reason")),
 ]
 
 # Reasonable, editable defaults per system role — not specified in full
@@ -149,6 +157,11 @@ SYSTEM_ROLES = {
         # editing items and warehouses is the warehouse keeper's job).
         "inventory.view",
         "inventory.post",
+        # Sprint 8.0: same split as inventory above — view and post, not
+        # manage (raising purchase documents is the purchasing role's
+        # job) and not override_match (Owner only by default).
+        "purchasing.view",
+        "purchasing.post",
     ],
     "Sales": [
         "customers.view",
@@ -184,6 +197,12 @@ SYSTEM_ROLES = {
         "inventory.post",
         "accounting.view",
     ],
+    # Sprint 8.0 (block 8.0): "دور افتراضي «مشتريات» بـ view/manage" —
+    # exactly those two: no posting, no match override.
+    "Purchasing": [
+        "purchasing.view",
+        "purchasing.manage",
+    ],
 }
 
 
@@ -196,7 +215,7 @@ def seed_permissions():
 
 def seed_default_roles(tenant):
     """Create the system roles (SYSTEM_ROLES — four from sprint 1, plus
-    "Warehouse Keeper" from sprint 7.0) for a tenant with their default
+    "Warehouse Keeper" from sprint 7.0 and "Purchasing" from 8.0) for a tenant with their default
     permission sets. Returns {name: Role}. Used at registration and by
     the Sprint 1 data migration for pre-existing tenants.
 
