@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Rule 50: wired with `git config core.hooksPath .githooks`.
+exec "$(git rev-parse --show-toplevel)/scripts/precommit_guard.sh"
