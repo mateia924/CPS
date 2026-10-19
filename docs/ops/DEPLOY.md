@@ -55,6 +55,27 @@ scripts/deploy.sh
 - live متأخر **6 هجرات** عن HEAD (طُبِّقت على نسخته): `accounting.0043`، `accounts.0005`، `inventory.0007`–`0010` — هذا ما سيطبّقه أول نشر حي.
 - **نسخ البروفة:** أنتجت بروفة الفشل نسختين في `/opt/cps-backups/staging` (`cps-db-20261018-134733.sql.gz.gpg` قبل المسح، `cps-db-20261018-134835.sql.gz.gpg` قبل الهجرة) بهوية `db=postgres/cps_staging#7691316877294727202`؛ **سطراهما في `docs/ops/backups.log` لنسخة البروفة** (`/tmp/claude-0/-opt-cps/bf5ac544-253a-47e7-a102-a93dc730b148/scratchpad/rehearsal-repo/docs/ops/backups.log`، ملف مؤقت) **لا في السجل** — عن قصد: سطر يكتبه إنسان في سجل تكتبه الأداة تزوير، حتى لو كان مضمونه صحيحًا. نسختا التشغيل النظيف في السجل كالمعتاد.
 - **أُغلق في Pre-deploy 3 (2026-10-18):** `start` كان يَسِم بـ`:rollback-<وقت>` **كل** صورة في المشروع، ومنها الخارجية المشتركة مع live (`postgres:16-alpine`، `nginx:1.27-alpine`، `redis:7-alpine`، clamav، minio)، وأمر التراجع يعيد وسمها — أي وسومًا يقرؤها live. الآن يَسِم **الصور التي يبنيها المشروع فقط** (`<project>-<service>`: backend، celery_worker، frontend)، فكل وسم تراجع يحمل اسم مشروعه (`cps-staging-backend:rollback-…` لا يقرؤه live، و`infra-backend:rollback-…` لا تقرؤه staging)؛ الخارجية مثبّتة بوسمها ولا تُمسّ (`test_start_on_staging_changes_no_image_tag_that_live_reads`). الوسوم الخمسة `rollback-20261018-142046` على الصور الخارجية (من التشغيل الذي سبق الإصلاح) لم تعد موجودة (تحقّق 2026-10-19: كل صورة خارجية تحمل وسمها وحده)؛ الثلاثة على `cps-staging-*` باقية أهداف تراجع لـstaging. إثبات حي 2026-10-19 13:09: `staging_refresh.sh --code-only` على 05b64b8 — `docker images` قبل/بعد لم يتغيّر فيه إلا `cps-staging-*` (`:latest` و`:rollback-20261019-130957`)، والسجل: «not tagged (external …): clamav … minio … nginx … postgres … redis».
+  - Live proof record (2026-10-19 13:09, `scripts/staging_refresh.sh --code-only` at 05b64b8, exit 0, gates 1-9 passed). External image tags, `docker images` before and after (identical, `cmp` clean):
+    ```
+    clamav/clamav:1.5.4-debian 02253321874d
+    nginx:1.27-alpine 6769dc3a703c
+    postgres:16-alpine 81bd698b4594
+    quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z 69b2ec208575
+    redis:7-alpine f84b0c467801
+    ```
+    Complete before/after diff of `docker images` (tagged images only); nothing outside `cps-staging-*` changed, `infra-*` included:
+    ```
+    - cps-staging-backend:latest 9154845dcf49
+    + cps-staging-backend:latest 82f0e7a7db66
+    + cps-staging-backend:rollback-20261019-130957 9154845dcf49
+    - cps-staging-celery_worker:latest 14b2a1191d01
+    + cps-staging-celery_worker:latest 7f0a1a4ef5da
+    + cps-staging-celery_worker:rollback-20261019-130957 14b2a1191d01
+    - cps-staging-frontend:latest 78b5e053af00
+    + cps-staging-frontend:latest ce3e4cc541a4
+    + cps-staging-frontend:rollback-20261019-130957 78b5e053af00
+    ```
+  - The stale tag `rollback-20261018-142046` disappeared from the external images by an unknown hand at an unknown time; it was already absent when checked on 2026-10-19. No cause is recorded.
 
 ### أدلة `ps`: لا سرّ في سطر أوامر (2026-10-18) — وحدّ هذا الدليل
 
