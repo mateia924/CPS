@@ -65,3 +65,66 @@ It applies in two places:
 - Removing it also changes registration. Tenants registered since 2026-10-19 on dev/staging would keep the
   grant unless reverted. **Live: no tenant created since 2026-10-19.** Checked read-only on infra-postgres-1:
   `tenants_tenant WHERE created_at >= '2026-10-19'` returned 0 rows. So no live tenant holds it yet.
+
+## 3. Design question: should the seed be additive-only?
+
+The proposal: the seed creates accounts, withholding codes, the permission catalog rows, the new Purchasing
+role and the purchasing approval rules, and **modifies no existing role**. Nothing changes for any tenant's
+users until its owner grants the role deliberately.
+
+### What the seed does today versus additive-only
+
+| Item | Today's seed | Additive-only |
+|---|---|---|
+| 4 `purchasing.*` rows in `access_permission` (global catalog) | creates | creates (needed before anyone can grant them) |
+| Purchasing system role with view/manage, 0 users | creates | creates |
+| Owner role + view/manage/post/override_match | **adds** | **no** |
+| Accountant role + view/post | **adds** | **no** |
+| 5 purchasing approval rules (min 0 -> Owner) | creates | creates |
+| Purchasing system accounts | not this command (`add_missing_system_accounts`, already on live via deploy) | unchanged |
+| Withholding codes (SA, as examples) | not this command (`load_withholding_codes`) | can be run additively; invisible until the module is used |
+
+### For additive-only
+
+- Purchasing is not released. Today on live nobody, Owners included, holds purchasing.*, and the 403 the
+  8.0.1 walk found was correct behaviour. Additive-only keeps it exactly so until each owner chooses.
+- No user's access changes as a side effect of an infrastructure command. fatma's Accountant (the smoke
+  account, but the rule is the point) would not silently gain posting rights on a module nobody approved.
+- The owner can grant it herself:
+  - The roles API lets a roles.manage holder edit any role's permissions, system roles included. Only
+    deletion is blocked for system roles: access/views.py:45-52, 74.
+  - Once the catalog rows exist she can add purchasing.* to Owner or Accountant, or assign users the new
+    Purchasing role.
+  - That is a recorded, deliberate act (AuditLog `access.role.updated`), not a seed side effect.
+- The approval rules are safe to create in advance. No supplier bill exists yet, and a missing rule means
+  auto-approval (the 7.4 incident), so the rules are protective, not a change in anyone's access.
+
+### Against additive-only
+
+- **Owner = every permission stops being true** for pre-8.0 tenants. `SYSTEM_ROLES["Owner"] = None`
+  (access/services.py:124) is the definition registration uses. A tenant registered tomorrow gets an Owner
+  with purchasing.*; fatma's Owner would not. The same role name would mean two different things depending
+  on registration date, until each owner edits it.
+- Old and new tenants diverge the same way for Accountant, unless registration is also changed. That is the
+  open question in section 2.
+- Every owner has a manual step before purchasing works at all, even for themselves. Without being told, an
+  owner sees the module switched on and still gets "no permission".
+
+### Recommendation: additive-only, plus two explicit decisions
+
+1. **Make the seed additive-only.** It creates the catalog rows, the Purchasing role and the approval rules,
+   and touches no existing role. Withholding codes are loaded by their own command, run separately, also
+   additive.
+   - This needs a code change to `seed_purchasing_defaults` (today it walks `SYSTEM_ROLES` and adds to every
+     role, purchasing/services.py:112-126).
+   - The `--dry-run` would then report "Owner/Accountant: unchanged".
+   - Not built until you decide.
+2. **Owner on existing tenants:** grant purchasing.* when the owner switches purchasing on for her tenant
+   (the moment she asks for it), not by a seed run. Then "Owner = everything" holds again for every tenant
+   that actually uses the module. Tenants that never use it never need it.
+3. **Accountant in registration:** decide once, for new and old tenants alike (section 2). If kept, record
+   it in §11. If not, remove `purchasing.view/post` from `SYSTEM_ROLES["Accountant"]` so new tenants stop
+   getting what old ones would not.
+
+**Nothing was run.** The seed has not been executed, with or without `--dry-run`, since the 07:20Z dry run in
+docs/reports/2026-10-20-seed-purchasing-dryrun.md.
