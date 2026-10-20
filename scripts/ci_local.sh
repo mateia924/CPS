@@ -101,6 +101,8 @@ run_step "ruff (lint) — same gate as \`make lint\`" docker exec -w /workspace/
 run_step "manage.py check" docker exec -w /workspace/backend ci-local-backend python manage.py check
 run_step "makemigrations --check" docker exec -w /workspace/backend ci-local-backend python manage.py makemigrations --check --dry-run
 run_step "collect-only (fast import/collection check — seconds, not minutes)" docker exec -w /workspace/backend ci-local-backend pytest --collect-only -q
+# 2026-10-20: the same coverage guard GitHub CI runs before its pytest steps.
+run_step "CI coverage guard — every test file collected by exactly one CI step" docker exec -w /workspace ci-local-backend scripts/check_ci_collection.sh
 run_step "deploy.sh guards actually RUN here (they skip in the dev container: no repo root, no git)" docker exec -w /workspace/backend ci-local-backend bash -c "pytest -q tests/test_deploy_sh_guards.py > /tmp/dg.txt 2>&1; tail -3 /tmp/dg.txt; grep -q '13 passed' /tmp/dg.txt"
 # Pre-deploy 1: tests/test_production_gates.py reads scripts/ — skipped in
 # the dev container for the same reason; asserted to PASS here.
