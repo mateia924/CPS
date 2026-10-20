@@ -22,8 +22,10 @@ function AgingPrint() {
     const params = new URLSearchParams();
     if (legalEntityId) params.set("legal_entity", legalEntityId);
     if (asOf) params.set("as_of", asOf);
+    // Sprint 8.2: the payables side prints the same way.
+    if (searchParams.get("side") === "payable") params.set("side", "payable");
     api.get<AgingReport>(`/reports/aging/?${params.toString()}`).then(setReport);
-  }, [legalEntityId, asOf]);
+  }, [legalEntityId, asOf, searchParams]);
 
   if (!report || !entity) return null;
 

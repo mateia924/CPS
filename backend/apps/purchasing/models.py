@@ -239,3 +239,45 @@ class SupplierBillLine(models.Model):
 
     def __str__(self):
         return f"{self.bill_id}#{self.line_no}"
+
+
+class AdvanceApplication(TenantScopedModel):
+    """Sprint 8.2 (D7): applying a supplier advance to a supplier bill, "من
+    شاشة الفاتورة". The advance is a posted payment-voucher line: ADVANCE
+    (on SUPPLIER_ADVANCES) or ON_ACCOUNT (on the supplier's current account),
+    the accountant's choice per D7. Not a VoucherAllocation: that table is
+    one row per voucher line (OneToOne), and one advance may be spread over
+    several bills.
+
+    Same currency only (advance and bill). The journal entry
+    (apps.purchasing.payments.apply_advance):
+      ADVANCE    Dr supplier at the bill's rate / Cr SUPPLIER_ADVANCES at the
+                 advance's rate, the base difference on FX_REALIZED;
+      ON_ACCOUNT the debit already sits on the supplier's account, so only a
+                 base difference between the two rates is booked (none at
+                 rate 1 — then no entry at all).
+    Withdrawing it reverses that entry and sets is_reversed; a bill's balance
+    and an advance's remainder count only rows that are not reversed."""
+
+    source_line = models.ForeignKey("vouchers.VoucherLine", on_delete=models.PROTECT, related_name="advance_applications")
+    supplier_bill = models.ForeignKey(SupplierBill, on_delete=models.PROTECT, related_name="advance_applications")
+    date = models.DateField(_("date"))
+    amount_fc = models.DecimalField(_("amount"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES)
+    base_at_bill_rate = _money(_("base at the bill's rate"))
+    base_at_advance_rate = _money(_("base at the advance's rate"))
+    fx_difference_base = _money(_("FX difference (base)"))
+    journal_entry = models.OneToOneField(
+        "accounting.JournalEntry", null=True, blank=True, on_delete=models.SET_NULL, related_name="advance_application"
+    )
+    is_reversed = models.BooleanField(_("withdrawn"), default=False)
+    created_by = models.ForeignKey("accounts.User", null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(amount_fc__gt=0), name="advance_application_amount_positive"),
+        ]
+
+    def __str__(self):
+        return f"{self.source_line_id} -> {self.supplier_bill_id}: {self.amount_fc}"

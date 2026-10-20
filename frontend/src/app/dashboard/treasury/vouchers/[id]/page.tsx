@@ -32,6 +32,14 @@ const DOC_TYPE_LABEL: Record<string, string> = {
 // types (same "one engine" principle as the backend and the list/form
 // screen above) — data, lines, the linked journal entry, allocations,
 // AttachmentPanel, and every status-transition button gated by status.
+// Sprint 8.2: the supplier-bill and advance line types join the labels.
+const LINE_TYPE_KEY: Partial<Record<string, string>> = {
+  invoice: "invoiceLineType",
+  bill: "voucherBillLineType",
+  advance: "advanceLineType",
+  on_account: "onAccountLineType",
+};
+
 export default function VoucherDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -121,8 +129,14 @@ export default function VoucherDetailPage() {
             <tbody>
               {voucher.lines.map((line) => (
                 <tr key={line.id}>
-                  <td>{t(`${line.line_type === "invoice" ? "invoiceLineType" : line.line_type === "on_account" ? "onAccountLineType" : voucher.voucher_type === "receipt" ? "accountLineTypeReceipt" : "accountLineType"}`)}</td>
-                  <td>{line.description || "—"}</td>
+                  <td>{t(LINE_TYPE_KEY[line.line_type] ?? (voucher.voucher_type === "receipt" ? "accountLineTypeReceipt" : "accountLineType"))}</td>
+                  <td>
+                    {line.supplier_bill ? (
+                      <Link href={`/dashboard/purchasing/bills/${line.supplier_bill}`}>{line.supplier_bill_number}</Link>
+                    ) : null}
+                    {line.supplier_bill && line.description ? " — " : null}
+                    {line.description || (line.supplier_bill ? null : "—")}
+                  </td>
                   <td>{line.account_name || "—"}</td>
                   <td>{line.cost_center_name || "—"}</td>
                   <td><Money amount={line.amount_fc} /></td>

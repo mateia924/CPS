@@ -19,11 +19,12 @@ class VoucherLineSerializer(serializers.ModelSerializer):
     # own lines table something readable to show for them.
     account_name = serializers.CharField(source="account.name", read_only=True, default=None)
     cost_center_name = serializers.CharField(source="cost_center.name", read_only=True, default=None)
+    supplier_bill_number = serializers.CharField(source="supplier_bill.number", read_only=True, default=None)
 
     class Meta:
         model = VoucherLine
         fields = (
-            "id", "line_no", "line_type", "invoice", "allocated_invoice_fc",
+            "id", "line_no", "line_type", "invoice", "supplier_bill", "supplier_bill_number", "allocated_invoice_fc",
             "account", "account_name", "tax_code", "amount_includes_tax", "tax_amount_fc",
             "ext_supplier_name", "ext_supplier_tax_number", "ext_invoice_ref",
             "cost_center", "cost_center_name", "description", "amount_fc", "amount_base", "tax_amount_base",
@@ -79,6 +80,7 @@ class VoucherSerializer(serializers.ModelSerializer):
 class VoucherLineInputSerializer(serializers.Serializer):
     line_type = serializers.ChoiceField(choices=VoucherLine.LineType.choices)
     invoice = serializers.UUIDField(required=False)
+    supplier_bill = serializers.UUIDField(required=False)
     allocated_invoice_fc = serializers.DecimalField(max_digits=14, decimal_places=2, required=False)
     account = serializers.UUIDField(required=False)
     tax_code = serializers.UUIDField(required=False, allow_null=True)
@@ -154,6 +156,14 @@ def resolve_voucher_lines(tenant, raw_lines):
                 item["invoice"] = Invoice.objects.get(tenant=tenant, id=raw["invoice"])
             except Invoice.DoesNotExist:
                 raise serializers.ValidationError({"lines": ["Invoice not found."]})
+            item["allocated_invoice_fc"] = raw.get("allocated_invoice_fc") or raw["amount_fc"]
+        elif raw["line_type"] == VoucherLine.LineType.BILL:
+            from apps.purchasing.models import SupplierBill
+
+            bill = SupplierBill.objects.filter(tenant=tenant, id=raw.get("supplier_bill"), deleted_at__isnull=True).first()
+            if bill is None:
+                raise serializers.ValidationError({"lines": ["Supplier bill not found."]})
+            item["supplier_bill"] = bill
             item["allocated_invoice_fc"] = raw.get("allocated_invoice_fc") or raw["amount_fc"]
         elif raw["line_type"] == VoucherLine.LineType.ACCOUNT:
             try:

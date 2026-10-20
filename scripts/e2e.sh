@@ -280,4 +280,10 @@ echo "[e2e] phase 15: supplier bills (rent/telecoms/RC/asset), duplicate number,
 echo "[e2e] phase 16: named error states — API 404, JSON 500, HTML 500 on three lists"
 "$ROOT_DIR/scripts/e2e_access.sh" 16-error-states.spec.ts
 
+# Sprint 8.2: paying supplier bills — partial payment from the bill, an
+# advance applied, «دفع نقدي الآن», payables aging / statement / weekly,
+# each report also with its API forced to fail.
+echo "[e2e] phase 17: supplier payments, advances, pay now, payables aging, statement, weekly payables"
+"$ROOT_DIR/scripts/e2e_access.sh" 17-supplier-payments.spec.ts
+
 echo "[e2e] ALL CHECKS PASSED — screenshots in $SCREENS_DIR/"

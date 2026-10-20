@@ -1,17 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { Money } from "@/components/Money";
+import { ErrorState, apiErrorKind, type ApiErrorKind } from "@/components/ScreenErrors";
 import { useLocale } from "@/lib/i18n";
 import type { AgingReport, LegalEntity, Paginated } from "@/lib/types";
 
-export default function AgingReportPage() {
+function AgingReportContent() {
   const { t } = useLocale();
   const [entities, setEntities] = useState<LegalEntity[]>([]);
   const [legalEntityId, setLegalEntityId] = useState("");
   const [asOf, setAsOf] = useState(() => new Date().toISOString().slice(0, 10));
   const [result, setResult] = useState<AgingReport | null>(null);
+  // Sprint 8.2 (D7): payables age the same way, from supplier bills.
+  const searchParams = useSearchParams();
+  const [side, setSide] = useState<"receivable" | "payable">(
+    searchParams.get("side") === "payable" ? "payable" : "receivable",
+  );
+  // Block 8.0.2: a failed load is named, and never leaves the previous
+  // result on screen looking like the answer to the new question.
+  const [loadError, setLoadError] = useState<ApiErrorKind | null>(null);
 
   useEffect(() => {
     api.get<Paginated<LegalEntity>>("/legal-entities/").then((data) =>
@@ -23,8 +33,14 @@ export default function AgingReportPage() {
     const params = new URLSearchParams();
     if (legalEntityId) params.set("legal_entity", legalEntityId);
     if (asOf) params.set("as_of", asOf);
-    const data = await api.get<AgingReport>(`/reports/aging/?${params.toString()}`);
-    setResult(data);
+    params.set("side", side);
+    setResult(null);
+    setLoadError(null);
+    try {
+      setResult(await api.get<AgingReport>(`/reports/aging/?${params.toString()}`));
+    } catch (err) {
+      setLoadError(apiErrorKind(err) ?? "server-error");
+    }
   };
 
   useEffect(() => {
@@ -48,6 +64,13 @@ export default function AgingReportPage() {
             </select>
           </div>
           <div className="form-field">
+            <label>{t("agingSide")}</label>
+            <select value={side} onChange={(e) => setSide(e.target.value as "receivable" | "payable")}> {/* form-ok: تصفية تقرير GET فقط، لا تحقق حقل من الـAPI */}
+              <option value="receivable">{t("agingReceivable")}</option>
+              <option value="payable">{t("agingPayable")}</option>
+            </select>
+          </div>
+          <div className="form-field">
             <label>{t("asOf")}</label>
             <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} /> {/* form-ok: تصفية تقرير GET فقط، لا تحقق حقل من الـAPI */}
           </div>
@@ -55,13 +78,14 @@ export default function AgingReportPage() {
         </div>
       </div>
 
+      {loadError && <ErrorState kind={loadError} />}
       {result && (
-        <div className="card">
+        <div className="card" data-testid="aging-result">
           <h3>{t("byParty")}</h3>
           <table>
             <thead>
               <tr>
-                <th>{t("customer")}</th>
+                <th>{t(side === "payable" ? "billSupplier" : "customer")}</th>
                 <th>{t("agingTotal")}</th>
               </tr>
             </thead>
@@ -79,7 +103,7 @@ export default function AgingReportPage() {
           <table>
             <thead>
               <tr>
-                <th>{t("customer")}</th>
+                <th>{t(side === "payable" ? "billSupplier" : "customer")}</th>
                 <th>{t("source")}</th>
                 <th>{t("reference")}</th>
                 <th>{t("dueDate")}</th>
@@ -91,7 +115,7 @@ export default function AgingReportPage() {
               {result.rows.map((row, i) => (
                 <tr key={i}>
                   <td>{row.party_name}</td>
-                  <td>{row.is_opening ? t("openingBalanceSource") : t("invoiceSource")}</td>
+                  <td>{row.is_opening ? t("openingBalanceSource") : row.source === "supplier_bill" ? t("supplierBillDocType") : t("invoiceSource")}</td>
                   <td>{row.reference}</td>
                   <td>{row.due_date}</td>
                   <td><Money amount={row.amount_base} /></td>
@@ -106,6 +130,7 @@ export default function AgingReportPage() {
             href={`/print/reports/aging?${new URLSearchParams({
               ...(legalEntityId ? { legal_entity: legalEntityId } : {}),
               as_of: asOf,
+              side,
             }).toString()}`}
             target="_blank"
             rel="noreferrer"
@@ -115,5 +140,14 @@ export default function AgingReportPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// useSearchParams (?side=payable) needs a Suspense boundary in a static build.
+export default function AgingReportPage() {
+  return (
+    <Suspense fallback={null}>
+      <AgingReportContent />
+    </Suspense>
   );
 }

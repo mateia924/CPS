@@ -166,6 +166,8 @@ class _JournalEntryProducedBy(models.TextChoices):
     STOCK_DOCUMENT = "stock_document", _("Stock document")
     # Sprint 8.1: apps.purchasing.bills.post_supplier_bill.
     SUPPLIER_BILL = "supplier_bill", _("Supplier bill")
+    # Sprint 8.2: apps.purchasing.payments.apply_advance.
+    ADVANCE_APPLICATION = "advance_application", _("Supplier advance applied to a bill")
     MANUAL = "manual", _("Manual")
 
 

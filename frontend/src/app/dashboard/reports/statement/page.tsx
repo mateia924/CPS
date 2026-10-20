@@ -6,7 +6,18 @@ import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { Money } from "@/components/Money";
 import { useLocale } from "@/lib/i18n";
-import type { Paginated, PartyRoleType, PartyStatement } from "@/lib/types";
+import { ErrorState, apiErrorKind, type ApiErrorKind } from "@/components/ScreenErrors";
+import type { LedgerLine, Paginated, PartyRoleType, PartyStatement } from "@/lib/types";
+
+// Sprint 8.2 (D7): «كشف حساب المورد بالمستندات» — each line links the
+// document that produced it (ledger_lines' content_type/object_id).
+function documentHref(line: LedgerLine): string | null {
+  if (!line.object_id) return null;
+  if (line.content_type === "supplierbill") return `/dashboard/purchasing/bills/${line.object_id}`;
+  if (line.content_type === "voucher") return `/dashboard/treasury/vouchers/${line.object_id}`;
+  if (line.content_type === "invoice") return `/dashboard/invoices/${line.object_id}`;
+  return null;
+}
 
 interface PartySearchResult {
   id: string;
@@ -39,6 +50,7 @@ function StatementReport() {
   const [dateFrom, setDateFrom] = useState(searchParams.get("from") || "");
   const [dateTo, setDateTo] = useState(searchParams.get("to") || "");
   const [statement, setStatement] = useState<PartyStatement | null>(null);
+  const [loadError, setLoadError] = useState<ApiErrorKind | null>(null);
 
   const search = async () => {
     if (!query) {
@@ -69,8 +81,15 @@ function StatementReport() {
     params.set("role", role);
     if (dateFrom) params.set("from", dateFrom);
     if (dateTo) params.set("to", dateTo);
-    const data = await api.get<PartyStatement>(`/parties/${partyId}/statement/?${params.toString()}`);
-    setStatement(data);
+    // Block 8.0.2: never leave the previous statement on screen as if it
+    // were the answer, and name a failure instead of showing nothing.
+    setStatement(null);
+    setLoadError(null);
+    try {
+      setStatement(await api.get<PartyStatement>(`/parties/${partyId}/statement/?${params.toString()}`));
+    } catch (err) {
+      setLoadError(apiErrorKind(err) ?? "server-error");
+    }
   };
 
   useEffect(() => {
@@ -148,8 +167,9 @@ function StatementReport() {
         </div>
       </div>
 
+      {loadError && <ErrorState kind={loadError} />}
       {statement && (
-        <div className="card">
+        <div className="card" data-testid="statement-result">
           <p>
             {t("openingBalance")}: <Money amount={statement.opening_balance} />
           </p>
@@ -161,6 +181,7 @@ function StatementReport() {
                 <tr>
                   <th>{t("date")}</th>
                   <th>{t("number")}</th>
+                  <th>{t("document")}</th>
                   <th>{t("description")}</th>
                   <th>{t("debitFc")}</th>
                   <th>{t("creditFc")}</th>
@@ -175,6 +196,9 @@ function StatementReport() {
                       <Link href={`/dashboard/accounting/journal-entries/${line.entry_id}`}>
                         {line.entry_number} {/* links-ok: <Link> wraps this on the line above */}
                       </Link>
+                    </td>
+                    <td>
+                      {documentHref(line) ? <Link href={documentHref(line)!}>{t("viewDocument")}</Link> : "—"}
                     </td>
                     <td>{line.description}</td>
                     <td>{line.debit !== "0.00" ? <Money amount={line.debit} /> : ""}</td>
@@ -192,6 +216,34 @@ function StatementReport() {
               {t("closingBalance")}: <Money amount={statement.closing_balance} />
             </strong>
           </p>
+
+          {statement.open_bills && statement.open_bills.length > 0 && (
+            <>
+              <h3 style={{ marginTop: "1rem" }}>{t("openBills")}</h3>
+              <table data-testid="open-bills">
+                <thead>
+                  <tr>
+                    <th>{t("number")}</th>
+                    <th>{t("supplierInvoiceNumber")}</th>
+                    <th>{t("dueDate")}</th>
+                    <th>{t("total")}</th>
+                    <th>{t("balanceDue")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {statement.open_bills.map((bill) => (
+                    <tr key={bill.id}>
+                      <td><Link href={`/dashboard/purchasing/bills/${bill.id}`}>{bill.number}</Link></td>
+                      <td>{bill.bill_number}</td>
+                      <td>{bill.due_date || "—"}</td>
+                      <td><Money amount={bill.total} currency={bill.currency} /></td>
+                      <td><Money amount={bill.balance_fc} currency={bill.currency} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
 
           {statement.open_invoices.length > 0 && (
             <>

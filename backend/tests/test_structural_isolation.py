@@ -38,6 +38,7 @@ TENANT_FILTER_EXEMPTIONS = {
     "apps.inventory.views.InventorySettingsView": "plain APIView, singleton scoped by get_or_create(tenant=request.user.tenant) by hand — same shape as TenantFeaturesView, not a ModelViewSet, sprint 7.0",
     "apps.purchasing.views.SupplierBillViewSet": "get_queryset() filters by tenant by hand, same shape as VoucherViewSet and StockDocumentViewSet (sprint 8.1); entity scope via EntityScopedMixin",
     "apps.purchasing.views.ExpensesView": "plain APIView, read-only; both querysets filter bill__tenant / voucher__tenant = request.user.tenant and legal_entity_id__in the user's accessible entities by hand (sprint 8.1)",
+    "apps.purchasing.views.PayablesByWeekView": "plain APIView, read-only; payables_by_week filters SupplierBill by tenant, and the view narrows to the user's accessible entities by hand (sprint 8.2)",
     "apps.purchasing.views.PurchaseSettingsView": "plain APIView, singleton scoped by get_or_create(tenant=request.user.tenant) by hand — same shape as InventorySettingsView, not a ModelViewSet, sprint 8.0",
     "apps.treasury.views.BankReconciliationDashboardView": "plain APIView, reconciliation_dashboard() scoped by request.user.tenant throughout — not a ModelViewSet, sprint 6.9, same pattern as DashboardSummaryView",
     "apps.accounting.views.DashboardSummaryView": "plain APIView aggregating read-only totals (banks/cash boxes/invoices/pending approvals), every query explicitly filtered by request.user.tenant — not a ModelViewSet, sprint 6.0.1-B, same pattern as PendingApprovalsView",

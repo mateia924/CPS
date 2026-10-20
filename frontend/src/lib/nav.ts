@@ -85,6 +85,8 @@ export const NAV_SECTIONS: NavSection[] = [
       // Sprint 8.1.
       { href: "/dashboard/purchasing/bills", label: "supplierBills", permission: "purchasing.view" },
       { href: "/dashboard/purchasing/expenses", label: "expensesNav", permission: "purchasing.view" },
+      // Sprint 8.2.
+      { href: "/dashboard/purchasing/payables-by-week", label: "payablesByWeekNav", permission: "purchasing.view" },
       { href: "/dashboard/purchasing/settings", label: "purchaseSettings", permission: "purchasing.view" },
     ],
   },

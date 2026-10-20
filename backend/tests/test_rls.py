@@ -743,3 +743,103 @@ def test_supplier_bill_over_http_under_the_restricted_role(settings):
             cur.execute("SELECT count(*) FROM purchasing_supplierbill")
             assert cur.fetchone()[0] == 0
         conn.rollback()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_supplier_bill_payment_over_http_under_the_restricted_role(settings):
+    """Sprint 8.2 (rule 34): paying a supplier bill over HTTP with a real JWT
+    on the restricted role — the bank, «دفع نقدي الآن» (a payment voucher
+    with a BILL line, posted: the bill's row lock, the allocation with its
+    new supplier_bill FK, the journal entry), and the bill's balance read
+    back through the balance subqueries."""
+    from datetime import date
+    from decimal import Decimal
+
+    from django.test import Client as DjangoTestClient
+
+    from apps.access.services import seed_default_roles
+    from apps.accounting.models import Account, TaxCode
+    from apps.accounting.periods import seed_fiscal_year_for_tenant
+    from apps.accounting.services import seed_chart_of_accounts, seed_tax_codes_for_country
+    from apps.organization.models import LegalEntity
+    from apps.organization.services import create_default_legal_entities
+    from apps.parties.models import Party, PartyRole
+    from apps.tenants.models import TenantFeatures
+
+    login_secret = "-".join(["RlsPay", "2026!"])
+    tenant = TenantFactory(subdomain="rls-pay-test")
+    create_default_legal_entities(tenant, tenant.name)
+    seed_chart_of_accounts(tenant)
+    seed_tax_codes_for_country(tenant, "SA")
+    seed_fiscal_year_for_tenant(tenant, start_date=date(2026, 1, 1))
+    TenantFeatures.objects.create(tenant_id=tenant.id, purchasing=True)
+    owner = UserFactory(tenant=tenant, email="owner@rls-pay-test.test", password=login_secret)
+    owner.roles.add(seed_default_roles(tenant)["Owner"])
+    supplier = Party.objects.create(tenant=tenant, code="S-PAY", name="مورد")
+    PartyRole.objects.create(party=supplier, role=PartyRole.Role.SUPPLIER)
+    branch = LegalEntity.objects.filter(tenant=tenant).exclude(entity_type=LegalEntity.Type.HOLDING).first()
+    expense = next(
+        a for a in Account.objects.filter(
+            tenant=tenant, type=Account.Type.EXPENSE, allow_posting=True, allow_manual_posting=True, system_key=""
+        ) if a.can_post
+    )
+    z_code = TaxCode.objects.get(tenant=tenant, code="Z")
+    tenant_id = str(tenant.id)
+
+    original = settings.DATABASES["default"].copy()
+    settings.DATABASES["default"]["USER"] = settings.POSTGRES_APP_USER
+    settings.DATABASES["default"]["PASSWORD"] = settings.POSTGRES_APP_PASSWORD
+    connection.close()
+    connection.settings_dict.update(settings.DATABASES["default"])
+    try:
+        with connection.cursor() as cur:
+            cur.execute("SELECT current_user, rolbypassrls FROM pg_roles WHERE rolname = current_user")
+            assert cur.fetchone() == (settings.POSTGRES_APP_USER, False)
+        connection.close()
+        client = DjangoTestClient()
+        login = client.post(
+            "/api/auth/login/",
+            {"subdomain": "rls-pay-test", "email": "owner@rls-pay-test.test", "password": login_secret},
+            content_type="application/json",
+        )
+        assert login.status_code == 200, login.content
+        auth = {"HTTP_AUTHORIZATION": f"Bearer {login.json()['access']}"}
+        created = client.post(
+            "/api/purchasing/bills/",
+            {"legal_entity": str(branch.id), "supplier": str(supplier.id), "bill_number": "RLS-PAY-1", "date": "2026-03-10",
+             "lines": [{"line_type": "expense", "unit_price": "700.00", "tax_code": str(z_code.id), "account": str(expense.id)}]},
+            content_type="application/json", **auth,
+        )
+        assert created.status_code == 201, created.content
+        bill_id = created.json()["id"]
+        assert client.post(f"/api/purchasing/bills/{bill_id}/submit/", **auth).status_code == 200
+        assert client.post(f"/api/purchasing/bills/{bill_id}/post/", **auth).status_code == 200
+        bank = client.post(
+            "/api/banks/", {"legal_entity": str(branch.id), "name": "Bank", "currency": "SAR"},
+            content_type="application/json", **auth,
+        )
+        assert bank.status_code == 201, bank.content
+        paid = client.post(
+            f"/api/purchasing/bills/{bill_id}/pay-now/", {"treasury_kind": "bank", "treasury_id": bank.json()["id"]},
+            content_type="application/json", **auth,
+        )
+        assert paid.status_code == 201, paid.content
+        assert paid.json()["voucher_status"] == "posted"
+        fetched = client.get(f"/api/purchasing/bills/{bill_id}/", **auth)
+        assert fetched.status_code == 200 and fetched.json()["balance_fc"] == "0.00", fetched.content
+    finally:
+        connection.close()
+        connection.settings_dict.update(original)
+
+    with _app_role_connection() as conn:
+        with conn.cursor() as cur:
+            set_local_tenant_id(cur, tenant_id)
+            cur.execute(
+                "SELECT allocated_invoice_fc, invoice_id IS NULL FROM vouchers_voucherallocation WHERE supplier_bill_id = %s",
+                [bill_id],
+            )
+            assert cur.fetchall() == [(Decimal("700.00"), True)]
+            set_local_tenant_id(cur, "00000000-0000-0000-0000-000000000000")
+            cur.execute("SELECT count(*) FROM vouchers_voucherallocation")
+            assert cur.fetchone()[0] == 0
+        conn.rollback()

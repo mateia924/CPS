@@ -191,6 +191,13 @@ class Voucher(TenantScopedModel, DocumentStateMixin, SoftDeleteModelMixin):
 class VoucherLine(models.Model):
     class LineType(models.TextChoices):
         INVOICE = "invoice", _("Invoice settlement")
+        # Sprint 8.2 (D7): a payment voucher settling a supplier bill.
+        BILL = "bill", _("Supplier bill settlement")
+        # Sprint 8.2 (D7): a payment to a supplier ahead of any bill, on
+        # SUPPLIER_ADVANCES. ON_ACCOUNT to a supplier is the other choice
+        # D7 gives the accountant (the supplier's current account). Either
+        # is applied to a bill later (apps.purchasing.models.AdvanceApplication).
+        ADVANCE = "advance", _("Supplier advance")
         ON_ACCOUNT = "on_account", _("On account")
         ACCOUNT = "account", _("Direct account")
 
@@ -202,6 +209,11 @@ class VoucherLine(models.Model):
     # INVOICE
     invoice = models.ForeignKey(
         "sales.Invoice", null=True, blank=True, on_delete=models.PROTECT, related_name="voucher_lines"
+    )
+    # BILL (sprint 8.2). allocated_invoice_fc carries the amount in the
+    # BILL's currency on such a line — the field kept its sprint-5 name.
+    supplier_bill = models.ForeignKey(
+        "purchasing.SupplierBill", null=True, blank=True, on_delete=models.PROTECT, related_name="voucher_lines"
     )
     allocated_invoice_fc = models.DecimalField(
         _("allocated (invoice currency)"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES,
@@ -255,13 +267,24 @@ class VoucherAllocation(TenantScopedModel):
     5.3. Updates Invoice.paid_fc/balance_fc/payment_status when the
     voucher posts (services.post_voucher) and reverses them back when
     the voucher is reversed (is_reversed flips, the invoice fields are
-    recomputed from its still-active allocations)."""
+    recomputed from its still-active allocations).
+
+    Sprint 8.2 (D7): the target is a sales invoice OR a supplier bill —
+    two nullable FKs, exactly one set, enforced by the database
+    (voucherallocation_exactly_one_target). Not a GenericForeignKey: this
+    table carries money, the targets are a small closed set, and a
+    generic key would give up referential integrity and make the aging
+    and statement joins worse. allocated_invoice_fc / base_at_invoice_rate
+    are in the TARGET document's currency and rate, whichever it is."""
 
     voucher_line = models.OneToOneField(
         VoucherLine, on_delete=models.CASCADE, related_name="allocation"
     )
     invoice = models.ForeignKey(
-        "sales.Invoice", on_delete=models.PROTECT, related_name="allocations"
+        "sales.Invoice", null=True, blank=True, on_delete=models.PROTECT, related_name="allocations"
+    )
+    supplier_bill = models.ForeignKey(
+        "purchasing.SupplierBill", null=True, blank=True, on_delete=models.PROTECT, related_name="allocations"
     )
     allocated_invoice_fc = models.DecimalField(
         _("allocated (invoice currency)"), max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES
@@ -282,5 +305,20 @@ class VoucherAllocation(TenantScopedModel):
     is_reversed = models.BooleanField(_("reversed"), default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(invoice__isnull=False, supplier_bill__isnull=True)
+                    | models.Q(invoice__isnull=True, supplier_bill__isnull=False)
+                ),
+                name="voucherallocation_exactly_one_target",
+            )
+        ]
+
+    @property
+    def target(self):
+        return self.invoice if self.invoice_id else self.supplier_bill
+
     def __str__(self):
-        return f"{self.invoice.number}: {self.allocated_invoice_fc}"
+        return f"{self.target.number}: {self.allocated_invoice_fc}"

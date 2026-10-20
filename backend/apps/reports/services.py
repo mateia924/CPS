@@ -205,8 +205,13 @@ def _aging_bucket(days_overdue):
     return "90+"
 
 
-def aging_report(tenant, legal_entity=None, as_of=None):
-    """Decision 12: open invoices (balance_fc > 0) + the open items
+def aging_report(tenant, legal_entity=None, as_of=None, side="receivable"):
+    """Sprint 8.2 (D7): side="payable" ages posted supplier bills instead —
+    same buckets, same rule: the open balance in base currency at the
+    bill's own historical rate, days overdue from due_date (which the bill
+    took from the supplier's payment terms) falling back to the bill date.
+
+    Decision 12: open invoices (balance_fc > 0) + the open items
     recorded on an approved opening balance's party lines (marked
     "افتتاحي"), bucketed by days overdue from due_date (falling back to
     issue_date), converted to base currency at each document's own
@@ -230,6 +235,24 @@ def aging_report(tenant, legal_entity=None, as_of=None):
         )
         entry = per_party.setdefault(party_id, {"party_name": party_name, "amount_base": Decimal("0")})
         entry["amount_base"] += amount_base
+
+    if side == "payable":
+        from apps.purchasing.bills import with_balances
+        from apps.purchasing.models import SupplierBill
+
+        bills = with_balances(
+            SupplierBill.objects.filter(tenant=tenant, status=SupplierBill.Status.POSTED, deleted_at__isnull=True)
+        ).filter(balance_fc__gt=0).select_related("supplier")
+        if entities is not None:
+            bills = bills.filter(legal_entity__in=entities)
+        for bill in bills:
+            amount_base = (bill.balance_fc * bill.exchange_rate).quantize(CENTS)
+            _add(bill.supplier_id, bill.supplier.name, "supplier_bill", bill.number, bill.due_date or bill.date, amount_base, False)
+        totals_by_party = [
+            {"party_id": str(pid), "party_name": v["party_name"], "amount_base": v["amount_base"]} for pid, v in per_party.items()
+        ]
+        total = sum((v["amount_base"] for v in per_party.values()), Decimal("0"))
+        return {"rows": rows, "totals_by_party": totals_by_party, "total": total, "as_of": as_of, "side": side}
 
     invoices = Invoice.objects.filter(tenant=tenant, status=Invoice.Status.ISSUED, balance_fc__gt=0).select_related("party")
     if entities is not None:
@@ -257,7 +280,47 @@ def aging_report(tenant, legal_entity=None, as_of=None):
         for pid, v in per_party.items()
     ]
     total = sum((v["amount_base"] for v in per_party.values()), Decimal("0"))
-    return {"rows": rows, "totals_by_party": totals_by_party, "total": total, "as_of": as_of}
+    return {"rows": rows, "totals_by_party": totals_by_party, "total": total, "as_of": as_of, "side": side}
+
+
+def payables_by_week(tenant, legal_entity=None, as_of=None, weeks=8):
+    """Sprint 8.2: «مستحقات الدفع بالأسبوع» — open supplier-bill balances
+    (base currency, each bill's own rate) by the week their due date falls
+    in: overdue (before this week), this week and the next weeks-1 (Monday
+    to Sunday), and later."""
+    from datetime import timedelta
+
+    from apps.purchasing.bills import with_balances
+    from apps.purchasing.models import SupplierBill
+
+    as_of = as_of or timezone.localdate()
+    week_start = as_of - timedelta(days=as_of.weekday())
+    buckets = [{"key": "overdue", "start": None, "end": week_start - timedelta(days=1), "total": Decimal("0"), "bills": []}]
+    for i in range(weeks):
+        start = week_start + timedelta(weeks=i)
+        buckets.append({"key": f"week_{i + 1}", "start": start, "end": start + timedelta(days=6), "total": Decimal("0"), "bills": []})
+    buckets.append({"key": "later", "start": week_start + timedelta(weeks=weeks), "end": None, "total": Decimal("0"), "bills": []})
+
+    bills = with_balances(
+        SupplierBill.objects.filter(tenant=tenant, status=SupplierBill.Status.POSTED, deleted_at__isnull=True)
+    ).filter(balance_fc__gt=0).select_related("supplier")
+    if legal_entity is not None:
+        bills = bills.filter(legal_entity__in=_entities_in_scope(legal_entity, True))
+    for bill in bills.order_by("due_date", "date"):
+        due = bill.due_date or bill.date
+        if due < week_start:
+            bucket = buckets[0]
+        elif due >= buckets[-1]["start"]:
+            bucket = buckets[-1]
+        else:
+            bucket = buckets[1 + (due - week_start).days // 7]
+        amount_base = (bill.balance_fc * bill.exchange_rate).quantize(CENTS)
+        bucket["total"] += amount_base
+        bucket["bills"].append({
+            "id": str(bill.id), "number": bill.number, "bill_number": bill.bill_number, "supplier_name": bill.supplier.name,
+            "due_date": due, "currency": bill.currency, "balance_fc": bill.balance_fc, "amount_base": amount_base,
+        })
+    return {"as_of": as_of, "buckets": buckets, "total": sum((b["total"] for b in buckets), Decimal("0"))}
 
 
 def fixed_assets_register(tenant, as_of=None, legal_entity=None, include_children=True):

@@ -69,6 +69,33 @@ def _treasury_account(instance, kind):
     return account
 
 
+def _validate_bill_line(spec, voucher_type, legal_entity_id, party):
+    """Sprint 8.2 (D7): a BILL line settles a POSTED supplier bill of this
+    voucher's own supplier and entity, by a PAYMENT, up to what is still
+    open on it. Checked at creation and again at posting, under the bill's
+    row lock (_lock_and_check_bills)."""
+    from apps.purchasing.bills import bill_balance
+    from apps.purchasing.models import SupplierBill
+
+    bill = spec["supplier_bill"]
+    if voucher_type != Voucher.VoucherType.PAYMENT:
+        raise VoucherValidationError({"lines": [_("A supplier bill is settled by a payment voucher.")]})
+    if bill.status != SupplierBill.Status.POSTED:
+        raise VoucherValidationError({"lines": [_("Only a posted supplier bill can be paid.")]})
+    if bill.legal_entity_id != legal_entity_id:
+        raise VoucherValidationError({"lines": [_("The supplier bill belongs to a different legal entity.")]})
+    if bill.supplier_id != (party.id if party else None):
+        raise VoucherValidationError({"lines": [_("The supplier bill does not belong to this voucher's party.")]})
+    allocated = spec.get("allocated_invoice_fc", spec["amount_fc"])
+    if allocated > bill_balance(bill):
+        raise VoucherValidationError({"lines": [_("Allocated amount exceeds the supplier bill's remaining balance.")]})
+
+
+def _validate_advance_line(voucher_type, party, party_role):
+    if voucher_type != Voucher.VoucherType.PAYMENT or party is None or party_role != Voucher.PartyRoleChoice.SUPPLIER:
+        raise VoucherValidationError({"lines": [_("A supplier advance is a payment voucher to a supplier.")]})
+
+
 @transaction.atomic
 def create_voucher(
     tenant, user, voucher_type, legal_entity, date, treasury_kind, treasury_id, line_specs,
@@ -123,6 +150,10 @@ def create_voucher(
                 raise VoucherValidationError(
                     {"lines": [_("Allocated amount exceeds the invoice's remaining balance.")]}
                 )
+        elif spec["line_type"] == VoucherLine.LineType.BILL:
+            _validate_bill_line(spec, voucher_type, legal_entity.id, party)
+        elif spec["line_type"] == VoucherLine.LineType.ADVANCE:
+            _validate_advance_line(voucher_type, party, party_role)
 
     voucher = Voucher.objects.create(
         tenant=tenant,
@@ -155,6 +186,7 @@ def create_voucher(
             line_no=i,
             line_type=spec["line_type"],
             invoice=spec.get("invoice"),
+            supplier_bill=spec.get("supplier_bill"),
             allocated_invoice_fc=spec.get("allocated_invoice_fc"),
             account=spec.get("account"),
             tax_code=spec.get("tax_code"),
@@ -203,6 +235,10 @@ def replace_voucher_lines(voucher, user, line_specs, request=None):
                 raise VoucherValidationError(
                     {"lines": [_("Allocated amount exceeds the invoice's remaining balance.")]}
                 )
+        elif spec["line_type"] == VoucherLine.LineType.BILL:
+            _validate_bill_line(spec, voucher.voucher_type, voucher.legal_entity_id, voucher.party)
+        elif spec["line_type"] == VoucherLine.LineType.ADVANCE:
+            _validate_advance_line(voucher.voucher_type, voucher.party, voucher.party_role)
 
     total_fc = Decimal("0")
     lines = []
@@ -214,6 +250,7 @@ def replace_voucher_lines(voucher, user, line_specs, request=None):
                 line_no=i,
                 line_type=spec["line_type"],
                 invoice=spec.get("invoice"),
+                supplier_bill=spec.get("supplier_bill"),
                 allocated_invoice_fc=spec.get("allocated_invoice_fc"),
                 account=spec.get("account"),
                 tax_code=spec.get("tax_code"),
@@ -439,6 +476,52 @@ def _build_posting_specs(tenant, voucher):
                 }
             )
 
+        elif line.line_type == VoucherLine.LineType.BILL:
+            # Sprint 8.2 (D7): the supplier's sub-ledger is debited in the
+            # BILL's currency at the BILL's rate — what the bill credited —
+            # and the difference to what the treasury paid is the realized
+            # FX difference (booked below, sign by voucher type).
+            bill = line.supplier_bill
+            account = get_or_create_party_role_account(voucher.party, voucher.party_role)
+            if account is None:
+                raise VoucherValidationError(
+                    {"lines": [_("Could not resolve the party's sub-ledger account.")]}
+                )
+            base_settled = (line.amount_fc * voucher.exchange_rate).quantize(CENTS, rounding=ROUND_HALF_UP)
+            base_at_bill_rate = (line.allocated_invoice_fc * bill.exchange_rate).quantize(
+                CENTS, rounding=ROUND_HALF_UP
+            )
+            fx_difference = base_settled - base_at_bill_rate
+            fx_diff_total += fx_difference
+            specs.append(
+                {
+                    "account": account, "cost_center": None, "description": line.description or bill.bill_number,
+                    "currency": bill.currency, "exchange_rate": bill.exchange_rate,
+                    "debit_fc": line.allocated_invoice_fc, "credit_fc": Decimal("0"),
+                    "debit_base": base_at_bill_rate, "credit_base": Decimal("0"),
+                }
+            )
+            allocation_specs.append(
+                {
+                    "voucher_line": line, "supplier_bill": bill,
+                    "allocated_invoice_fc": line.allocated_invoice_fc,
+                    "base_at_invoice_rate": base_at_bill_rate, "base_settled": base_settled,
+                    "fx_difference_base": fx_difference,
+                }
+            )
+
+        elif line.line_type == VoucherLine.LineType.ADVANCE:
+            from apps.accounting.services import get_required_system_account
+
+            base = (line.amount_fc * voucher.exchange_rate).quantize(CENTS, rounding=ROUND_HALF_UP)
+            specs.append(
+                {
+                    "account": get_required_system_account(tenant, "SUPPLIER_ADVANCES"), "cost_center": line.cost_center,
+                    "description": line.description, "currency": voucher.currency, "exchange_rate": voucher.exchange_rate,
+                    "debit_fc": line.amount_fc, "credit_fc": Decimal("0"), "debit_base": base, "credit_base": Decimal("0"),
+                }
+            )
+
         elif line.line_type == VoucherLine.LineType.ON_ACCOUNT:
             account = get_or_create_party_role_account(voucher.party, voucher.party_role)
             if account is None:
@@ -511,11 +594,18 @@ def _build_posting_specs(tenant, voucher):
                 # tax_account is None and kind != REVERSE_CHARGE: NONE-deductible,
                 # already folded into main_amount_fc above — nothing more to post.
 
-    # One aggregate FX_REALIZED line (only ever nonzero for RECEIPT +
-    # INVOICE lines, since ON_ACCOUNT/ACCOUNT always use the voucher's
-    # own rate consistently with the treasury line — no drift to book).
-    if fx_diff_total != 0:
+    # One aggregate FX_REALIZED line (only ever nonzero for INVOICE/BILL
+    # lines, since ON_ACCOUNT/ACCOUNT always use the voucher's own rate
+    # consistently with the treasury line — no drift to book).
+    # fx_diff_total = base settled - base at the document's rate. On a
+    # RECEIPT, more base in than was booked is a gain (credit). Sprint 8.2:
+    # on a PAYMENT the same number means more base OUT than the bill booked
+    # — a loss (debit). Until 8.2 no payment carried a document line, and
+    # the old single-sign code would not have balanced one.
+    fx_gain = fx_diff_total if is_receipt else -fx_diff_total
+    if fx_gain != 0:
         fx_account = get_system_account(tenant, "FX_REALIZED")
+        fx_diff_total = fx_gain
         if fx_diff_total > 0:
             specs.append(
                 {
@@ -646,7 +736,7 @@ def _balance_warnings_and_checks(tenant, voucher):
 
 def _implicit_rate_warnings(voucher):
     warnings = []
-    for line in voucher.lines.filter(line_type=VoucherLine.LineType.INVOICE):
+    for line in voucher.lines.filter(line_type__in=[VoucherLine.LineType.INVOICE, VoucherLine.LineType.BILL]):
         if not line.allocated_invoice_fc:
             continue
         implicit_rate = (line.amount_fc * voucher.exchange_rate) / line.allocated_invoice_fc
@@ -714,6 +804,38 @@ def post_voucher(voucher, user, request=None):
     return voucher, warnings + match_warnings
 
 
+def _lock_and_check_bills(voucher):
+    """Sprint 8.2 (D7): the creation-time balance check is not enough —
+    two drafts can each allocate the same bill's whole balance, and both
+    would pass it. At posting, each settled bill's row is locked and the
+    allocation re-checked against what is open NOW, so the second voucher
+    is refused instead of over-paying the bill."""
+    from apps.purchasing.bills import bill_balance
+    from apps.purchasing.models import SupplierBill
+
+    lines = list(voucher.lines.filter(line_type=VoucherLine.LineType.BILL))
+    if not lines:
+        return
+    bills = {b.id: b for b in SupplierBill.objects.select_for_update().filter(id__in={line.supplier_bill_id for line in lines})}
+    wanted = {}
+    for line in lines:
+        wanted[line.supplier_bill_id] = wanted.get(line.supplier_bill_id, Decimal("0")) + line.allocated_invoice_fc
+    for bill_id, amount in wanted.items():
+        bill = bills[bill_id]
+        open_now = bill_balance(bill)
+        if amount > open_now:
+            raise VoucherValidationError(
+                {
+                    "detail": [
+                        str(
+                            _("لا يُرحَّل السند: المخصَّص لفاتورة المورد %(bill)s (%(amount)s) أكبر من المتبقي عليها الآن (%(open)s).")
+                            % {"bill": bill.number, "amount": format_money(amount), "open": format_money(open_now)}
+                        )
+                    ]
+                }
+            )
+
+
 def _actually_post(voucher, user, request=None):
     from django.contrib.contenttypes.models import ContentType
 
@@ -737,6 +859,7 @@ def _actually_post(voucher, user, request=None):
     if voucher.description:
         memo = f"{memo} — {voucher.description}"
 
+    _lock_and_check_bills(voucher)
     specs, allocation_specs = _build_posting_specs(voucher.tenant, voucher)
     entry = JournalEntry.objects.create(
         tenant=voucher.tenant,
@@ -777,7 +900,7 @@ def _actually_post(voucher, user, request=None):
     for alloc_spec in allocation_specs:
         VoucherAllocation.objects.create(tenant=voucher.tenant, **alloc_spec)
     if allocation_specs:
-        _recompute_invoice_payment_fields([a["invoice"] for a in allocation_specs])
+        _recompute_invoice_payment_fields([a["invoice"] for a in allocation_specs if a.get("invoice")])
 
     log_action(
         actor_type=AuditLog.ActorType.TENANT_USER, actor_id=user.id if user else None,
@@ -889,6 +1012,19 @@ def reverse_voucher(voucher, user, reason, request=None):
     if not reason:
         raise VoucherValidationError({"detail": [_("A reason is required to reverse a voucher.")]})
 
+    # Sprint 8.2 (D7): an advance already applied to a supplier bill cannot
+    # be taken back from under that bill — withdraw the application first.
+    from apps.purchasing.models import AdvanceApplication
+
+    applied = AdvanceApplication.objects.filter(source_line__voucher=voucher, is_reversed=False).select_related(
+        "supplier_bill"
+    )
+    if applied.exists():
+        bills = "، ".join(sorted({a.supplier_bill.number for a in applied}))
+        raise VoucherValidationError(
+            {"detail": [str(_("لا يُعكس السند: دفعته المقدمة مخصَّصة لفاتورة المورد %(bills)s — ألغِ التخصيص أولًا.") % {"bills": bills})]}
+        )
+
     warnings = matched_lines_warning(voucher.journal_entry)
     reverse_journal_entry(voucher.journal_entry, user, reason)
 
@@ -896,7 +1032,10 @@ def reverse_voucher(voucher, user, reason, request=None):
     for allocation in VoucherAllocation.objects.filter(voucher_line__voucher=voucher, is_reversed=False):
         allocation.is_reversed = True
         allocation.save(update_fields=["is_reversed"])
-        affected_invoices.append(allocation.invoice)
+        # A supplier bill's balance is read from its active allocations
+        # (apps.purchasing.bills.bill_balance) — nothing to recompute.
+        if allocation.invoice_id:
+            affected_invoices.append(allocation.invoice)
     if affected_invoices:
         from apps.sales.models import Invoice
 

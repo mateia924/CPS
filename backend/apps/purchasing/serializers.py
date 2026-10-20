@@ -69,6 +69,48 @@ class SupplierBillSerializer(serializers.ModelSerializer):
     journal_entry_number = serializers.CharField(source="journal_entry.number", read_only=True, default=None)
     created_by_id = serializers.UUIDField(read_only=True)
     lines = SupplierBillLineSerializer(many=True, read_only=True)
+    # Sprint 8.2: from apps.purchasing.bills.with_balances (never stored).
+    paid_fc = serializers.SerializerMethodField()
+    balance_fc = serializers.SerializerMethodField()
+    payments = serializers.SerializerMethodField()
+    advance_applications = serializers.SerializerMethodField()
+
+    def _paid(self, obj):
+        if not hasattr(obj, "_paid_cache"):
+            from .bills import bill_paid
+
+            obj._paid_cache = obj.paid_fc if hasattr(obj, "paid_fc") and not callable(obj.paid_fc) else bill_paid(obj)
+        return obj._paid_cache
+
+    def get_paid_fc(self, obj):
+        return str(self._paid(obj)) if obj.status in ("posted", "reversed") else "0.00"
+
+    def get_balance_fc(self, obj):
+        return str(obj.total - self._paid(obj)) if obj.status == "posted" else "0.00"
+
+    def get_payments(self, obj):
+        rows = obj.allocations.select_related("voucher_line__voucher").order_by("created_at")
+        return [
+            {
+                "id": str(a.id), "voucher_id": str(a.voucher_line.voucher_id), "voucher_number": a.voucher_line.voucher.number,
+                "date": a.voucher_line.voucher.date, "amount_fc": str(a.allocated_invoice_fc),
+                "paid_fc": str(a.voucher_line.amount_fc), "paid_currency": a.voucher_line.voucher.currency,
+                "fx_difference_base": str(a.fx_difference_base), "is_reversed": a.is_reversed,
+            }
+            for a in rows
+        ]
+
+    def get_advance_applications(self, obj):
+        rows = obj.advance_applications.select_related("source_line__voucher", "journal_entry").order_by("created_at")
+        return [
+            {
+                "id": str(a.id), "voucher_id": str(a.source_line.voucher_id), "voucher_number": a.source_line.voucher.number,
+                "kind": a.source_line.line_type, "date": a.date, "amount_fc": str(a.amount_fc),
+                "fx_difference_base": str(a.fx_difference_base), "journal_entry": str(a.journal_entry_id) if a.journal_entry_id else None,
+                "journal_entry_number": a.journal_entry.number if a.journal_entry_id else None, "is_reversed": a.is_reversed,
+            }
+            for a in rows
+        ]
 
     class Meta:
         from .models import SupplierBill
@@ -79,6 +121,7 @@ class SupplierBillSerializer(serializers.ModelSerializer):
             "bill_number", "date", "due_date", "currency", "exchange_rate", "reference", "notes", "subtotal",
             "deductible_tax", "capitalized_tax", "reverse_charge_tax", "wht_expected", "total", "base_total",
             "journal_entry", "journal_entry_number", "created_by_id", "created_at", "posted_at", "lines",
+            "paid_fc", "balance_fc", "payments", "advance_applications",
         )
         read_only_fields = fields
 

@@ -15,14 +15,19 @@ set -euo pipefail
 # The spec gets E2E_SUBDOMAIN, the Viewer's E2E_VIEWER_EMAIL/_PASSWORD and
 # the Owner's E2E_OWNER_EMAIL/_PASSWORD (8.1's walk, 15-supplier-bills).
 # E2E_CONTAINER_NAME names the Playwright container (prove_guard.sh uses
-# it to remove the container if it is interrupted).
+# it to remove the container if it is interrupted). E2E_NODE_MODULES (set by
+# prove_guard.sh, whose copy has none) mounts the real frontend/node_modules
+# read-only for @playwright/test.
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 SPEC="${1:-14-screen-access.spec.ts}"
 PLAYWRIGHT_IMAGE="mcr.microsoft.com/playwright:v1.63.0-noble"  # = frontend/package.json, see e2e.sh
-API_URL="$(grep '^DEV_NEXT_PUBLIC_API_URL=' .env | cut -d= -f2-)"
+# prove_guard.sh --e2e runs this script from its copy of the tree (no .env
+# there) against the copy's frontend on another port: E2E_API_URL points at
+# it, E2E_ENV_FILE at the real .env. Otherwise, the dev stack from .env.
+API_URL="${E2E_API_URL:-$(grep '^DEV_NEXT_PUBLIC_API_URL=' "${E2E_ENV_FILE:-.env}" | cut -d= -f2-)}"
 BASE_URL="${API_URL%/api}"
 SUBDOMAIN="smoke-access-$(date +%s)"
 # Rule 50: no literal password in a script and none on a command line.
@@ -70,6 +75,6 @@ docker run --rm --name "$CONTAINER_NAME" --network host \
   -e E2E_BASE_URL="$BASE_URL" -e E2E_SUBDOMAIN="$SUBDOMAIN" \
   -e E2E_VIEWER_EMAIL="$VIEWER_EMAIL" -e E2E_VIEWER_PASSWORD \
   -e E2E_OWNER_EMAIL="owner@$SUBDOMAIN.test" -e E2E_OWNER_PASSWORD \
-  -v "$ROOT_DIR:/repo" -w /repo/frontend/e2e \
+  -v "$ROOT_DIR:/repo" ${E2E_NODE_MODULES:+-v "$E2E_NODE_MODULES:/repo/frontend/node_modules:ro"} -w /repo/frontend/e2e \
   "$PLAYWRIGHT_IMAGE" \
   sh -c "npx playwright test '$SPEC' --reporter=list"

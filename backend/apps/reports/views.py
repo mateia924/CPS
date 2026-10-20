@@ -129,9 +129,13 @@ class AgingReportView(APIView):
         _require_accounting_view(request)
         legal_entity = _resolve_legal_entity(request)
         as_of = _parse_date(request, "as_of")
+        side = request.query_params.get("side", "receivable")
+        if side not in ("receivable", "payable"):
+            return Response({"side": ["receivable أو payable."]}, status=400)
 
-        result = aging_report(request.user.tenant, legal_entity, as_of)
+        result = aging_report(request.user.tenant, legal_entity, as_of, side=side)
         payload = {
+            "side": side,
             "rows": [{**row, "amount_base": str(row["amount_base"])} for row in result["rows"]],
             "totals_by_party": [{**row, "amount_base": str(row["amount_base"])} for row in result["totals_by_party"]],
             "total": str(result["total"]),

@@ -110,11 +110,21 @@ class SupplierBillViewSet(
         "reject": "purchasing.post",
         "post": "purchasing.post",
         "reverse": "purchasing.post",
+        # Sprint 8.2: paying the bill also writes a payment voucher, so
+        # pay_now re-checks vouchers.post inside (403 without it).
+        "pay_now": "purchasing.post",
+        "open_advances": "purchasing.view",
+        "apply_advance": "purchasing.post",
+        "withdraw_advance": "purchasing.post",
     }
 
     def get_queryset(self):
-        queryset = super().get_queryset().filter(tenant=self.request.user.tenant)
+        queryset = bills.with_balances(super().get_queryset().filter(tenant=self.request.user.tenant))
         params = self.request.query_params
+        # Sprint 8.2: what can still be paid — the voucher screen's open
+        # items for a supplier, and the aging's source.
+        if params.get("open") in ("1", "true"):
+            queryset = queryset.filter(status=SupplierBill.Status.POSTED, balance_fc__gt=0)
         for param, lookup in (
             ("status", "status"), ("supplier", "supplier_id"), ("legal_entity", "legal_entity_id"),
             ("due_before", "due_date__lte"), ("due_after", "due_date__gte"),
@@ -279,6 +289,85 @@ class SupplierBillViewSet(
         _result, error = self._run(bills.post_supplier_bill, bill, request.user, request=request)
         return error or self._done(bill)
 
+    # -- sprint 8.2: payment ----------------------------------------------------
+
+    @action(detail=True, methods=["post"], url_path="pay-now")
+    def pay_now(self, request, pk=None):
+        """«دفع نقدي الآن»: {treasury_kind, treasury_id, payment_method?, date?}
+        -> a payment voucher fully allocated to the bill, posted (or held by
+        its approval rule). Returns the voucher's id/number/status."""
+        from apps.access.services import user_has_permission
+
+        from . import payments
+
+        bill = self.get_object()
+        if not user_has_permission(request.user, "vouchers.post"):
+            return Response({"detail": "الدفع ينشئ سند صرف ويرحّله — يتطلب صلاحية ترحيل السندات."}, status=403)
+        data = request.data
+        if not data.get("treasury_kind") or not data.get("treasury_id"):
+            return Response({"treasury_id": ["اختر حساب الخزينة الذي يُدفع منه."]}, status=400)
+        try:
+            voucher, warnings = payments.pay_now(
+                bill, request.user, data["treasury_kind"], data["treasury_id"], data.get("payment_method") or "cash",
+                request=request,
+            )
+        except (ValidationError, ValueError) as exc:
+            return Response(_error_body(exc), status=400)
+        except PermissionDenied as exc:
+            return Response({"detail": str(exc)}, status=403)
+        return Response(
+            {"voucher_id": str(voucher.id), "voucher_number": voucher.number, "voucher_status": voucher.status,
+             "warnings": [str(w) for w in warnings]},
+            status=201,
+        )
+
+    @action(detail=True, methods=["get"], url_path="open-advances")
+    def open_advances(self, request, pk=None):
+        from . import payments
+
+        bill = self.get_object()
+        return Response([
+            {
+                "line_id": str(line.id), "voucher_id": str(line.voucher_id), "voucher_number": line.voucher.number,
+                "date": line.voucher.date, "kind": line.line_type, "amount_fc": str(line.amount_fc),
+                "remaining_fc": str(remaining), "currency": line.voucher.currency,
+            }
+            for line, remaining in payments.open_advances(bill)
+        ])
+
+    @action(detail=True, methods=["post"], url_path="apply-advance")
+    def apply_advance(self, request, pk=None):
+        """{source_line, amount} — apply a supplier advance to this bill."""
+        from apps.vouchers.models import VoucherLine
+
+        from . import payments
+
+        bill = self.get_object()
+        line = VoucherLine.objects.filter(voucher__tenant=request.user.tenant, id=request.data.get("source_line")).first()
+        if line is None:
+            return Response({"source_line": ["الدفعة المقدمة غير موجودة."]}, status=400)
+        try:
+            amount = Decimal(str(request.data.get("amount")))
+        except Exception:  # noqa: BLE001 — any unparsable amount is the same 400
+            return Response({"amount": ["مبلغ غير صالح."]}, status=400)
+        _result, error = self._run(payments.apply_advance, bill, line, amount, request.user, request=request)
+        return error or self._done(bill)
+
+    @action(detail=True, methods=["post"], url_path="withdraw-advance")
+    def withdraw_advance(self, request, pk=None):
+        """{application, reason} — undo an advance application."""
+        from . import payments
+        from .models import AdvanceApplication
+
+        bill = self.get_object()
+        application = AdvanceApplication.objects.filter(
+            tenant=request.user.tenant, supplier_bill=bill, id=request.data.get("application")
+        ).first()
+        if application is None:
+            return Response({"application": ["التخصيص غير موجود."]}, status=400)
+        _result, error = self._run(payments.withdraw_application, application, request.user, request.data.get("reason", ""), request=request)
+        return error or self._done(bill)
+
     @action(detail=True, methods=["post"])
     def reverse(self, request, pk=None):
         bill = self.get_object()
@@ -391,3 +480,55 @@ class ExpensesView(APIView):
             "cost_center_name": cost_center.name if cost_center else None,
             "description": description, "amount": str(amount), "currency": currency, "amount_base": str(amount_base),
         }
+
+
+class PayablesByWeekView(APIView):
+    """Sprint 8.2: «مستحقات الدفع بالأسبوع» (apps.reports.services.
+    payables_by_week). Under purchasing, not reports: it is the purchasing
+    and treasury planning view, readable with purchasing.view (the
+    Purchasing role holds no accounting.view). Entity: ?legal_entity=, else
+    every entity the user can see."""
+
+    permission_classes = [IsAuthenticated, RequiresModuleFeature, HasModulePermission]
+    permission_map = {"view": "purchasing.view"}
+    module_feature = "purchasing"
+
+    def get(self, request):
+        import datetime
+
+        from apps.organization.models import LegalEntity
+        from apps.organization.services import get_accessible_entity_ids
+        from apps.reports.services import payables_by_week
+
+        legal_entity = None
+        if request.query_params.get("legal_entity"):
+            legal_entity = LegalEntity.objects.filter(
+                tenant=request.user.tenant, id=request.query_params["legal_entity"],
+                id__in=get_accessible_entity_ids(request.user),
+            ).first()
+            if legal_entity is None:
+                return Response({"legal_entity": ["الكيان غير موجود."]}, status=400)
+        as_of = request.query_params.get("as_of")
+        result = payables_by_week(
+            request.user.tenant, legal_entity, datetime.date.fromisoformat(as_of) if as_of else None
+        )
+        accessible = {str(e) for e in get_accessible_entity_ids(request.user)}
+        if legal_entity is None:
+            # Owner sees all; anyone else only their entities' bills.
+            from .models import SupplierBill
+
+            allowed = set(
+                str(i) for i in SupplierBill.objects.filter(
+                    tenant=request.user.tenant, legal_entity_id__in=accessible
+                ).values_list("id", flat=True)
+            )
+            for bucket in result["buckets"]:
+                bucket["bills"] = [b for b in bucket["bills"] if b["id"] in allowed]
+                bucket["total"] = sum((b["amount_base"] for b in bucket["bills"]), Decimal("0"))
+            result["total"] = sum((b["total"] for b in result["buckets"]), Decimal("0"))
+        for bucket in result["buckets"]:
+            bucket["total"] = str(bucket["total"])
+            for b in bucket["bills"]:
+                b["balance_fc"], b["amount_base"] = str(b["balance_fc"]), str(b["amount_base"])
+        result["total"] = str(result["total"])
+        return Response(result)

@@ -183,7 +183,36 @@ export interface SupplierBill {
   created_at: string;
   posted_at: string | null;
   lines: SupplierBillLine[];
+  // Sprint 8.2: never stored — what still stands against the bill.
+  paid_fc: string;
+  balance_fc: string;
+  payments: {
+    id: string; voucher_id: string; voucher_number: string; date: string; amount_fc: string;
+    paid_fc: string; paid_currency: string; fx_difference_base: string; is_reversed: boolean;
+  }[];
+  advance_applications: {
+    id: string; voucher_id: string; voucher_number: string; kind: "advance" | "on_account"; date: string;
+    amount_fc: string; fx_difference_base: string; journal_entry: string | null; journal_entry_number: string | null;
+    is_reversed: boolean;
+  }[];
   warnings?: string[];
+}
+
+export interface OpenAdvance {
+  line_id: string; voucher_id: string; voucher_number: string; date: string; kind: "advance" | "on_account";
+  amount_fc: string; remaining_fc: string; currency: string;
+}
+
+export interface PayablesByWeek {
+  as_of: string;
+  total: string;
+  buckets: {
+    key: string; start: string | null; end: string | null; total: string;
+    bills: {
+      id: string; number: string; bill_number: string; supplier_name: string; due_date: string;
+      currency: string; balance_fc: string; amount_base: string;
+    }[];
+  }[];
 }
 
 // GET /purchasing/bills/form-options/ — the bill form's pick lists.
@@ -570,8 +599,12 @@ export interface LedgerLine {
   currency: string;
   running_balance: string;
   running_balance_fc: string;
-  source_type: string;
-  source_id: string | null;
+  source_type?: string;
+  source_id?: string | null;
+  // Sprint 7.2.7 / 8.2: the entry's source document (ledger_lines output).
+  produced_by?: string;
+  content_type?: string | null;
+  object_id?: string | null;
 }
 
 // Sprint 6.0.1-B: GET /api/dashboard/summary/ (3.18 row 1's four cards).
@@ -708,8 +741,21 @@ export interface OpenInvoiceSummary {
   balance_fc: string;
 }
 
+// Sprint 8.2: a supplier's statement carries its open bills.
+export interface OpenBillSummary {
+  id: string;
+  number: string;
+  bill_number: string;
+  date: string;
+  due_date: string | null;
+  currency: string;
+  total: string;
+  balance_fc: string;
+}
+
 export interface PartyStatement extends LedgerStatement {
   open_invoices: OpenInvoiceSummary[];
+  open_bills: OpenBillSummary[];
 }
 
 export type AssetCategory = "vehicle" | "equipment" | "building" | "furniture" | "it" | "other";
@@ -1298,7 +1344,7 @@ export interface BalanceSheetReport {
 export interface AgingRow {
   party_id: string;
   party_name: string;
-  source: "invoice" | "opening_balance";
+  source: "invoice" | "opening_balance" | "supplier_bill";
   reference: string;
   due_date: string;
   amount_base: string;
@@ -1313,6 +1359,7 @@ export interface AgingPartyTotal {
 }
 
 export interface AgingReport {
+  side?: "receivable" | "payable";
   rows: AgingRow[];
   totals_by_party: AgingPartyTotal[];
   total: string;
@@ -1484,13 +1531,17 @@ export type VoucherType = "receipt" | "payment" | "settlement";
 export type SettlementKind = "internal_transfer";
 export type TreasuryKind = "bank" | "cash_box" | "custody";
 export type VoucherPaymentMethod = "cash" | "bank_transfer" | "cheque" | "card" | "other";
-export type VoucherLineType = "invoice" | "on_account" | "account";
+// Sprint 8.2: "bill" settles a supplier bill, "advance" pays a supplier ahead
+// of any bill (on SUPPLIER_ADVANCES).
+export type VoucherLineType = "invoice" | "bill" | "advance" | "on_account" | "account";
 
 export interface VoucherLine {
   id: string;
   line_no: number;
   line_type: VoucherLineType;
   invoice: string | null;
+  supplier_bill: string | null;
+  supplier_bill_number: string | null;
   allocated_invoice_fc: string | null;
   account: string | null;
   account_name: string | null;

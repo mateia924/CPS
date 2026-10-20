@@ -131,6 +131,41 @@ class PartyViewSet(SoftDeleteViewSetMixin, TenantScopedViewSet):
             result["open_invoices"] = open_invoices
         else:
             result["open_invoices"] = []
+        # Sprint 8.2: an advance applied to a bill has no screen of its own;
+        # its statement line links the bill it was applied to.
+        applied_ids = [line["object_id"] for line in result["lines"] if line.get("content_type") == "advanceapplication"]
+        if applied_ids:
+            from apps.purchasing.models import AdvanceApplication
+
+            bill_of = {
+                str(app_id): str(bill_id)
+                for app_id, bill_id in AdvanceApplication.objects.filter(
+                    tenant=request.user.tenant, id__in=applied_ids
+                ).values_list("id", "supplier_bill_id")
+            }
+            for line in result["lines"]:
+                if line.get("content_type") == "advanceapplication" and str(line["object_id"]) in bill_of:
+                    line["content_type"], line["object_id"] = "supplierbill", bill_of[str(line["object_id"])]
+        # Sprint 8.2 (D7): a supplier's statement carries its open bills, like
+        # a customer's carries its open invoices. Each statement line already
+        # names its source document (content_type/object_id).
+        result["open_bills"] = []
+        if role == PartyRole.Role.SUPPLIER:
+            from apps.purchasing.bills import with_balances
+            from apps.purchasing.models import SupplierBill
+
+            bills_qs = with_balances(
+                SupplierBill.objects.filter(tenant=request.user.tenant, supplier=party, status=SupplierBill.Status.POSTED)
+            ).filter(balance_fc__gt=0)
+            if legal_entity is not None:
+                from apps.reports.services import _entities_in_scope
+
+                bills_qs = bills_qs.filter(legal_entity__in=_entities_in_scope(legal_entity, include_children))
+            result["open_bills"] = [
+                {"id": str(b.id), "number": b.number, "bill_number": b.bill_number, "date": b.date, "due_date": b.due_date,
+                 "currency": b.currency, "total": str(b.total), "balance_fc": str(b.balance_fc)}
+                for b in bills_qs.order_by("due_date", "date")
+            ]
         return Response(result)
 
     @action(detail=True, methods=["post"], url_path="add-role")

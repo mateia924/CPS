@@ -15,13 +15,18 @@ import { formatMoney } from "@/lib/money";
 import { flattenLeafAccounts, type FlatAccountOption } from "@/lib/accounts";
 import type {
   AccountTreeNode, Bank, CashBox, CostCenter, Custody, Invoice, LegalEntity,
-  Paginated, Party, PartyRoleType, TaxCode, TreasuryKind, Voucher, VoucherLineType,
+  Paginated, Party, PartyRoleType, SupplierBill, TaxCode, TreasuryKind, Voucher, VoucherLineType,
   VoucherPaymentMethod,
 } from "@/lib/types";
+import { ErrorState, apiErrorKind, type ApiErrorKind } from "@/components/ScreenErrors";
 
 interface LineDraft {
   lineType: VoucherLineType;
   invoice: string;
+  // Sprint 8.2: a supplier bill to settle, and the amount in the BILL's
+  // currency when the treasury account is in another one.
+  supplierBill: string;
+  allocatedFc: string;
   account: string;
   taxCode: string;
   amountIncludesTax: boolean;
@@ -31,7 +36,7 @@ interface LineDraft {
 }
 
 const EMPTY_LINE: LineDraft = {
-  lineType: "on_account", invoice: "", account: "", taxCode: "",
+  lineType: "on_account", invoice: "", supplierBill: "", allocatedFc: "", account: "", taxCode: "",
   amountIncludesTax: false, costCenter: "", amountFc: "", description: "",
 };
 
@@ -61,6 +66,9 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [parties, setParties] = useState<Party[]>([]);
   const [partyInvoices, setPartyInvoices] = useState<Invoice[]>([]);
+  const [partyBills, setPartyBills] = useState<SupplierBill[]>([]);
+  // Block 8.0.2 rule: a failed load is never an empty list of open bills.
+  const [partyBillsError, setPartyBillsError] = useState<ApiErrorKind | null>(null);
 
   const [legalEntityId, setLegalEntityId] = useState("");
   // Sprint 6.5.18 (UAT item 5): the LIST's own optional entity filter,
@@ -140,6 +148,18 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
     api.get<Paginated<Party>>(`/parties/?role=${partyRole}`).then((data) => setParties(data.results));
   }, [partyRole]);
 
+  // Sprint 8.2 (D7): a payment to a supplier settles its open bills.
+  const paysSupplier = !isReceipt && partyRole === "supplier" && !!me?.features.purchasing;
+  useEffect(() => {
+    setPartyBills([]);
+    setPartyBillsError(null);
+    if (!paysSupplier || !partyId) return;
+    api
+      .get<Paginated<SupplierBill>>(`/purchasing/bills/?supplier=${partyId}&open=1`)
+      .then((data) => setPartyBills(data.results))
+      .catch((err) => setPartyBillsError(apiErrorKind(err) ?? "server-error"));
+  }, [paysSupplier, partyId]);
+
   useEffect(() => {
     if (!partyId) {
       setPartyInvoices([]);
@@ -160,11 +180,15 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
     const qParty = searchParams.get("party");
     const qPartyRole = searchParams.get("party_role") as PartyRoleType | null;
     const qInvoice = searchParams.get("invoice");
+    const qBill = searchParams.get("bill");
     const qAmount = searchParams.get("amount_fc");
     if (qTreasuryKind) setTreasuryKind(qTreasuryKind);
     if (qTreasuryId) setTreasuryId(qTreasuryId);
     if (qPartyRole) setPartyRole(qPartyRole);
     if (qParty) setPartyId(qParty);
+    if (qBill) {
+      setLines([{ ...EMPTY_LINE, lineType: "bill", supplierBill: qBill, amountFc: qAmount || "" }]);
+    }
     if (qInvoice) {
       setLines([
         {
@@ -223,6 +247,9 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
           amount_fc: l.amountFc,
           description: l.description,
           ...(l.lineType === "invoice" ? { invoice: l.invoice, allocated_invoice_fc: l.amountFc } : {}),
+          ...(l.lineType === "bill"
+            ? { supplier_bill: l.supplierBill, allocated_invoice_fc: l.allocatedFc || l.amountFc }
+            : {}),
           ...(l.lineType === "account"
             ? {
                 account: l.account,
@@ -373,6 +400,8 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
               <FormField name="line_type" label={t("lineType")} style={{ minWidth: "150px" }}>
                 <select value={line.lineType} onChange={(e) => updateLine(i, "lineType", e.target.value)}>
                   <option value="invoice">{t("invoiceLineType")}</option>
+                  {paysSupplier && <option value="bill">{t("voucherBillLineType")}</option>}
+                  {paysSupplier && <option value="advance">{t("advanceLineType")}</option>}
                   <option value="on_account">{t("onAccountLineType")}</option>
                   <option value="account">{t(isReceipt ? "accountLineTypeReceipt" : "accountLineType")}</option>
                 </select>
@@ -388,6 +417,30 @@ export function VoucherScreen({ voucherType }: { voucherType: "receipt" | "payme
                   </select>
                 </FormField>
               )}
+              {line.lineType === "bill" && (partyBillsError ? (
+                <ErrorState kind={partyBillsError} compact />
+              ) : (
+                <>
+                  <FormField name="supplier_bill" label={t("billToSettle")} required style={{ minWidth: "240px" }}>
+                    <select value={line.supplierBill} onChange={(e) => updateLine(i, "supplierBill", e.target.value)} required>
+                      <option value="" disabled>—</option>
+                      {partyBills.map((bill) => (
+                        // links-ok: a select option can't contain a Link
+                        <option key={bill.id} value={bill.id}>{bill.number} — {bill.bill_number} ({t("balanceDue")}: {formatMoney(bill.balance_fc, bill.currency)})</option>
+                      ))}
+                    </select>
+                  </FormField>
+                  {(() => {
+                    const bill = partyBills.find((b) => b.id === line.supplierBill);
+                    const treasuryCurrency = [...banks, ...cashBoxes, ...custodies].find((x) => x.id === treasuryId)?.currency;
+                    return bill && treasuryCurrency && bill.currency !== treasuryCurrency ? (
+                      <FormField name="allocated_invoice_fc" label={`${t("allocatedInBillCurrency")} (${bill.currency})`} required style={{ width: "160px" }}>
+                        <input type="number" step="0.01" min="0.01" value={line.allocatedFc} onChange={(e) => updateLine(i, "allocatedFc", e.target.value)} required />
+                      </FormField>
+                    ) : null;
+                  })()}
+                </>
+              ))}
               {line.lineType === "account" && (
                 <>
                   <FormField name="account" required style={{ minWidth: "220px" }}>

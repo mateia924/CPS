@@ -51,6 +51,55 @@ def _log(user, action, bill, request=None, after=None):
     )
 
 
+# -- balances (sprint 8.2) -----------------------------------------------------
+#
+# A bill's paid amount is never stored: it is the sum of what still stands
+# against it — payment-voucher allocations not reversed, and advance
+# applications not withdrawn — in the bill's own currency. Nothing to keep
+# in step, nothing to backfill, and a reversed voucher or withdrawn advance
+# reopens the bill by itself.
+
+
+def _paid_subqueries():
+    from django.db.models import DecimalField, OuterRef, Subquery, Sum, Value
+    from django.db.models.functions import Coalesce
+
+    from apps.vouchers.models import VoucherAllocation
+
+    from .models import AdvanceApplication
+
+    money = DecimalField(max_digits=14, decimal_places=2)
+    allocated = Subquery(
+        VoucherAllocation.objects.filter(supplier_bill=OuterRef("pk"), is_reversed=False)
+        .values("supplier_bill").annotate(s=Sum("allocated_invoice_fc")).values("s"),
+        output_field=money,
+    )
+    applied = Subquery(
+        AdvanceApplication.objects.filter(supplier_bill=OuterRef("pk"), is_reversed=False)
+        .values("supplier_bill").annotate(s=Sum("amount_fc")).values("s"),
+        output_field=money,
+    )
+    return Coalesce(allocated, Value(Decimal("0")), output_field=money), Coalesce(applied, Value(Decimal("0")), output_field=money)
+
+
+def with_balances(queryset):
+    """paid_by_vouchers, paid_by_advances, paid_fc, balance_fc annotated."""
+    from django.db.models import F
+
+    allocated, applied = _paid_subqueries()
+    return queryset.annotate(paid_by_vouchers=allocated, paid_by_advances=applied).annotate(
+        paid_fc=F("paid_by_vouchers") + F("paid_by_advances")
+    ).annotate(balance_fc=F("total") - F("paid_fc"))
+
+
+def bill_paid(bill):
+    return with_balances(SupplierBill.objects.filter(pk=bill.pk)).values_list("paid_fc", flat=True)[0]
+
+
+def bill_balance(bill):
+    return bill.total - bill_paid(bill)
+
+
 # -- lines --------------------------------------------------------------------
 
 
@@ -465,6 +514,12 @@ def reverse_supplier_bill(bill, user, reason, request=None):
         raise ValidationError("لا تُعكس إلا الفاتورة المرحَّلة.")
     if not (reason or "").strip():
         raise ValidationError("سبب العكس مطلوب.")
+    # Sprint 8.2: money already paid against the bill would be left settling
+    # nothing. Reverse the payment vouchers / withdraw the advances first.
+    if bill_paid(bill) > 0:
+        raise ValidationError(
+            f"لا تُعكس الفاتورة: عليها سداد بمبلغ {bill_paid(bill)} — اعكس سندات الصرف أو ألغِ تخصيص الدفعات المقدمة أولًا."
+        )
     assets = [line.asset for line in bill.lines.filter(asset__isnull=False).select_related("asset")]
     for asset in assets:
         blocker = _asset_blocks_reversal(asset)
