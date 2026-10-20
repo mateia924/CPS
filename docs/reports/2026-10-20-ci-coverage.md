@@ -181,5 +181,6 @@ that commit.
       ============ 1 failed, 438 passed, 2 warnings in 253.90s (0:04:13) =============
       Pytest group(s) failed: the-rest — see each group's own annotation above.
 
-- Branch `ci-red-proof` was deleted (remote and local) right after. Main's own run on the merged commits is
-  in the next line.
+- Branch `ci-red-proof` was deleted (remote and local) right after. Main's own run on the merged commits:
+  **run 203, 2d848af: success** (https://github.com/mateia924/CPS/actions/runs/39416902540). The only remote
+  branch is `main`.
