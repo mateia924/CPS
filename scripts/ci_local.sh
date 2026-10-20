@@ -125,10 +125,12 @@ docker rm -f ci-local-backend ci-local-postgres ci-local-redis >/dev/null 2>&1 |
 # container-based checks happened to mask it as an unrelated-looking
 # FAIL). Mirrors the backend job's own "never the host, never cps-dev's
 # pre-built image" principle.
-run_step "frontend build (npm ci + npm run build — runs all 7 structural checks via prebuild)" \
+run_step "frontend lint + build (npm ci, eslint capped at lint-baseline.json, npm run build — runs all 7 structural checks via prebuild)" \
   docker run --rm -v "$ROOT_DIR/frontend:/workspace" -w /workspace \
   -e NEXT_PUBLIC_API_URL=http://localhost:3000/api \
-  node:24 bash -c "npm ci --no-audit --no-fund && npm run build"
+  node:24 bash -c "npm ci --no-audit --no-fund && npm run lint:baseline && npm run build"
+# Block 8.2.1: same as ci.yml's frontend job.
+run_step "e2e spec coverage — every spec under frontend/e2e is run by exactly one runner" "$ROOT_DIR/scripts/check_e2e_runners.sh"
 
 echo "[ci-local] bringing up the e2e stack (CI_OVERLAY=1 — no MinIO, local attachment storage, same as real CI)"
 make dev-up CI_OVERLAY=1

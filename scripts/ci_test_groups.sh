@@ -59,3 +59,16 @@ CI_MAX_SKIPPED_ACCOUNTING=0
 CI_MAX_SKIPPED_ASSETS_TREASURY=0
 CI_MAX_SKIPPED_ATTACHMENTS_PERMISSIONS=0
 CI_MAX_SKIPPED_REST=0
+
+# Deselected tests do not run either (block 8.2.1). The one source today is
+# pyproject.toml's addopts `-m 'not clamav and not minio'`: two tests in
+# test_attachments.py need a real ClamAV / MinIO, which CI does not have.
+# They run under `make test-integration` on dev/staging, and before every
+# live deploy (docs/ops/DEPLOY.md). Both passed on dev on 2026-10-20.
+# Same rule as skips: a rise needs a deliberate bump here with a dated reason.
+#   test_attachments.py::test_eicar_real_clamav              (clamav)
+#   test_attachments.py::test_attachment_is_actually_stored_in_minio  (minio)
+CI_MAX_DESELECTED_ACCOUNTING=0
+CI_MAX_DESELECTED_ASSETS_TREASURY=0
+CI_MAX_DESELECTED_ATTACHMENTS_PERMISSIONS=2
+CI_MAX_DESELECTED_REST=0

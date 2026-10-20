@@ -68,6 +68,11 @@ errors = []
 if len(gate) != 1:
     errors.append(f"expected exactly one step named 'Gate ...' in ci.yml, found {len(gate)}")
 gate_body = gate[0]["body"] if gate else ""
+# Block 8.2.1: the skip/deselect ceilings moved out of the Gate into
+# scripts/ci_gate_counts.sh. Without this line, deleting that call would
+# drop both caps and CI would stay green.
+if gate and not re.search(r"^\s+scripts/ci_gate_counts\.sh\b", gate[0]["body"].split("run:", 1)[-1], re.M):
+    errors.append("the Gate step no longer runs scripts/ci_gate_counts.sh (skip/deselect ceilings unchecked)")
 pytest_steps = [s for s in steps if s["pytest"]]
 for s in pytest_steps:
     if not s["id"]:

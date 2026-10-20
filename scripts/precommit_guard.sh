@@ -63,6 +63,12 @@ done < <("${GIT[@]}" diff --cached --no-renames --no-color -U0 --diff-filter=ACM
     quoted_literal = key "[\"'"'"']?[ \t]*[:=][ \t]*[\"'"'"'][^\"'"'"'$<{]{4,}[\"'"'"']"
     env_literal = "^(export[ \t]+)?[A-Z0-9_]*(PASSWORD|PASSWD|SECRET|API_KEY|APIKEY|TOKEN)[A-Z0-9_]*=[^$ \t\"'"'"'][^ \t]*$"
     private_key = "-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----"
+    # Block 8.2.1: a JSON dependency line whose value is ONLY a version
+    # range (the npm package js-tokens in package-lock.json, mapped to
+    # ^3.0.0 || ^4.0.0) is a package name, not a credential. Nothing else
+    # is exempt; backend/tests/test_precommit_guard.py pins both sides.
+    version_range = "[~^]?[0-9]+(\\.[0-9]+)*"
+    dependency_version = "^[ \t]*\"[A-Za-z0-9@/._-]+\"[ \t]*:[ \t]*\"" version_range "([ \t]*\\|\\|[ \t]*" version_range ")*\",?[ \t]*$"
     email = "[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)*\\.[A-Za-z]+"
   }
   /^\+\+\+ / { path = substr($0, 7); next }
@@ -73,7 +79,7 @@ done < <("${GIT[@]}" diff --cached --no-renames --no-color -U0 --diff-filter=ACM
   }
   /^\+/ {
     text = substr($0, 2)
-    if (text ~ quoted_literal || text ~ env_literal) print path ":" line ": credential with a literal value"
+    if ((text ~ quoted_literal && text !~ dependency_version) || text ~ env_literal) print path ":" line ": credential with a literal value"
     if (text ~ private_key) print path ":" line ": private key header"
     rest = text
     while (match(rest, email)) {

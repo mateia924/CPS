@@ -149,6 +149,19 @@ docker run --rm --network host \
   "$PLAYWRIGHT_IMAGE" \
   sh -c "npx playwright test 09-asset-transfer-log-date-format.spec.ts --reporter=list"
 
+# Block 8.2.1: spec 10 existed since 7.2.9 (44253ac) and no runner ran it.
+# It needs a host with a tenant label in front, and BASE_URL is a bare IP
+# here and in CI (`fatma.<ip>` is not a URL: "Cannot navigate to invalid
+# URL"), so it runs against localhost on the same port — `*.localhost`
+# resolves to loopback in Chromium (RFC 6761). Frontend-only: the confirm
+# endpoint is faked in the spec, no request reaches any tenant.
+echo "[e2e] phase 10: reset-password on a tenant host sends the host's subdomain with the field hidden"
+docker run --rm --network host \
+  -e E2E_BASE_URL="http://localhost:$(echo "$BASE_URL" | sed -E 's#^https?://[^:/]+:?([0-9]*).*#\1#;s#^$#80#')" \
+  -v "$ROOT_DIR:/repo" -w /repo/frontend/e2e \
+  "$PLAYWRIGHT_IMAGE" \
+  sh -c "npx playwright test 10-reset-password-subdomain-from-host.spec.ts --reporter=list"
+
 # Sprint 7.4: stock documents. Seeds only what no screen creates yet on a
 # fresh smoke tenant — the inventory module flag, one warehouse on the
 # branch, one stock item. No approval rule is touched here: registration

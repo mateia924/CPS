@@ -11,6 +11,22 @@ from apps.tenants.models import TenantFeatures
 
 from .factories import TenantFactory, UserFactory
 
+# Block 8.2.1: deselection is the third way a test does not run (after
+# uncollected files and skips). pytest prints only a count; this names each
+# deselected test as a `DESELECTED <nodeid>` line in the terminal summary,
+# which CI turns into an annotation and caps per step
+# (CI_MAX_DESELECTED_* in scripts/ci_test_groups.sh).
+_deselected = []
+
+
+def pytest_deselected(items):
+    _deselected.extend(item.nodeid for item in items)
+
+
+def pytest_terminal_summary(terminalreporter):
+    for nodeid in _deselected:
+        terminalreporter.write_line(f"DESELECTED {nodeid}")
+
 
 @pytest.fixture(scope="session", autouse=True)
 def _ensure_rls_app_role(django_db_setup, django_db_blocker):
