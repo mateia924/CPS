@@ -132,3 +132,22 @@ ownership check could never fail there even with `scripts/` present.
 
 Either way, the remaining difference is the database service (CI uses a fresh postgres:16-alpine; local uses
 the dev postgres's `test_cps`). That is acceptable.
+
+## 4. Built (2026-10-20, owner's decision), and parity proven on one commit
+
+Commit **54fada5**:
+
+- `backend/Dockerfile` gains a `test` target: dev + git + gnupg, git `safe.directory`.
+- `scripts/pytest_run.sh` runs every pytest in a throwaway container from it, with the whole repo read-only at
+  `/workspace`, as **uid 1001**, with the template container's network and environment. The dev server is
+  untouched.
+- `scripts/prove_guard.sh`'s pytest mode uses the same container. The owner-check proof was re-run in it as
+  uid 1001 and was proven; the copy's text tripwire also fired there, as expected for non-root.
+
+| Same commit 54fada5 | passed | skipped | deselected | collected |
+|---|---|---|---|---|
+| Local, `scripts/pytest_run.sh cps-dev-backend-1 -q -rs` | **988** | **0** | 2 | 990 |
+| GitHub CI run 208 (245 + 193 + 111 + 439) | **988** | **0** | 2 | 990 |
+
+They match. No side was adjusted. The 2 deselected on both sides are the clamav/minio markers.
+The local run had no `SKIPPED` line at all; the dev container's 59 skips are gone.
