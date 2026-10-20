@@ -185,6 +185,9 @@ jobs:
             test_document_numbering.py test_migrations.py \
             2>&1 | tee /tmp/test-accounting.log
           status=${PIPESTATUS[0]}
+          # 2026-10-20 (CI coverage): the executed count, readable from the
+          # check-run annotations API without access to the raw logs.
+          echo "::notice title=pytest counts accounting::$(tail -n 1 /tmp/test-accounting.log)"
           set -e
           if [ "$status" -ne 0 ]; then
             { echo "=== short test summary ==="; sed -n '/short test summary info/,$p' /tmp/test-accounting.log | head -n 40; echo "=== tail ==="; tail -n 40 /tmp/test-accounting.log; } > /tmp/ann-accounting.txt
@@ -208,6 +211,9 @@ jobs:
             test_vouchers.py test_vouchers_transfers.py test_recurring_entries.py \
             test_credit_limit.py test_iban_change.py 2>&1 | tee /tmp/test-assets-treasury.log
           status=${PIPESTATUS[0]}
+          # 2026-10-20 (CI coverage): the executed count, readable from the
+          # check-run annotations API without access to the raw logs.
+          echo "::notice title=pytest counts assets-treasury::$(tail -n 1 /tmp/test-assets-treasury.log)"
           set -e
           if [ "$status" -ne 0 ]; then
             { echo "=== short test summary ==="; sed -n '/short test summary info/,$p' /tmp/test-assets-treasury.log | head -n 40; echo "=== tail ==="; tail -n 40 /tmp/test-assets-treasury.log; } > /tmp/ann-assets-treasury.txt
@@ -231,6 +237,9 @@ jobs:
             test_must_change_password.py test_session_hygiene.py test_soft_delete.py \
             test_soft_delete_structural.py 2>&1 | tee /tmp/test-attachments-permissions.log
           status=${PIPESTATUS[0]}
+          # 2026-10-20 (CI coverage): the executed count, readable from the
+          # check-run annotations API without access to the raw logs.
+          echo "::notice title=pytest counts attachments-permissions::$(tail -n 1 /tmp/test-attachments-permissions.log)"
           set -e
           if [ "$status" -ne 0 ]; then
             { echo "=== short test summary ==="; sed -n '/short test summary info/,$p' /tmp/test-attachments-permissions.log | head -n 40; echo "=== tail ==="; tail -n 40 /tmp/test-attachments-permissions.log; } > /tmp/ann-attachments-permissions.txt
@@ -254,6 +263,9 @@ jobs:
             test_structural_isolation.py test_tenant_isolation.py test_tenant_subdomain_rules.py \
             2>&1 | tee /tmp/test-rest.log
           status=${PIPESTATUS[0]}
+          # 2026-10-20 (CI coverage): the executed count, readable from the
+          # check-run annotations API without access to the raw logs.
+          echo "::notice title=pytest counts rest::$(tail -n 1 /tmp/test-rest.log)"
           set -e
           if [ "$status" -ne 0 ]; then
             { echo "=== short test summary ==="; sed -n '/short test summary info/,$p' /tmp/test-rest.log | head -n 40; echo "=== tail ==="; tail -n 40 /tmp/test-rest.log; } > /tmp/ann-rest.txt
