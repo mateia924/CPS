@@ -216,6 +216,19 @@ ls -l /etc/cps-secrets/smoke_password     # يجب أن يظهر -rw------- root
 الخدمتين الخارجيتين أنفسهما — الاختبارات الحتمية في `make test` تثبت
 صحة كودنا بصرف النظر عن الخدمة الفعلية خلفه.
 
+**Open, 2026-10-20: attachment storage and virus scanning are verified end to end on dev only.**
+
+- The only recorded pass of these two tests is on dev, 2026-10-20 (block 8.2.1), against cps-dev-minio-1 and cps-dev-clamav-1.
+- There is no recorded pass anywhere before that:
+  - CI has had no ClamAV since 2026-10-02 (8677c5c);
+  - CI has had no MinIO since 2026-10-03 (8e6ceb4);
+  - nothing logs a `make test-integration` run.
+- There is no recorded run against staging, and none against live's infra-minio-1 / infra-clamav-1.
+- The rule above is not enforced. `scripts/deploy.sh` does not run `make test-integration`, and none of the 17 live deploys from 2026-10-03 to 2026-10-19 (docs/ops/deploys.log) has a record of it.
+- Closing this needs two things, for an owner decision and not yet built:
+  - a recorded run against the stack being deployed;
+  - a deploy gate that runs it, or refuses without it.
+
 ## حالة الحي — 2026-10-14
 
 - **الشيفرة المخدومة:** `b15041c` (آخر `deploy.sh` في 2026-10-10، `docs/ops/deploys.log`).
@@ -294,6 +307,32 @@ Re-open only with an answer to the deploy-key problem. Two ways would work:
 
 - push to a branch and fast-forward `main` to a SHA that already passed;
 - give the automation its own non-admin identity, with the owner bound by "Do not allow bypassing".
+
+## Host change: root's `-i` aliases apply on a terminal only, 2026-10-20
+
+File: `/root/.bashrc` on the live server. It is not in the repo, so a rebuilt server loses this change unless it is reapplied from here.
+
+Before:
+
+    alias rm='rm -i'
+    alias cp='cp -i'
+    alias mv='mv -i'
+
+After:
+
+    if [ -t 0 ]; then
+      alias rm='rm -i'
+      alias cp='cp -i'
+      alias mv='mv -i'
+    fi
+
+Why: an agent session's shell loads root's profile, but its stdin is not a terminal. A plain `cp` or `rm` there stopped at an `overwrite?` / `remove?` prompt that nobody could see or answer. That hung a run twice: on 2026-10-17 a guard-proof restore waited 30 minutes, and on 2026-10-20 a lint-proof restore hung.
+
+What did not change: a root login on a terminal still gets all three aliases. That was verified on 2026-10-20 in a pty shell, where `rm` asked `remove regular file ...?` and the file survived an `n`. Scripts and cron never had the aliases: non-interactive bash does not expand them.
+
+Consequence to know: `rm`, `cp` and `mv` without `-i` overwrite silently in any shell that has no terminal. Agent commands use `command rm -f` / `command cp -f` explicitly.
+
+To check: `grep -n -A4 'if \[ -t 0 \]' /root/.bashrc`. To revert: replace the `if` block with the three plain alias lines above.
 
 ## `make ci-local` — البوابة الحقيقية طوال ثمانية أيام (سبرنت 7.0)
 
