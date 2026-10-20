@@ -120,6 +120,12 @@ class InvoiceSerializer(serializers.ModelSerializer):
     # carries (source_type='invoice'), not a new FK column.
     journal_entry_id = serializers.SerializerMethodField()
     journal_entry_number = serializers.SerializerMethodField()
+    # Block 8.2.1: the tax invoice's «ملخص الضريبة حسب الكود» table. It was
+    # summed in the browser with parseFloat — a legal VAT document totalled
+    # in float arithmetic. Now summed here in Decimal from the lines' own
+    # rounded line_subtotal/line_tax (the same figures subtotal/tax_total
+    # add up), grouped by code and rate, in the order the lines come.
+    tax_summary = serializers.SerializerMethodField()
 
     class Meta:
         model = Invoice
@@ -129,15 +135,27 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "legal_entity", "legal_entity_name", "currency", "exchange_rate",
             "subtotal", "tax_total", "total", "base_total", "paid_fc", "balance_fc", "payment_status",
             "delivered_at", "is_post_delivery_void", "journal_entry_id", "journal_entry_number", "lines",
-            "created_at", "updated_at",
+            "tax_summary", "created_at", "updated_at",
         )
         read_only_fields = (
             "id", "number", "status", "status_label", "created_by", "due_date", "customer_name",
             "customer_party_type",
             "legal_entity_name", "currency", "exchange_rate", "subtotal", "tax_total", "total", "base_total",
             "paid_fc", "balance_fc", "payment_status", "delivered_at", "is_post_delivery_void",
-            "journal_entry_id", "journal_entry_number", "lines", "created_at", "updated_at",
+            "journal_entry_id", "journal_entry_number", "lines", "tax_summary", "created_at", "updated_at",
         )
+
+    def get_tax_summary(self, obj):
+        rows = {}
+        for line in obj.lines.all():
+            code = line.tax_code.code if line.tax_code_id else ""
+            row = rows.setdefault((code, line.tax_rate), {"base": Decimal("0"), "tax": Decimal("0")})
+            row["base"] += line.line_subtotal
+            row["tax"] += line.line_tax
+        return [
+            {"code": code, "rate": str(rate), "base": str(row["base"]), "tax": str(row["tax"])}
+            for (code, rate), row in rows.items()
+        ]
 
     def _journal_entry(self, obj):
         from django.contrib.contenttypes.models import ContentType

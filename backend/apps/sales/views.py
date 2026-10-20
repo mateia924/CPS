@@ -118,7 +118,7 @@ class InvoiceViewSet(SoftDeleteDocumentViewSetMixin, EntityScopedViewSet):
     # and posts a real reversal journal entry; a voided invoice has
     # genuine history and must never be deletable.
 
-    queryset = Invoice.objects.select_related("party", "legal_entity").prefetch_related("lines", "lines__product")
+    queryset = Invoice.objects.select_related("party", "legal_entity").prefetch_related("lines", "lines__product", "lines__tax_code")
     permission_classes = [IsAuthenticated, HasModulePermission]
     # PUT is deliberately excluded — PATCH (partial_update) is the only
     # write-after-create path, and it always requires the full `lines`

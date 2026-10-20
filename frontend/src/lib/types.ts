@@ -324,6 +324,8 @@ export interface Invoice {
   journal_entry_id: string | null;
   journal_entry_number: string | null;
   lines: InvoiceLine[];
+  // Block 8.2.1: the tax-by-code table, summed on the server in Decimal.
+  tax_summary: { code: string; rate: string; base: string; tax: string }[];
   // Sprint 6.9.1 (item B): only present on create/patch/issue
   // responses (credit limit, stale exchange rate) — never on a plain
   // GET, so this stays optional rather than a field every Invoice has.

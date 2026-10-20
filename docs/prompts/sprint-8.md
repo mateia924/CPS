@@ -92,6 +92,8 @@
 | D14 | **بنود الإقفال:** `grn_not_billed_aged` (WARN — استلام بلا فاتورة أقدم من 30 يومًا بقيمة)، `wht_payable_unremitted` (WARN)، `landed_cost_clearing_nonzero` (WARN)، `supplier_bills_without_original` (WARN — بلا مرفق أصلي عند وجود قاعدة)، `purchase_returns_pending` (INFO). |
 | D15 | **الكتالوج:** `purchases`, `purchase_cycle`, `landed_cost` → `in_progress` في 8.0 و`available` بعد UAT؛ `suppliers` يُحدَّث وصفه. |
 
+> **Open (D14 family), 2026-10-20:** a reconciliation check that every invoice's `tax_total` equals the sum of its lines' `line_tax` (and `subtotal` the sum of `line_subtotal`), across all rows, so drift from any source shows up — the same shape as `check_chart_health`. Today the only assignment in app code is `apps/sales/services.py:49` (sum of the per-line rounded taxes, :39/:44), but migrations, management commands and direct SQL are outside that statement, and `backend/tests/test_invoice_tax_summary.py` pins one 72-line invoice, not the invariant. Not built (block 8.2.1 decision: record only).
+
 ---
 
 ## 3. الكتل

@@ -65,6 +65,22 @@ else
   echo "PASS: every non-zero/blank ternary's truthy branch goes through <Money>/formatMoney("
 fi
 
+echo ""
+echo "== check-money: float arithmetic on a printed document (src/app/print/) =="
+# Block 8.2.1: the printed tax invoice summed its tax-by-code table with
+# parseFloat — a legal VAT document totalled in browser floats. Printed
+# documents render figures the server computed (Decimal); they never
+# parse money into a JS number to add it up.
+MATCHES=$(find src/app/print -name '*.tsx' -type f \
+  -exec grep -nE 'parseFloat\(|Number\(|[^a-zA-Z]\+[ ]*[a-zA-Z_.]*\.(line_subtotal|line_tax|line_total|amount|amount_fc|amount_base|debit|credit|debit_base|credit_base)\b' {} + | grep -v 'money-ok' || true)
+if [ -n "$MATCHES" ]; then
+  echo "$MATCHES"
+  echo "FAIL: a printed document does money arithmetic in the browser — have the server send the figure"
+  FAIL=1
+else
+  echo "PASS: no float money arithmetic on printed documents"
+fi
+
 if [ "$FAIL" -ne 0 ]; then
   echo ""
   echo "check-money: FAILED"

@@ -228,6 +228,11 @@ ls -l /etc/cps-secrets/smoke_password     # يجب أن يظهر -rw------- root
 - Closing this needs two things, for an owner decision and not yet built:
   - a recorded run against the stack being deployed;
   - a deploy gate that runs it, or refuses without it.
+- **Update, 2026-10-20 (block 8.2.1):** live storage was verified end to end through the UI on smoke-storage-1792522563. Upload, the object in infra-minio-1, and the read-back through the signed link all showed the same sha256. Live ClamAV returned a clean verdict on that file. EICAR detection on live is not yet tested; the owner decides first (consequences in docs/reports/2026-10-20-tax-print-live-storage.md).
+
+**Open, 2026-10-20: the attachments bucket is in no backup.** `scripts/backup.sh` (the comment at "Sprint 5.1 adds the MinIO attachments bucket here") never copies `cps-attachments`. Once 8.1's mandatory attachments are live, every supporting document exists only on live's MinIO volume. Not built.
+
+**Open, 2026-10-20: the mandatory-attachment rule does not look at the scan.** `apps/approvals/services.py` `_check_mandatory_attachments` accepts any ACTIVE attachment. A file that is `pending`, `infected` or `error` (ClamAV unreachable) satisfies it, so the document posts with a file nobody can download. Not built.
 
 ## حالة الحي — 2026-10-14
 

@@ -41,15 +41,9 @@ export default function InvoicePrintPage() {
     .filter(Boolean)
     .join("، ");
 
-  // Accumulated as numbers, formatted only at render time via <Money>.
-  const taxSummary = new Map<string, { code: string; rate: string; base: number; tax: number }>();
-  for (const line of invoice.lines) {
-    const key = line.tax_code_display;
-    const existing = taxSummary.get(key) || { code: key, rate: line.tax_rate, base: 0, tax: 0 };
-    existing.base += parseFloat(line.line_subtotal);
-    existing.tax += parseFloat(line.line_tax);
-    taxSummary.set(key, existing);
-  }
+  // Block 8.2.1: the tax-by-code table comes summed from the server
+  // (Decimal, InvoiceSerializer.tax_summary). A legal VAT document is not
+  // totalled in browser float arithmetic, not even when it rounds right.
 
   const isSimplified = invoice.customer_party_type === "individual";
 
@@ -117,8 +111,8 @@ export default function InvoicePrintPage() {
             </tr>
           </thead>
           <tbody>
-            {[...taxSummary.values()].map((row) => (
-              <tr key={row.code}>
+            {invoice.tax_summary.map((row) => (
+              <tr key={`${row.code}-${row.rate}`}>
                 <td>{row.code} ({row.rate}%)</td>
                 <td><Money amount={row.base} /></td>
                 <td><Money amount={row.tax} /></td>
