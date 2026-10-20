@@ -224,10 +224,11 @@ def test_purchasing_role_and_accountant_defaults(tenant_a):
     assert not user_has_permission(buyer, "purchasing.override_match")
     assert not user_has_permission(buyer, "accounting.view")
 
-    assert user_has_permission(accountant, "purchasing.view")
-    assert user_has_permission(accountant, "purchasing.post")
-    assert not user_has_permission(accountant, "purchasing.manage")
-    assert not user_has_permission(accountant, "purchasing.override_match")
+    # Owner decision 2026-10-20: a new tenant's Accountant gets NO purchasing
+    # permission (8.0 had granted view + post with no recorded decision; post
+    # writes to the ledger). The owner grants it on the roles screen.
+    for code in ("purchasing.view", "purchasing.manage", "purchasing.post", "purchasing.override_match"):
+        assert not user_has_permission(accountant, code), code
 
     for code in ("purchasing.view", "purchasing.manage", "purchasing.post", "purchasing.override_match"):
         assert user_has_permission(owner, code), code

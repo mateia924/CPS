@@ -1,13 +1,16 @@
-"""Sprint 8.0 (owner decision 2026-10-19): seed_purchasing_defaults brings
-a tenant registered before 8.0 to exactly what registration gives one
-registered after — the purchasing permissions on every system role, the
-Purchasing role, and the five purchasing approval rules.
+"""seed_purchasing_defaults — ADDITIVE ONLY (owner decision 2026-10-20).
 
-"Before 8.0" is built from a real registration with 8.0's additions taken
-away again, and the test first checks that the stripped tenant really
-differs (a setup step that removes nothing would make the comparison pass
-by default). Identity is compared on the whole role/permission and
-approval-rule picture of both tenants, not on the purchasing part only.
+On a tenant that predates purchasing it creates what is missing: the four
+purchasing system accounts, the withholding codes of its country (as
+examples), the purchasing.* permission rows, the Purchasing role (view/
+manage, no users) and the five purchasing approval rules. It modifies NO
+existing role: Owner and Accountant keep exactly the permission sets they
+had (until 2026-10-20 the seed added purchasing.* to both).
+
+"Before purchasing" is built from a real registration with those additions
+taken away again, and each test first checks the stripped tenant really
+lacks them (a setup step that removes nothing would make every assertion
+pass by default).
 """
 
 from io import StringIO
@@ -16,9 +19,11 @@ import pytest
 from django.core.management import CommandError, call_command
 from rest_framework.test import APIClient
 
-from apps.access.models import Role
+from apps.access.models import Permission, Role
+from apps.accounting.models import Account
 from apps.approvals.models import ApprovalRule
-from apps.purchasing.services import PURCHASING_DOC_TYPES, purchasing_permission_codes
+from apps.purchasing.models import WithholdingTaxCode
+from apps.purchasing.services import PURCHASING_DOC_TYPES, PURCHASING_SYSTEM_KEYS, withholding_table
 from apps.tenants.models import Tenant
 
 from .factories import PlanFactory
@@ -36,25 +41,21 @@ def _register(subdomain):
     return Tenant.objects.get(subdomain=subdomain)
 
 
-def _strip_8_0(tenant):
-    """What a tenant registered before 8.0 looks like: no purchasing rules,
-    no purchasing permission on any role, no Purchasing role."""
+def _strip_purchasing(tenant):
+    """What a tenant registered before purchasing looks like."""
     ApprovalRule.objects.filter(tenant=tenant, doc_type__in=PURCHASING_DOC_TYPES).delete()
     for role in Role.objects.filter(tenant=tenant):
         role.permissions.remove(*role.permissions.filter(code__startswith="purchasing."))
     Role.objects.filter(tenant=tenant, name="Purchasing").delete()
+    Account.objects.filter(tenant=tenant, system_key__in=PURCHASING_SYSTEM_KEYS).delete()
+    WithholdingTaxCode.objects.filter(tenant=tenant).delete()
 
 
-def _picture(tenant):
-    roles = {
-        role.name: (role.is_system, tuple(sorted(role.permissions.values_list("code", flat=True))))
+def _role_sets(tenant):
+    return {
+        role.name: frozenset(role.permissions.values_list("code", flat=True))
         for role in Role.objects.filter(tenant=tenant, deleted_at__isnull=True)
     }
-    rules = sorted(
-        (rule.doc_type, str(rule.min_amount), rule.required_role.name, rule.is_active)
-        for rule in ApprovalRule.objects.filter(tenant=tenant, deleted_at__isnull=True).select_related("required_role")
-    )
-    return roles, rules
 
 
 def _seed(*args):
@@ -64,104 +65,136 @@ def _seed(*args):
 
 
 @pytest.fixture
-def two_tenants(db):
+def before(db):
     PlanFactory(code="free")
-    after = _register("after-8-0")
-    before = _register("before-8-0")
-    _strip_8_0(before)
-    return before, after
+    tenant = _register("before-purch")
+    _strip_purchasing(tenant)
+    assert not Role.objects.filter(tenant=tenant, name="Purchasing").exists()
+    assert not ApprovalRule.objects.filter(tenant=tenant, doc_type="supplier_bill").exists()
+    assert not Account.objects.filter(tenant=tenant, system_key__in=PURCHASING_SYSTEM_KEYS).exists()
+    assert not WithholdingTaxCode.objects.filter(tenant=tenant).exists()
+    return tenant
 
 
 @pytest.mark.django_db
-def test_a_pre_8_0_tenant_ends_up_identical_to_one_registered_after(two_tenants):
-    before, after = two_tenants
-    assert _picture(before) != _picture(after), "the stripped tenant must really lack 8.0's additions"
-    assert not Role.objects.filter(tenant=before, name="Purchasing").exists()
-    assert not ApprovalRule.objects.filter(tenant=before, doc_type="supplier_bill").exists()
+def test_the_seed_creates_what_is_missing_and_changes_no_existing_role(before):
+    roles_before = _role_sets(before)
+    assert "Owner" in roles_before and "Accountant" in roles_before
 
-    output = _seed("--tenant", "before-8-0")
+    output = _seed("--tenant", "before-purch")
 
-    assert _picture(before) == _picture(after)
-    assert "role created: Purchasing" in output
-    assert "approval rules created (min=0 -> Owner): " + ", ".join(sorted(PURCHASING_DOC_TYPES)) in output
-    owner_line = "Owner: + " + ", ".join(purchasing_permission_codes())
-    assert owner_line in output
+    roles_after = _role_sets(before)
+    for name, codes in roles_before.items():
+        assert roles_after[name] == codes, f"the seed changed the existing role {name}"
+    assert not any(code.startswith("purchasing.") for code in roles_after["Owner"] | roles_after["Accountant"])
+    purchasing = Role.objects.get(tenant=before, name="Purchasing")
+    assert purchasing.is_system and not purchasing.users.exists()
+    assert roles_after["Purchasing"] == {"purchasing.view", "purchasing.manage"}
+    assert set(
+        ApprovalRule.objects.filter(tenant=before, doc_type__in=PURCHASING_DOC_TYPES).values_list("doc_type", flat=True)
+    ) == set(PURCHASING_DOC_TYPES)
+    assert set(
+        Account.objects.filter(tenant=before, system_key__in=PURCHASING_SYSTEM_KEYS).values_list("system_key", flat=True)
+    ) == set(PURCHASING_SYSTEM_KEYS)
+    assert WithholdingTaxCode.objects.filter(tenant=before, country="SA").count() == len(withholding_table("SA"))
+    assert "role created: Purchasing (no users)" in output
+    assert "existing roles: unchanged (additive only)" in output
 
 
 @pytest.mark.django_db
-def test_a_second_run_changes_nothing(two_tenants):
-    before, _after = two_tenants
-    _seed("--tenant", "before-8-0")
-    picture = _picture(before)
-    role_ids = set(Role.objects.filter(tenant=before).values_list("id", flat=True))
+def test_an_existing_purchasing_role_is_left_exactly_as_it_is(before):
+    custom = Role.objects.create(tenant=before, name="Purchasing", is_system=True)
+    custom.permissions.set(Permission.objects.filter(code="purchasing.view"))
+
+    _seed("--tenant", "before-purch")
+
+    assert set(custom.permissions.values_list("code", flat=True)) == {"purchasing.view"}
+
+
+@pytest.mark.django_db
+def test_missing_permission_rows_are_created_never_updated(before):
+    Permission.objects.filter(code__startswith="purchasing.").delete()
+    Permission.objects.filter(code="invoices.view").update(description="edited by an operator")
+
+    output = _seed("--tenant", "before-purch")
+
+    assert set(Permission.objects.filter(code__startswith="purchasing.").values_list("code", flat=True)) == {
+        "purchasing.view", "purchasing.manage", "purchasing.post", "purchasing.override_match",
+    }
+    assert Permission.objects.get(code="invoices.view").description == "edited by an operator"
+    assert "permission rows created:" in output
+
+
+@pytest.mark.django_db
+def test_a_second_run_changes_nothing(before):
+    _seed("--tenant", "before-purch")
+    roles = _role_sets(before)
     rule_ids = set(ApprovalRule.objects.filter(tenant=before).values_list("id", flat=True))
+    account_ids = set(Account.objects.filter(tenant=before).values_list("id", flat=True))
 
-    output = _seed("--tenant", "before-8-0")
+    output = _seed("--tenant", "before-purch")
 
-    assert _picture(before) == picture
-    assert set(Role.objects.filter(tenant=before).values_list("id", flat=True)) == role_ids
+    assert _role_sets(before) == roles
     assert set(ApprovalRule.objects.filter(tenant=before).values_list("id", flat=True)) == rule_ids
-    assert "before-8-0: no change" in output and "0 tenant(s) changed." in output
+    assert set(Account.objects.filter(tenant=before).values_list("id", flat=True)) == account_ids
+    assert "before-purch: no change" in output and "0 tenant(s) changed." in output
 
 
 @pytest.mark.django_db
-def test_dry_run_writes_nothing_and_names_what_it_would_add(two_tenants):
-    before, _after = two_tenants
-    picture = _picture(before)
+def test_dry_run_writes_nothing_and_names_what_it_would_add(before):
+    roles = _role_sets(before)
 
-    output = _seed("--tenant", "before-8-0", "--dry-run")
+    output = _seed("--tenant", "before-purch", "--dry-run")
 
-    assert _picture(before) == picture
+    assert _role_sets(before) == roles
+    assert not Role.objects.filter(tenant=before, name="Purchasing").exists()
+    assert not Account.objects.filter(tenant=before, system_key__in=PURCHASING_SYSTEM_KEYS).exists()
     assert "DRY RUN" in output and "role created: Purchasing" in output and "1 tenant(s) would change." in output
 
 
 @pytest.mark.django_db
-def test_a_named_tenant_run_leaves_every_other_tenant_alone(two_tenants):
-    before, after = two_tenants
-    other = _register("other-8-0")
-    _strip_8_0(other)
-    other_picture = _picture(other)
+def test_a_named_tenant_run_leaves_every_other_tenant_alone(before):
+    other = _register("other-purch")
+    _strip_purchasing(other)
+    other_roles = _role_sets(other)
 
-    _seed("--tenant", "before-8-0")
+    _seed("--tenant", "before-purch")
 
-    assert _picture(other) == other_picture
-    assert _picture(before) == _picture(after)
+    assert _role_sets(other) == other_roles
+    assert not Role.objects.filter(tenant=other, name="Purchasing").exists()
 
 
 @pytest.mark.django_db
-def test_all_tenants_skips_archived_ones(two_tenants):
-    before, after = two_tenants
-    archived = _register("archived-8-0")
-    _strip_8_0(archived)
+def test_all_tenants_skips_archived_ones(before):
+    archived = _register("archived-purch")
+    _strip_purchasing(archived)
     Tenant.objects.filter(pk=archived.pk).update(status=Tenant.Status.ARCHIVED)
-    archived_picture = _picture(archived)
 
     output = _seed("--all-tenants")
 
-    assert _picture(before) == _picture(after)
-    assert _picture(archived) == archived_picture
-    assert "Excluding 1 archived tenant(s): archived-8-0" in output
+    assert Role.objects.filter(tenant=before, name="Purchasing").exists()
+    assert not Role.objects.filter(tenant=archived, name="Purchasing").exists()
+    assert "Excluding 1 archived tenant(s): archived-purch" in output
 
 
 @pytest.mark.django_db
-def test_the_target_must_be_named(two_tenants):
+def test_the_target_must_be_named(before):
     with pytest.raises(CommandError, match="Name the target"):
         _seed()
-    Tenant.objects.filter(subdomain="before-8-0").update(status=Tenant.Status.ARCHIVED)
+    Tenant.objects.filter(subdomain="before-purch").update(status=Tenant.Status.ARCHIVED)
     with pytest.raises(CommandError, match="archived"):
-        _seed("--tenant", "before-8-0")
+        _seed("--tenant", "before-purch")
 
 
 @pytest.mark.django_db
-def test_a_tenant_without_an_owner_role_is_not_reported_as_done(two_tenants):
+def test_a_tenant_without_an_owner_role_is_not_reported_as_done(before):
     """seed_default_approval_rules silently skips a rule whose role is
     missing. The command must not: with no Owner role, the supplier_bill
     rule cannot exist, and that is exactly the automatic-approval state."""
-    before, _after = two_tenants
     owner = Role.objects.get(tenant=before, name="Owner")
     ApprovalRule.objects.filter(tenant=before).delete()
     owner.delete()
 
     with pytest.raises(CommandError, match="Not complete"):
-        _seed("--tenant", "before-8-0")
+        _seed("--tenant", "before-purch")
     assert not ApprovalRule.objects.filter(tenant=before, doc_type="supplier_bill").exists()

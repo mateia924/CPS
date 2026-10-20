@@ -157,11 +157,11 @@ SYSTEM_ROLES = {
         # editing items and warehouses is the warehouse keeper's job).
         "inventory.view",
         "inventory.post",
-        # Sprint 8.0: same split as inventory above — view and post, not
-        # manage (raising purchase documents is the purchasing role's
-        # job) and not override_match (Owner only by default).
-        "purchasing.view",
-        "purchasing.post",
+        # No purchasing.* here (owner decision 2026-10-20). 8.0 added
+        # purchasing.view + purchasing.post by analogy with inventory, with
+        # no recorded decision, and post writes to the ledger. An owner who
+        # wants her accountant to post purchase documents grants it on the
+        # roles screen; the Purchasing role below carries view/manage.
     ],
     "Sales": [
         "customers.view",

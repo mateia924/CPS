@@ -76,10 +76,9 @@ def tenant_country_codes(tenant):
     return sorted(set(LegalEntity.objects.filter(tenant=tenant).values_list("country_code", flat=True)))
 
 
-# Sprint 8.0: what 8.0 adds to a tenant's roles and approval rules. Both
-# lists are read off the definitions registration itself uses —
-# apps.access.services.DEFAULT_PERMISSIONS/SYSTEM_ROLES and
-# apps.approvals.defaults.DEFAULT_APPROVAL_RULES — never restated here.
+# Sprint 8.0: purchasing's approval types; the permission codes and the
+# Purchasing role's share are read off apps.access.services
+# (DEFAULT_PERMISSIONS/SYSTEM_ROLES), never restated here.
 PURCHASING_DOC_TYPES = ("purchase_order", "supplier_bill", "purchase_return", "landed_cost", "party_netting")
 
 
@@ -89,42 +88,73 @@ def purchasing_permission_codes():
     return [code for code, _description in DEFAULT_PERMISSIONS if code.startswith("purchasing.")]
 
 
-def seed_purchasing_defaults(tenant):
-    """Bring an existing tenant to what registration gives a new one for
-    8.0: every system role holds its SYSTEM_ROLES share of the purchasing
-    permissions, the Purchasing role exists, and the five purchasing
-    approval rules (min_amount=0 -> Owner) exist. Idempotent: adds only
-    what is missing, never removes or edits anything.
+# The four system accounts D1 added for purchasing.
+PURCHASING_SYSTEM_KEYS = ("WHT_PAYABLE", "PURCHASE_PRICE_VARIANCE", "LANDED_COST_CLEARING", "SUPPLIER_ADVANCES")
 
-    Returns {"roles_created": [...], "permissions_added": {role: [codes]},
-    "rules_created": [...], "roles_missing": [...]}. A system role other
-    than Purchasing that the tenant no longer has is reported in
-    roles_missing, not recreated: removing it was somebody's decision."""
+
+def seed_purchasing_defaults(tenant):
+    """ADDITIVE ONLY (owner decision 2026-10-20). Purchasing is not released:
+    nothing a tenant's users can do changes because this ran. It creates
+    what is missing and never edits, adds to, or removes anything that
+    exists — in particular it touches NO existing role. The owner grants
+    purchasing deliberately on the roles screen.
+
+    Creates, each only if absent:
+      - the purchasing system accounts (D1) — creation only; an existing
+        account is never touched (unlike add_missing_system_accounts, which
+        also corrects allow_manual_posting);
+      - the withholding codes of the tenant's countries, as examples (D6);
+      - the purchasing.* rows of the global permission catalog (get_or_create,
+        never update: an existing row's description is left alone);
+      - the Purchasing system role with purchasing.view/manage and no users;
+        an existing Purchasing role is left exactly as it is;
+      - the five purchasing approval rules (min_amount=0 -> Owner). Not a
+        role change: a document type with no rule is approved automatically
+        (the 7.4 incident), so the rule is the safe default.
+
+    Returns {"accounts_created", "wht_created", "permissions_created",
+    "roles_created", "rules_created", "rules_not_active"}."""
     from apps.access.models import Permission, Role
-    from apps.access.services import SYSTEM_ROLES, seed_permissions
+    from apps.access.services import DEFAULT_PERMISSIONS, SYSTEM_ROLES
+    from apps.accounting.management.commands.add_missing_system_accounts import (
+        Command as AccountsCommand,
+    )
+    from apps.accounting.models import Account
+    from apps.accounting.services import SYSTEM_ACCOUNT_SPECS
     from apps.approvals.defaults import seed_default_approval_rules
     from apps.approvals.models import ApprovalRule
 
-    seed_permissions()
-    purchasing_codes = purchasing_permission_codes()
-    result = {"roles_created": [], "permissions_added": {}, "rules_created": [], "roles_missing": []}
+    result = {
+        "accounts_created": [], "wht_created": {}, "permissions_created": [], "roles_created": [],
+        "rules_created": [], "rules_not_active": [],
+    }
 
-    for name, codes in SYSTEM_ROLES.items():
-        wanted = [c for c in purchasing_codes if codes is None or c in codes]
-        if not wanted:
+    accounts = AccountsCommand()
+    for spec in SYSTEM_ACCOUNT_SPECS:
+        if spec["system_key"] not in PURCHASING_SYSTEM_KEYS:
             continue
-        role = Role.objects.filter(tenant=tenant, name=name, is_system=True, deleted_at__isnull=True).first()
-        if role is None:
-            if name != "Purchasing":
-                result["roles_missing"].append(name)
-                continue
-            role = Role.objects.create(tenant=tenant, name=name, is_system=True)
-            result["roles_created"].append(name)
-        held = set(role.permissions.filter(code__in=wanted).values_list("code", flat=True))
-        missing = [c for c in wanted if c not in held]
-        if missing:
-            role.permissions.add(*Permission.objects.filter(code__in=missing))
-            result["permissions_added"][name] = missing
+        if Account.objects.filter(tenant=tenant, system_key=spec["system_key"]).exists():
+            continue
+        outcome, detail = accounts._ensure_account(tenant, spec)
+        if outcome != "created":
+            raise ValueError(f"could not create {spec['system_key']}: {detail}")
+        result["accounts_created"].append(f"{spec['system_key']} {detail}")
+
+    for country in tenant_country_codes(tenant):
+        created = load_withholding_codes(tenant, country)
+        if created:
+            result["wht_created"][country] = created
+
+    for code, description in DEFAULT_PERMISSIONS:
+        if code.startswith("purchasing."):
+            _row, created = Permission.objects.get_or_create(code=code, defaults={"description": description})
+            if created:
+                result["permissions_created"].append(code)
+
+    if not Role.objects.filter(tenant=tenant, name="Purchasing").exists():
+        role = Role.objects.create(tenant=tenant, name="Purchasing", is_system=True)
+        role.permissions.set(Permission.objects.filter(code__in=SYSTEM_ROLES["Purchasing"]))
+        result["roles_created"].append("Purchasing")
 
     def active_rules():
         return set(

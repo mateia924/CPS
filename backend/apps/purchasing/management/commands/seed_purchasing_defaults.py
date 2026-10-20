@@ -11,14 +11,16 @@ class _DryRun(Exception):
 
 
 class Command(BaseCommand):
-    """Sprint 8.0 (owner decision 2026-10-19): bring tenants registered
-    before 8.0 to exactly what registration gives a new one — the
-    purchasing permissions on each system role, the Purchasing role, and
-    the five purchasing approval rules (min_amount=0 -> Owner).
+    """Sprint 8.0, made ADDITIVE ONLY by the owner's decision of 2026-10-20:
+    on tenants that predate purchasing it creates what is missing — the
+    purchasing system accounts, the withholding codes (examples), the
+    purchasing.* permission rows, the Purchasing role (view/manage, no
+    users) and the five purchasing approval rules (min_amount=0 -> Owner) —
+    and modifies NO existing role or row. Nobody's access changes; the
+    owner grants purchasing on the roles screen when she wants it.
 
-    Why it matters: a document type with no ApprovalRule is approved
-    automatically (the 7.4 incident). Once supplier bills exist (8.1), a
-    tenant without the supplier_bill rule would post them unapproved.
+    The approval rules are why it exists at all: a document type with no
+    ApprovalRule is approved automatically (the 7.4 incident).
 
     The target is always explicit — --tenant (repeatable) or
     --all-tenants; no argument refuses. Archived tenants are never
@@ -27,7 +29,7 @@ class Command(BaseCommand):
     nothing. Reads the same definitions registration does
     (apps.purchasing.services.seed_purchasing_defaults)."""
 
-    help = "Seed 8.0's purchasing permissions, Purchasing role and approval rules onto existing tenants (idempotent)."
+    help = "Create purchasing's accounts, withholding codes, permissions, Purchasing role and approval rules where missing; modifies no existing role (idempotent)."
 
     def add_arguments(self, parser):
         target = parser.add_mutually_exclusive_group()
@@ -68,30 +70,35 @@ class Command(BaseCommand):
             except _DryRun:
                 pass
             changed += self._report(tenant, result)
-            if result["roles_missing"] or result["rules_not_active"]:
+            if result["rules_not_active"]:
                 failures.append(tenant.subdomain)
 
         self.stdout.write(f"{changed} tenant(s) {'would change' if options['dry_run'] else 'changed'}.")
         if failures:
             raise CommandError(
-                f"Not complete for {failures}: see 'missing role' / 'rule not active' above. "
+                f"Not complete for {failures}: see 'rule not active' above. "
                 "Nothing reports success while a purchasing approval rule is absent."
             )
 
     def _report(self, tenant, result):
         lines = []
+        for account in result["accounts_created"]:
+            lines.append(f"  account created: {account}")
+        for country, count in sorted(result["wht_created"].items()):
+            lines.append(f"  withholding codes created: {country} x{count} (examples)")
+        if result["permissions_created"]:
+            lines.append(f"  permission rows created: {', '.join(result['permissions_created'])}")
         for name in result["roles_created"]:
-            lines.append(f"  role created: {name}")
-        for name, codes in sorted(result["permissions_added"].items()):
-            lines.append(f"  {name}: + {', '.join(codes)}")
+            lines.append(f"  role created: {name} (no users)")
         if result["rules_created"]:
             lines.append(f"  approval rules created (min=0 -> Owner): {', '.join(result['rules_created'])}")
-        for name in result["roles_missing"]:
-            lines.append(f"  MISSING system role {name!r} — its purchasing permissions were not granted")
         for doc_type in result["rules_not_active"]:
             lines.append(f"  RULE NOT ACTIVE: {doc_type} (no Owner role, or an inactive/deleted rule exists)")
         self.stdout.write(f"{tenant.subdomain}: {'no change' if not lines else ''}")
         for line in lines:
             self.stdout.write(line)
-        changed = bool(result["roles_created"] or result["permissions_added"] or result["rules_created"])
+        self.stdout.write("  existing roles: unchanged (additive only)")
+        changed = any(
+            result[key] for key in ("accounts_created", "wht_created", "permissions_created", "roles_created", "rules_created")
+        )
         return int(changed)
