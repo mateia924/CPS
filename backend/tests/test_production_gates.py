@@ -309,7 +309,7 @@ exit $rc
 """
 
 
-def _secrets_dir(tmp_path, repo, content=None, mode=0o600):
+def _secrets_dir(tmp_path, repo, content=None, mode=0o600, keep_owner_check=False):
     """A stand-in for /etc/cps-secrets. The path is a literal in
     production_gates.sh, with no variable to point it elsewhere — so the
     test rewrites its own copy of the script, never the real one."""
@@ -328,7 +328,7 @@ def _secrets_dir(tmp_path, repo, content=None, mode=0o600):
     # file at all). As with the path above, only this test's copy changes:
     # the expected owner becomes the uid running the test. The real script
     # keeps requiring root; as root (the dev container) nothing is rewritten.
-    if os.getuid() != 0:
+    if os.getuid() != 0 and not keep_owner_check:
         owner_check = '[ "$owner" != "0" ]'
         assert text.count(owner_check) == 1, "the preflight's owner check moved; update this test"
         text = text.replace(owner_check, f'[ "$owner" != "{os.getuid()}" ]')
@@ -349,6 +349,32 @@ def test_secrets_preflight_stops_the_deploy_before_the_first_gate_when_the_smoke
     assert f"{secrets}/smoke_password does not exist" in result.stderr
     assert "root:root, mode 600" in result.stderr
     assert calls.read_text() == "", f"a gate ran before the preflight: {calls.read_text()}"
+
+
+def test_secrets_preflight_refuses_a_smoke_password_file_not_owned_by_root(tmp_path):
+    """The owner half of the preflight, against the REAL check: this copy
+    rewrites only the secrets path, never `[ "$owner" != "0" ]`. Every other
+    test here, on a non-root runner, rewrites that check to the running uid
+    (2026-10-20), so until this test nothing failed when the root check was
+    deleted from scripts/production_gates.sh (proven that day as root: 34/34
+    passed with it gone). As root the file is handed to uid 65534; as
+    non-root it is the runner's own — either way not uid 0."""
+    repo, calls, env = _fake_tree(tmp_path)
+    secrets = _secrets_dir(tmp_path, repo, "s3cret-value\n", keep_owner_check=True)
+    password = secrets / "smoke_password"
+    if os.getuid() == 0:
+        os.chown(password, 65534, 65534)
+    owner = password.stat().st_uid
+    assert owner != 0
+
+    result = _run(["bash", "-c", _GATES_SCRIPT], repo, env, CURL_STATUS="200")
+
+    assert result.returncode == 1
+    assert "failed gate: secrets preflight" in result.stdout
+    assert f"is owned by uid {owner} with mode 600" in result.stderr
+    assert "must be root:root, mode 600" in result.stderr
+    assert "s3cret-value" not in result.stdout + result.stderr
+    assert calls.read_text() == ""
 
 
 @pytest.mark.parametrize("mode", [0o644, 0o640, 0o604])
