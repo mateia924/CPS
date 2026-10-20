@@ -133,6 +133,12 @@ def _describe_emergency_document(doc_type, target_id):
                     "number": document.number, "description": document.warehouse.name,
                     "amount_base": str(document_totals(document)["total_value"]),
                 }
+        if doc_type == "supplier_bill":
+            from apps.purchasing.models import SupplierBill
+
+            bill = SupplierBill.objects.select_related("supplier").filter(id=target_id).first()
+            if bill is not None:
+                return {"number": bill.number, "description": bill.supplier.name, "amount_base": str(bill.base_total)}
         if doc_type == "asset_disposal":
             disposal = AssetDisposal.objects.select_related("asset").get(id=target_id)
             return {

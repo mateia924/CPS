@@ -12,6 +12,8 @@ set -euo pipefail
 # and archives the tenant on every exit. Never touches a real tenant.
 #
 # Usage: scripts/e2e_access.sh [SPEC]   (default 14-screen-access.spec.ts)
+# The spec gets E2E_SUBDOMAIN, the Viewer's E2E_VIEWER_EMAIL/_PASSWORD and
+# the Owner's E2E_OWNER_EMAIL/_PASSWORD (8.1's walk, 15-supplier-bills).
 # E2E_CONTAINER_NAME names the Playwright container (prove_guard.sh uses
 # it to remove the container if it is interrupted).
 
@@ -25,7 +27,7 @@ BASE_URL="${API_URL%/api}"
 SUBDOMAIN="smoke-access-$(date +%s)"
 # Rule 50: no literal password in a script and none on a command line.
 # Fresh per run, handed on through the environment (`-e NAME`) or stdin.
-OWNER_PASSWORD="Ow1!$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')"
+export E2E_OWNER_PASSWORD="Ow1!$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')"
 export E2E_VIEWER_PASSWORD="Vw1!$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')"
 VIEWER_EMAIL="viewer@$SUBDOMAIN.test"
 CONTAINER_NAME="${E2E_CONTAINER_NAME:-cps-e2e-access-$$}"
@@ -40,7 +42,7 @@ trap cleanup EXIT
 
 echo "[e2e-access] target: $BASE_URL (subdomain=$SUBDOMAIN)"
 code="$(printf '{"company_name": "Smoke access", "subdomain": "%s", "email": "owner@%s.test", "password": "%s"}' \
-    "$SUBDOMAIN" "$SUBDOMAIN" "$OWNER_PASSWORD" \
+    "$SUBDOMAIN" "$SUBDOMAIN" "$E2E_OWNER_PASSWORD" \
   | curl -s -o /dev/null -w '%{http_code}' -X POST "$API_URL/auth/register/" \
     -H 'Content-Type: application/json' --data-binary @-)"
 [ "$code" = "201" ] || { echo "[e2e-access] registration returned HTTP $code, expected 201" >&2; exit 1; }
@@ -69,6 +71,7 @@ print('[e2e-access] viewer holds parties.view, not purchasing.view')
 docker run --rm --name "$CONTAINER_NAME" --network host \
   -e E2E_BASE_URL="$BASE_URL" -e E2E_SUBDOMAIN="$SUBDOMAIN" \
   -e E2E_VIEWER_EMAIL="$VIEWER_EMAIL" -e E2E_VIEWER_PASSWORD \
+  -e E2E_OWNER_EMAIL="owner@$SUBDOMAIN.test" -e E2E_OWNER_PASSWORD \
   -v "$ROOT_DIR:/repo" -w /repo/frontend/e2e \
   "$PLAYWRIGHT_IMAGE" \
   sh -c "npx playwright test '$SPEC' --reporter=list"

@@ -142,6 +142,8 @@ class AttachmentRule(TenantScopedModel, SoftDeleteModelMixin):
         VOUCHER_RECEIPT = "voucher_receipt", _("Receipt Voucher")
         VOUCHER_SETTLEMENT = "voucher_settlement", _("Settlement Voucher")
         OPENING_BALANCE = "opening_balance", _("Opening Balance")
+        # Sprint 8.1: checked at submit, like every other type.
+        SUPPLIER_BILL = "supplier_bill", _("Supplier Bill")
 
     doc_type = models.CharField(_("document type"), max_length=30, choices=DocType.choices)
     min_amount_base = models.DecimalField(

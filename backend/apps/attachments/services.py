@@ -54,6 +54,9 @@ ALLOWED_TARGETS = {
     # this list with their models in 8.1/8.4, not before: a target
     # whose model does not exist yet would fail resolve_target.
     "withholding_tax_code": ("purchasing", "withholdingtaxcode"),
+    # Sprint 8.1: the supplier's original invoice («فاتورة أصلية»), which
+    # an AttachmentRule on supplier_bill can make mandatory at submit.
+    "supplier_bill": ("purchasing", "supplierbill"),
 }
 
 # extension -> allowed MIME types (from magic bytes, never trusted from

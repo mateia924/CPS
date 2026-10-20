@@ -118,6 +118,109 @@ export interface PurchaseSettingsData {
   default_grni_policy: "prorate";
 }
 
+// Sprint 8.1: apps.purchasing.serializers.SupplierBillSerializer.
+export type SupplierBillLineType = "service" | "expense" | "asset";
+
+export interface SupplierBillLine {
+  id: string;
+  line_no: number;
+  line_type: SupplierBillLineType;
+  line_type_label: string;
+  description: string;
+  account: string | null;
+  account_code: string | null;
+  account_name: string | null;
+  cost_center: string | null;
+  cost_center_name: string | null;
+  qty: string;
+  unit_price: string;
+  tax_code: string;
+  tax_code_display: string;
+  tax_rate: string;
+  is_reverse_charge: boolean;
+  vat_deductible: boolean;
+  wht_code: string | null;
+  wht_code_display: string | null;
+  asset_name: string;
+  asset_category: AssetCategory | "";
+  asset: string | null;
+  asset_code: string | null;
+  net: string;
+  tax_amount: string;
+  capitalized_tax: string;
+  cost: string;
+  payable: string;
+  wht_base: string;
+  wht_amount: string;
+}
+
+export interface SupplierBill {
+  id: string;
+  number: string;
+  status: DocumentStatus;
+  status_label: string;
+  legal_entity: string;
+  legal_entity_name: string;
+  supplier: string;
+  supplier_name: string;
+  bill_number: string;
+  date: string;
+  due_date: string | null;
+  currency: string;
+  exchange_rate: string;
+  reference: string;
+  notes: string;
+  subtotal: string;
+  deductible_tax: string;
+  capitalized_tax: string;
+  reverse_charge_tax: string;
+  wht_expected: string;
+  total: string;
+  base_total: string;
+  journal_entry: string | null;
+  journal_entry_number: string | null;
+  created_by_id: string | null;
+  created_at: string;
+  posted_at: string | null;
+  lines: SupplierBillLine[];
+  warnings?: string[];
+}
+
+// GET /purchasing/bills/form-options/ — the bill form's pick lists.
+export interface SupplierBillFormOptions {
+  legal_entities: { id: string; code: string; name: string; base_currency: string }[];
+  suppliers: {
+    id: string; code: string; name: string; default_expense_account: string | null;
+    payment_terms_days: number | string | null;
+  }[];
+  accounts: { id: string; code: string; name: string; type: string }[];
+  cost_centers: { id: string; code: string; name: string }[];
+  cost_center_required: boolean;
+  tax_codes: { id: string; code: string; name: string; rate: string; kind: string; deductible: "full" | "none" }[];
+  wht_codes: { id: string; code: string; name_ar: string; rate: string; base: "net" | "gross"; is_example: boolean }[];
+  asset_categories: { value: AssetCategory; label: string }[];
+}
+
+// GET /purchasing/expenses/ — one row per posted expense line.
+export interface ExpenseRow {
+  id: string;
+  source: "supplier_bill" | "voucher";
+  document_id: string;
+  number: string;
+  date: string;
+  party_name: string;
+  legal_entity_name: string;
+  account: string;
+  account_code: string;
+  account_name: string;
+  cost_center: string | null;
+  cost_center_name: string | null;
+  description: string;
+  amount: string;
+  currency: string;
+  amount_base: string;
+}
+
 // Sprint 8.0 (D6): apps.purchasing.serializers.WithholdingTaxCodeSerializer.
 export interface WithholdingTaxCode {
   id: string;
@@ -634,6 +737,8 @@ export interface Asset {
   is_depreciable: boolean;
   purchase_reference: string;
   in_service_date: string | null;
+  // Sprint 8.1: the supplier bill an ASSET line created this asset from.
+  source_bill: { id: string; number: string } | null;
   cost_base: string | null;
   salvage_base: string | null;
   opening_accumulated_depreciation: string;
@@ -992,6 +1097,8 @@ export type ApprovalDocType =
 // fail to compile until its screen path is wired.
 export type PurchasingApprovalDocType =
   | "purchase_order" | "supplier_bill" | "purchase_return" | "landed_cost" | "party_netting";
+// Sprint 8.1: supplier_bill is the first of them with a document.
+export type PendingPurchasingDocType = "supplier_bill";
 
 // Sprint 6.3 (3.10/3.16.3): opening balances.
 export type OpeningBalanceKind = "initial" | "adjustment";
@@ -1033,7 +1140,9 @@ export interface PeriodChecklistItem extends ReadinessItem {
 
 // Sprint 6.7 (3.17 rule 4, decision 15).
 export type AttachmentRuleDocType =
-  | "invoice" | "journal_entry" | "voucher_payment" | "voucher_receipt" | "voucher_settlement" | "opening_balance";
+  | "invoice" | "journal_entry" | "voucher_payment" | "voucher_receipt" | "voucher_settlement" | "opening_balance"
+  // Sprint 8.1.
+  | "supplier_bill";
 
 // Sprint 6.8 (decisions 16/19): الإعدادات ← الشركة.
 export type CreditLimitMode = "warn" | "block";
@@ -1295,7 +1404,9 @@ export type AttachmentTargetType =
   // Sprint 7.4: stock document detail screen.
   | "stock_document"
   // Sprint 8.0: the advisor's approved table, attached to its codes.
-  | "withholding_tax_code";
+  | "withholding_tax_code"
+  // Sprint 8.1: the supplier's original invoice.
+  | "supplier_bill";
 
 export type AttachmentCategory =
   | "fatura_original" | "receipt" | "contract" | "bank_letter"
@@ -1328,7 +1439,7 @@ export interface Attachment {
 }
 
 export interface PendingApproval {
-  doc_type: Exclude<ApprovalDocType, PurchasingApprovalDocType>;
+  doc_type: Exclude<ApprovalDocType, Exclude<PurchasingApprovalDocType, PendingPurchasingDocType>>;
   id: string;
   number: string;
   date: string;

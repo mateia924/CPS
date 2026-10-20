@@ -82,6 +82,9 @@ export const NAV_SECTIONS: NavSection[] = [
     when: (me) => me.features.purchasing,
     entries: [
       { href: "/dashboard/suppliers", label: "suppliers", permission: "parties.view" },
+      // Sprint 8.1.
+      { href: "/dashboard/purchasing/bills", label: "supplierBills", permission: "purchasing.view" },
+      { href: "/dashboard/purchasing/expenses", label: "expensesNav", permission: "purchasing.view" },
       { href: "/dashboard/purchasing/settings", label: "purchaseSettings", permission: "purchasing.view" },
     ],
   },

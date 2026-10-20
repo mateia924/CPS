@@ -164,6 +164,8 @@ class _JournalEntryProducedBy(models.TextChoices):
     OPENING_BALANCE = "opening_balance", _("Opening balance")
     # Sprint 7.3: apps.inventory.services' stock posting engine.
     STOCK_DOCUMENT = "stock_document", _("Stock document")
+    # Sprint 8.1: apps.purchasing.bills.post_supplier_bill.
+    SUPPLIER_BILL = "supplier_bill", _("Supplier bill")
     MANUAL = "manual", _("Manual")
 
 

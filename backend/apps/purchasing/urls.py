@@ -1,12 +1,19 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from .views import PurchaseSettingsView, WithholdingTaxCodeViewSet
+from .views import (
+    ExpensesView,
+    PurchaseSettingsView,
+    SupplierBillViewSet,
+    WithholdingTaxCodeViewSet,
+)
 
 router = DefaultRouter()
 router.register("purchasing/withholding-codes", WithholdingTaxCodeViewSet, basename="withholding-code")
+router.register("purchasing/bills", SupplierBillViewSet, basename="supplier-bill")
 
 urlpatterns = [
     path("purchasing/settings/", PurchaseSettingsView.as_view(), name="purchase-settings"),
+    path("purchasing/expenses/", ExpensesView.as_view(), name="purchase-expenses"),
     path("", include(router.urls)),
 ]

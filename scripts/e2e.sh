@@ -267,4 +267,9 @@ docker exec cps-dev-backend-1 python manage.py archive_smoke_tenants \
 echo "[e2e] phase 14: no sidebar link the user cannot open; a refused screen names the reason"
 "$ROOT_DIR/scripts/e2e_access.sh" 14-screen-access.spec.ts
 
+# Sprint 8.1: supplier bills and the expenses list, every record entered
+# through the UI on a tenant of its own (same script, the Owner's login).
+echo "[e2e] phase 15: supplier bills (rent/telecoms/RC/asset), duplicate number, attachment rule, expenses"
+"$ROOT_DIR/scripts/e2e_access.sh" 15-supplier-bills.spec.ts
+
 echo "[e2e] ALL CHECKS PASSED — screenshots in $SCREENS_DIR/"

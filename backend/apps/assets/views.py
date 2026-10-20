@@ -48,7 +48,7 @@ from .transfer import transfer_asset as _transfer_asset
 class AssetViewSet(SoftDeleteViewSetMixin, EntityScopedViewSet):
     serializer_class = AssetSerializer
     permission_classes = [IsAuthenticated, HasModulePermission]
-    queryset = Asset.objects.all()
+    queryset = Asset.objects.select_related("source_bill_line__bill")
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["code", "name"]
     ordering_fields = ["code", "name", "purchase_date", "created_at"]

@@ -8,8 +8,14 @@ from apps.common.constants import (
     MONEY_MAX_DIGITS,
     PERCENTAGE_DECIMAL_PLACES,
     PERCENTAGE_MAX_DIGITS,
+    PRICE_DECIMAL_PLACES,
+    PRICE_MAX_DIGITS,
+    QUANTITY_DECIMAL_PLACES,
+    QUANTITY_MAX_DIGITS,
+    RATE_DECIMAL_PLACES,
+    RATE_MAX_DIGITS,
 )
-from apps.common.models import TenantScopedModel
+from apps.common.models import DocumentStateMixin, SoftDeleteModelMixin, TenantScopedModel
 
 
 class PurchaseSettings(models.Model):
@@ -99,3 +105,137 @@ class WithholdingTaxCode(TenantScopedModel):
 
     def __str__(self):
         return f"{self.country}/{self.code}"
+
+
+def _money(verbose):
+    return models.DecimalField(
+        verbose, max_digits=MONEY_MAX_DIGITS, decimal_places=MONEY_DECIMAL_PLACES, default=Decimal("0")
+    )
+
+
+class SupplierBill(TenantScopedModel, DocumentStateMixin, SoftDeleteModelMixin):
+    """Sprint 8.1: فاتورة المورد — service, expense and asset lines (stock
+    lines arrive in 8.5). The unified status set as it really is
+    (apps.common.models.DocumentStateMixin): DRAFT -> PENDING_APPROVAL ->
+    APPROVED -> POSTED -> REVERSED; a rejection returns to DRAFT
+    (apps.approvals.services.reject), so there is no "rejected" value.
+
+    `bill_number` is the SUPPLIER's own invoice number — required, unique
+    per supplier among bills not deleted. `number` is ours (PINV), given
+    when the bill first leaves DRAFT, same convention as invoices.
+
+    Totals are server-side (apps.purchasing.bills.recalculate_bill), in
+    the bill's currency:
+      subtotal          Σ line net
+      deductible_tax    Σ VAT that goes to VAT_INPUT
+      capitalized_tax   Σ non-deductible VAT folded into the line's cost (R-8.6)
+      reverse_charge_tax Σ RC VAT — self-assessed both sides, not owed to the supplier
+      wht_expected      Σ expected withholding — shown only; it posts at payment (8.3)
+      total             what the supplier is owed (subtotal + deductible + capitalized)
+    "المستحق" is `total` in 8.1: pay-now and allocation ship in 8.2.
+
+    Not in 8.1 (D3 fields that cannot exist yet): grn_line (GoodsReceipt is
+    8.4), kind=DEBIT_NOTE/original_bill (8.7), payment_now (8.2, with the
+    generalized allocation)."""
+
+    legal_entity = models.ForeignKey("organization.LegalEntity", on_delete=models.PROTECT, related_name="supplier_bills")
+    supplier = models.ForeignKey("parties.Party", on_delete=models.PROTECT, related_name="supplier_bills")
+    bill_number = models.CharField(_("supplier invoice number"), max_length=64)
+    number = models.CharField(_("number"), max_length=32, blank=True, default="")
+    date = models.DateField(_("date"))
+    due_date = models.DateField(_("due date"), null=True, blank=True)
+    currency = models.CharField(_("currency"), max_length=3)
+    exchange_rate = models.DecimalField(
+        _("exchange rate"), max_digits=RATE_MAX_DIGITS, decimal_places=RATE_DECIMAL_PLACES, default=Decimal("1")
+    )
+    reference = models.CharField(_("reference"), max_length=100, blank=True)
+    notes = models.TextField(_("notes"), blank=True)
+
+    subtotal = _money(_("subtotal"))
+    deductible_tax = _money(_("deductible VAT"))
+    capitalized_tax = _money(_("non-deductible VAT (capitalized)"))
+    reverse_charge_tax = _money(_("reverse-charge VAT"))
+    wht_expected = _money(_("expected withholding"))
+    total = _money(_("total"))
+    base_total = _money(_("total in base currency"))
+
+    journal_entry = models.OneToOneField(
+        "accounting.JournalEntry", null=True, blank=True, on_delete=models.SET_NULL, related_name="supplier_bill"
+    )
+    created_by = models.ForeignKey("accounts.User", null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    posted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-date", "-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "number"], condition=~models.Q(number=""), name="unique_supplier_bill_number_per_tenant"
+            ),
+            models.UniqueConstraint(
+                fields=["tenant", "supplier", "bill_number"], condition=models.Q(deleted_at__isnull=True),
+                name="unique_supplier_invoice_number_per_supplier",
+            ),
+        ]
+        indexes = [models.Index(fields=["tenant", "legal_entity", "date"]), models.Index(fields=["tenant", "status"])]
+
+    def __str__(self):
+        return self.number or f"{self.supplier_id}/{self.bill_number}"
+
+
+class SupplierBillLine(models.Model):
+    """One line of a supplier bill. The line type decides which fields
+    apply (D12): SERVICE -> description + account; EXPENSE -> account +
+    cost center; ASSET -> asset name + category (the account is always
+    FIXED_ASSETS, R-8.7). STOCK is 8.5.
+
+    VAT: `tax_code` per line, and `vat_deductible`. The VAT is
+    non-deductible when either says so (the switch off, or a code whose
+    own `deductible` is NONE, like the seeded SN) and is then folded into
+    the line's cost (R-8.6). A REVERSE_CHARGE code self-assesses: output
+    and input at the same amount, nothing owed to the supplier for it.
+
+    Computed by recalculate_bill, never accepted from a client: net,
+    tax_amount, capitalized_tax, cost (what the debit line carries),
+    payable (what the supplier is owed for this line), wht_base/wht_amount.
+    `asset` is set at posting for an ASSET line."""
+
+    class LineType(models.TextChoices):
+        SERVICE = "service", _("Service")
+        EXPENSE = "expense", _("Expense")
+        ASSET = "asset", _("Fixed asset")
+
+    bill = models.ForeignKey(SupplierBill, on_delete=models.CASCADE, related_name="lines")
+    line_no = models.PositiveIntegerField()
+    line_type = models.CharField(_("line type"), max_length=10, choices=LineType.choices)
+    description = models.CharField(_("description"), max_length=255, blank=True)
+    account = models.ForeignKey("accounting.Account", null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    cost_center = models.ForeignKey(
+        "organization.CostCenter", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    qty = models.DecimalField(
+        _("quantity"), max_digits=QUANTITY_MAX_DIGITS, decimal_places=QUANTITY_DECIMAL_PLACES, default=Decimal("1")
+    )
+    unit_price = models.DecimalField(_("unit price"), max_digits=PRICE_MAX_DIGITS, decimal_places=PRICE_DECIMAL_PLACES)
+    tax_code = models.ForeignKey("accounting.TaxCode", on_delete=models.PROTECT, related_name="+")
+    vat_deductible = models.BooleanField(_("VAT deductible"), default=True)
+    wht_code = models.ForeignKey(WithholdingTaxCode, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    asset_name = models.CharField(_("asset name"), max_length=255, blank=True)
+    asset_category = models.CharField(_("asset category"), max_length=20, blank=True)
+    asset = models.OneToOneField(
+        "assets.Asset", null=True, blank=True, on_delete=models.PROTECT, related_name="source_bill_line"
+    )
+
+    net = _money(_("net"))
+    tax_amount = _money(_("VAT"))
+    capitalized_tax = _money(_("capitalized VAT"))
+    cost = _money(_("cost"))
+    payable = _money(_("payable"))
+    wht_base = _money(_("withholding base"))
+    wht_amount = _money(_("expected withholding"))
+
+    class Meta:
+        ordering = ["line_no"]
+
+    def __str__(self):
+        return f"{self.bill_id}#{self.line_no}"

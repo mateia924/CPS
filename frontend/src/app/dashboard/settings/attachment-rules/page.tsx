@@ -11,6 +11,7 @@ import type { AttachmentCategory, AttachmentRule, AttachmentRuleDocType } from "
 
 const DOC_TYPES: AttachmentRuleDocType[] = [
   "invoice", "journal_entry", "voucher_payment", "voucher_receipt", "voucher_settlement", "opening_balance",
+  "supplier_bill",
 ];
 const DOC_TYPE_LABEL: Record<AttachmentRuleDocType, string> = {
   invoice: "invoiceDocType",
@@ -19,6 +20,7 @@ const DOC_TYPE_LABEL: Record<AttachmentRuleDocType, string> = {
   voucher_receipt: "voucherReceiptDocType",
   voucher_settlement: "voucherSettlementDocType",
   opening_balance: "openingBalanceDocType",
+  supplier_bill: "supplierBillDocType",
 };
 const CATEGORIES = Object.keys(CATEGORY_LABEL_KEY) as AttachmentCategory[];
 

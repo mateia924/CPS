@@ -278,6 +278,12 @@ def _first_schedule_period(tenant, in_service_date):
 
 
 @transaction.atomic
+def _created_from_supplier_bill(asset):
+    from apps.purchasing.models import SupplierBillLine
+
+    return SupplierBillLine.objects.filter(asset=asset).exists()
+
+
 def start_depreciation(asset, user, request=None):
     """Decisions 3, 4, 5 (straight-line only — DECLINING_BALANCE is
     6.5.2), 9, 11, 14. Returns (entry, warnings)."""
@@ -285,6 +291,15 @@ def start_depreciation(asset, user, request=None):
         raise DepreciationAlreadyActive(str(_("للأصل جدول إهلاك نشط بالفعل.")))
     if not asset.is_depreciable:
         raise ValidationError(str(_("هذا الأصل لا يُهلك.")))
+    # Sprint 8.1 (R-8.7 as built): an asset created from a supplier bill
+    # starts with no in-service date — the bill date is when it was
+    # bought, not when it went into use. Its depreciation is refused until
+    # someone sets that date on the asset's screen; never defaulted here.
+    # Assets entered by hand keep 6.5's fallback to purchase_date.
+    if asset.in_service_date is None and _created_from_supplier_bill(asset):
+        raise ValidationError(
+            str(_("الأصل أُنشئ من فاتورة مورد ولم يُحدَّد تاريخ بدء الخدمة — حدِّده في شاشة الأصل قبل بدء الإهلاك."))
+        )
     if not asset.useful_life_months:
         raise ValidationError(str(_("العمر الإنتاجي مطلوب لبدء الإهلاك.")))
     is_declining = asset.depreciation_method == Asset.DepreciationMethod.DECLINING_BALANCE

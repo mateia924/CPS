@@ -165,6 +165,29 @@ def list_pending_approvals(user, return_blocked=False):
                 }
             )
 
+    # Sprint 8.1: supplier bills — doc_type "supplier_bill", amount
+    # base_total (what apps.purchasing.bills.submit_supplier_bill matched
+    # the rule against).
+    from apps.purchasing.models import SupplierBill
+
+    for bill in SupplierBill.objects.filter(
+        tenant=tenant, status="pending_approval", deleted_at__isnull=True
+    ).select_related("supplier"):
+        rule = get_matching_rule(tenant, "supplier_bill", bill.base_total)
+        if _eligible(rule):
+            results.append(
+                {
+                    "doc_type": "supplier_bill",
+                    "id": str(bill.id),
+                    "number": bill.number,
+                    "date": bill.date,
+                    "description": f"{bill.supplier.name} — {bill.bill_number}",
+                    "amount_base": str(bill.base_total),
+                    "created_by": str(bill.created_by_id) if bill.created_by_id else None,
+                    "can_approve": exempted or bill.created_by_id != user.id,
+                }
+            )
+
     # Sprint 5.5 (block 5.5.0): IBAN change requests join the same
     # inbox — always min_amount=0, so any PENDING_APPROVAL row's
     # matching rule is the fixed one (required_role=Owner).

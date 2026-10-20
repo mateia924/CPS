@@ -135,6 +135,8 @@ class AssetSerializer(serializers.ModelSerializer):
     # the superseded ones for an asset an addition/partial disposal
     # has since rescheduled.
     historical_installments = serializers.SerializerMethodField()
+    # Sprint 8.1: the supplier bill an ASSET line created this asset from.
+    source_bill = serializers.SerializerMethodField()
 
     class Meta:
         model = Asset
@@ -156,10 +158,12 @@ class AssetSerializer(serializers.ModelSerializer):
             "disposals",
             # Sprint 6.5.5 (decision 8): transfer history.
             "transfers",
+            "source_bill",
         )
         read_only_fields = (
             "id", "created_at", "cost_base", "salvage_base", "disposed_fraction", "depreciation_entry", "additions",
             "accumulated_depreciation", "book_value", "historical_installments", "disposals", "transfers",
+            "source_bill",
         )
 
     def get_book_value(self, asset):
@@ -186,7 +190,31 @@ class AssetSerializer(serializers.ModelSerializer):
         ]
         return HistoricalInstallmentSerializer(rows, many=True).data
 
+    def get_source_bill(self, asset):
+        line = getattr(asset, "source_bill_line", None)
+        if line is None:
+            return None
+        return {"id": str(line.bill_id), "number": line.bill.number}
+
+    # Sprint 8.1: an asset created from a supplier bill carries the bill's
+    # money: FIXED_ASSETS was debited by exactly that cost, on that date, in
+    # that entity and currency. Editing them here would part the register
+    # from the ledger; a correction goes through reversing the bill.
+    _BILL_LOCKED_FIELDS = ("purchase_cost", "purchase_date", "purchase_reference", "currency", "legal_entity")
+
     def validate(self, attrs):
+        if self.instance is not None and getattr(self.instance, "source_bill_line", None) is not None:
+            changed = [
+                name for name in self._BILL_LOCKED_FIELDS
+                if name in attrs and attrs[name] != getattr(self.instance, name)
+            ]
+            if changed:
+                raise serializers.ValidationError(
+                    {
+                        name: [_("هذا الأصل أُنشئ من فاتورة مورد — يُصحَّح من الفاتورة (بعكسها) لا من هنا.")]
+                        for name in changed
+                    }
+                )
         # Sprint 6.5 (decision text under 6.5.0): "salvage_value <
         # purchase_cost، useful_life_months ≥ 1، declining_balance_rate
         # إلزامي فقط مع المتناقص وضمن (0، 100)" — a PATCH may omit any

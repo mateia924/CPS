@@ -146,9 +146,14 @@ set -e
 TESTS_PID=""
 OUTPUT="$(cat "$OUTPUT_FILE")"
 echo "$OUTPUT" | grep -E '^(FAILED|ERROR)|✘|passed|failed|REFUSED|Error response' || true
-# A browser failure's own detail (which locator, expected vs received,
-# the spec line) is the proof worth reading; pytest's -q line names it.
-[ "$CONTAINER" != "--e2e" ] || echo "$OUTPUT" | grep -E '^ +(Error:|Locator:|Expected|Received|> [0-9]+ \|)' || true
+# A failure's own detail is the proof worth reading: a browser failure's
+# locator, expected vs received and spec line;
+# pytest's own assertion lines ("E   ...") likewise, at most 12.
+if [ "$CONTAINER" = "--e2e" ]; then
+  echo "$OUTPUT" | grep -E '^ +(Error:|Locator:|Expected|Received|> [0-9]+ \|)' || true
+else
+  echo "$OUTPUT" | grep -E '^E   ' | head -12 || true
+fi
 
 if [ "$PYTEST_RC" -eq 0 ]; then
   echo "[prove_guard] NOT PROVEN: every test passed with the guard disabled." >&2

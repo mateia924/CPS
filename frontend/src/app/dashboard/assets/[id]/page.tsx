@@ -99,7 +99,10 @@ export default function AssetDetailPage() {
   const load = async () => {
     const loadedAsset = await api.get<Asset>(`/assets/${id}/`);
     setAsset(loadedAsset);
-    setInServiceDate(loadedAsset.in_service_date || loadedAsset.purchase_date);
+    // Sprint 8.1: an asset from a supplier bill gets no default — the bill
+    // date is when it was bought, not when it went into use, and the
+    // server refuses to start depreciation until someone sets it.
+    setInServiceDate(loadedAsset.in_service_date || (loadedAsset.source_bill ? "" : loadedAsset.purchase_date));
     setMethod(loadedAsset.depreciation_method);
     setDecliningRate(loadedAsset.declining_balance_rate || "");
     setOpeningAccum(loadedAsset.opening_accumulated_depreciation);
@@ -172,7 +175,7 @@ export default function AssetDetailPage() {
     setFieldErr({});
     try {
       await api.patch(`/assets/${id}/`, {
-        in_service_date: inServiceDate,
+        ...(inServiceDate ? { in_service_date: inServiceDate } : {}),
         depreciation_method: method,
         declining_balance_rate: method === "declining_balance" ? decliningRate : null,
         opening_accumulated_depreciation: openingAccum,
@@ -330,6 +333,18 @@ export default function AssetDetailPage() {
       <div className="card">
         <p>{t("category")}: {t(asset.category)}</p>
         <p>{t("purchaseDate")}: {formatDate(asset.purchase_date, "form")}</p>
+        {asset.source_bill && (
+          <p data-testid="asset-source-bill">
+            {t("assetFromBill")}:{" "}
+            <Link href={`/dashboard/purchasing/bills/${asset.source_bill.id}`}>{asset.source_bill.number}</Link>
+          </p>
+        )}
+        <p>
+          {t("inServiceDate")}:{" "}
+          {asset.in_service_date ? formatDate(asset.in_service_date, "form") : (
+            <span style={{ color: "var(--warning)", fontWeight: 600 }}>{t("assetNotInService")}</span>
+          )}
+        </p>
         <p>{t("purchaseCost")}: <Money amount={asset.purchase_cost} currency={asset.currency} /></p>
         <p>{t("usefulLifeMonths")}: {asset.useful_life_months ?? "—"}</p>
         <p>{t("salvageValue")}: <Money amount={asset.salvage_value} currency={asset.currency} /></p>
@@ -552,7 +567,11 @@ export default function AssetDetailPage() {
               <Link href="/dashboard/assets">{t("edit")}</Link>
             </p>
             <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-              <FormField name="in_service_date" error={fieldErr.in_service_date}>
+              <FormField
+                name="in_service_date"
+                error={fieldErr.in_service_date}
+                hint={asset.source_bill && !asset.in_service_date ? t("assetInServiceRequired") : undefined}
+              >
                 <input type="date" value={inServiceDate} onChange={(e) => setInServiceDate(e.target.value)} />
               </FormField>
               <FormField name="depreciation_method" error={fieldErr.depreciation_method}>

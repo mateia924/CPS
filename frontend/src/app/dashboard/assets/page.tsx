@@ -9,6 +9,7 @@ import { DataTable } from "@/components/DataTable";
 import { AttachmentPanel } from "@/components/AttachmentPanel";
 import { FormField } from "@/components/FormField";
 import { WarningsBanner } from "@/components/WarningsBanner";
+import { formatDate } from "@/lib/date";
 import type { Asset, AssetCategory, CostCenter, LegalEntity, Paginated, Party } from "@/lib/types";
 
 const CATEGORIES: AssetCategory[] = ["vehicle", "equipment", "building", "furniture", "it", "other"];
@@ -305,6 +306,21 @@ export default function AssetsPage() {
           { key: "name", label: t("name"), sortable: true },
           { key: "category", label: t("category"), render: (row) => t(CATEGORY_LABEL_KEY[row.category]) },
           { key: "status", label: t("assetStatus"), render: (row) => t(row.status === "under_maintenance" ? "underMaintenance" : row.status === "disposed" ? "disposed" : "active") },
+          {
+            // Sprint 8.1: an asset with no in-service date has not started
+            // its life on the books — said in the list, not left for the
+            // user to notice an empty depreciation schedule.
+            key: "in_service_date",
+            label: t("inServiceDate"),
+            render: (row) =>
+              row.in_service_date ? (
+                formatDate(row.in_service_date, "form")
+              ) : (
+                <span data-testid="asset-not-in-service" style={{ color: "var(--warning)", fontWeight: 600 }}>
+                  {t("assetNotInService")}
+                </span>
+              ),
+          },
           {
             key: "disposed_fraction",
             label: "",
