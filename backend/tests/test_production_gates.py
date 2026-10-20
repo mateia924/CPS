@@ -13,6 +13,7 @@ tests/test_deploy_sh_guards.py; scripts/ci_local.sh asserts they PASS
 there, so the skip can never quietly become "never runs anywhere".
 """
 
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -320,7 +321,18 @@ def _secrets_dir(tmp_path, repo, content=None, mode=0o600):
     gates = repo / "scripts" / "production_gates.sh"
     text = gates.read_text(encoding="utf-8")
     assert "/etc/cps-secrets" in text
-    gates.write_text(text.replace("/etc/cps-secrets", str(secrets)), encoding="utf-8")
+    text = text.replace("/etc/cps-secrets", str(secrets))
+    # 2026-10-20 (CI coverage): GitHub's runner is uid 1001, so a file this
+    # test creates can never be root-owned, and the preflight's "owner is
+    # uid 0" check refused every one (4 failures the first time CI ran this
+    # file at all). As with the path above, only this test's copy changes:
+    # the expected owner becomes the uid running the test. The real script
+    # keeps requiring root; as root (the dev container) nothing is rewritten.
+    if os.getuid() != 0:
+        owner_check = '[ "$owner" != "0" ]'
+        assert text.count(owner_check) == 1, "the preflight's owner check moved; update this test"
+        text = text.replace(owner_check, f'[ "$owner" != "{os.getuid()}" ]')
+    gates.write_text(text, encoding="utf-8")
     return secrets
 
 
