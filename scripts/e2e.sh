@@ -71,8 +71,11 @@ docker run --rm --network host \
   sh -c "npm install --no-audit --no-fund && cd e2e && npx playwright test 01-setup-and-schedule.spec.ts --reporter=list"
 
 echo "[e2e] seeding a second (Accountant) user for the emergency-approval scenario"
-docker exec cps-dev-backend-1 python manage.py create_test_user \
-  --subdomain "$SUBDOMAIN" --email "accountant@$SUBDOMAIN.test" --password "SmokeE2E!2026" --role Accountant
+# Rule 50: the password goes through the environment, never on the
+# command line; nothing logs in as this user, so it is random per run.
+export E2E_TEST_USER_PASSWORD="Ac1!$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')"
+docker exec -e E2E_TEST_USER_PASSWORD cps-dev-backend-1 python manage.py create_test_user \
+  --subdomain "$SUBDOMAIN" --email "accountant@$SUBDOMAIN.test" --role Accountant
 
 echo "[e2e] phase 2: emergency-approval prompt, generate due now"
 docker run --rm --network host \

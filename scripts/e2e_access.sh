@@ -55,11 +55,9 @@ t.features.purchasing = True
 t.features.save(update_fields=['purchasing'])
 print('[e2e-access] purchasing module on')
 "
-docker exec -e E2E_VIEWER_PASSWORD cps-dev-backend-1 python manage.py shell -c "
-import os
-from django.core.management import call_command
-call_command('create_test_user', subdomain='$SUBDOMAIN', email='$VIEWER_EMAIL', password=os.environ['E2E_VIEWER_PASSWORD'], role='Viewer')
-"
+export E2E_TEST_USER_PASSWORD="$E2E_VIEWER_PASSWORD"
+docker exec -e E2E_TEST_USER_PASSWORD cps-dev-backend-1 python manage.py create_test_user \
+  --subdomain "$SUBDOMAIN" --email "$VIEWER_EMAIL" --role Viewer
 docker exec cps-dev-backend-1 python manage.py shell -c "
 from apps.accounts.models import User
 u = User.objects.get(email='$VIEWER_EMAIL')

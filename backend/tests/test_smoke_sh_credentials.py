@@ -93,7 +93,6 @@ SECRET_ON_ARGV = re.compile(
 KNOWN_OPEN_SECRET_ON_ARGV = {
     ("ci_local.sh", "-e POSTGRES_PASSWORD=postgres"),
     ("ci_local.sh", '-e DJANGO_SECRET_KEY="$DJANGO_SECRET_KEY"'),
-    ("e2e.sh", '--password "SmokeE2E!2026"'),
 }
 
 
