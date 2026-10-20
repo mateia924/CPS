@@ -269,6 +269,32 @@ ls -l /etc/cps-secrets/smoke_password     # يجب أن يظهر -rw------- root
   a locked-out user needs the owner (see the live password-change paths report,
   `docs/reports/2026-10-19-live-password-change-paths.md`).
 
+## Decision: branch protection on main — no required status checks, 2026-10-20
+
+**Owner's decision, 2026-10-20.** On `main`:
+
+- **Block force pushes** and **Restrict deletions** are on, with bypassing disallowed.
+- **"Require status checks to pass" is NOT enabled.**
+
+**Reason, verified against GitHub's documentation**
+(docs/reports/2026-10-20-ci-parity-and-protection.md §2):
+
+- With required checks, a push whose commit has not passed them is refused with `GH006: Protected branch
+  update failed`.
+- This server pushes with a **deploy key**. GitHub's SSH greeting names the repository, not a user. Our
+  checks run only *after* a push (`on: push`), so every commit pushed from here would be refused.
+- The owner's own pushes, as repository admin, are exempt by default.
+- Required checks would therefore bind the automation and free the human: the reverse of what a gate is
+  for.
+
+CI still turns a bad push red: the Gate step and `scripts/check_ci_collection.sh` (docs/reports/2026-10-20-ci-coverage.md).
+A red run marks the commit; it does not block it.
+
+Re-open only with an answer to the deploy-key problem. Two ways would work:
+
+- push to a branch and fast-forward `main` to a SHA that already passed;
+- give the automation its own non-admin identity, with the owner bound by "Do not allow bypassing".
+
 ## `make ci-local` — البوابة الحقيقية طوال ثمانية أيام (سبرنت 7.0)
 
 ثبت أن CI (`.github/workflows/ci.yml`) **لم تنجح ولا مرة واحدة منذ
