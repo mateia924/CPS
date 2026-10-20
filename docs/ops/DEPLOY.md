@@ -230,7 +230,41 @@ ls -l /etc/cps-secrets/smoke_password     # يجب أن يظهر -rw------- root
   - a deploy gate that runs it, or refuses without it.
 - **Update, 2026-10-20 (block 8.2.1):** live storage was verified end to end through the UI on smoke-storage-1792522563. Upload, the object in infra-minio-1, and the read-back through the signed link all showed the same sha256. Live ClamAV returned a clean verdict on that file. EICAR detection on live is not yet tested; the owner decides first (consequences in docs/reports/2026-10-20-tax-print-live-storage.md).
 
-**Open, 2026-10-20: the attachments bucket is in no backup.** `scripts/backup.sh` (the comment at "Sprint 5.1 adds the MinIO attachments bucket here") never copies `cps-attachments`. Once 8.1's mandatory attachments are live, every supporting document exists only on live's MinIO volume. Not built.
+**Closed, 2026-10-20 (Block A): the attachments bucket is now backed up.** Every backup.sh run stores each referenced object (voided ones included), per object and encrypted, with a paired manifest. restore_test.sh downloads every attachment byte-identical through the app after restoring into throwaway targets; on live that was 4 of 4 at 23:14 and again at 23:41. See BACKUP.md, "Attachments and restore identity". **Still open: every copy is on this one host** (next item).
+
+**Open, 2026-10-20: no copy of any data leaves this host.** The live database, live MinIO, /opt/cps-backups and the "interim" backup bucket are all on one filesystem, so losing the host loses all of it. Off-host storage is the next block. Default target: an in-Kingdom region, OCI Jeddah or Riyadh (owner, 2026-10-20). A nightly encrypted upload is not latency-sensitive, so a foreign region buys nothing and raises a cross-border question.
+
+**Open, 2026-10-20, for the owner's regulatory adviser, not for engineering: THE PRIMARY HOST IS NOT IN THE KINGDOM.**
+- This server is not an OCI instance: the instance metadata service does not answer.
+- Round-trip times put it near Frankfurt: about 0.07 s to OCI Frankfurt, against 0.32 s to Jeddah and 0.41 s to Riyadh.
+- So Saudi tenants' financial and personal data, ZATCA documents included, are processed and stored outside the Kingdom today.
+- Whether that is acceptable is a question for whoever advises the owner on Saudi regulation. It is written down here so a customer's auditor does not discover it first. No action taken.
+
+**Open, 2026-10-20: two smoke tenants left on live.**
+- `smoke-storage-1792522506`: unreachable, because its owner password existed only in one shell's environment.
+- `smoke-storage-1792522563`.
+- Each holds one bank and one clean attachment, from the live storage verification.
+- Archiving them needs `manage.py archive_smoke_tenants` on live: an owner decision.
+- The 2026-10-20 restore test uses their attachments as its canary rows, so archiving (a status change, nothing deleted) does not remove that.
+
+**Open, 2026-10-20: the rule-50 guard's blind spot.**
+- `backend/tests/test_smoke_sh_credentials.py` SECRET_ON_ARGV matches only:
+  `--passphrase(?!-file)[ =]|--password[ =]|-e [A-Z_]*(PASSWORD|PASSPHRASE|SECRET|TOKEN|API_KEY|ACCESS_KEY)[A-Z_]*=|-d ".*\$[A-Z_]*(PASSWORD|SECRET|TOKEN)|Authorization: Bearer \$`
+- It scans only `scripts/*.sh`. It cannot see:
+  1. `-e NAME=<value>` (or `--env NAME=<value>`) where NAME contains none of those words but the value carries a secret, e.g. `-e DATABASE_URL="postgres://user:${POSTGRES_PASSWORD}@…"`;
+  2. any URL with inline credentials (`scheme://user:secret@host`) on a command line;
+  3. anything outside `scripts/*.sh`: docs, the Makefile, workflows, Python subprocess calls.
+- A whole-repo search on 2026-10-20 found:
+  - `scripts/restore_test.sh:147` and `:181`, `-e DATABASE_URL="$TEST_DATABASE_URL"`: live's DB password on live's monthly cron path. **Fixed** (passed by name). Sampled `ps` during a run: 35 of 200 samples carried it before, 0 of 193 after.
+  - `docs/ops/BACKUP.md:44`, `gpg --passphrase "$CPS_BACKUP_ENCRYPTION_PASSPHRASE"` in the operator instructions. **Fixed** to `--passphrase-file <(printf …)`.
+  - `scripts/ci_local.sh:91`, `-e DATABASE_URL=postgres://postgres:postgres@localhost…`: a throwaway CI value, the same as the declared `POSTGRES_PASSWORD=postgres` open entry. Not a real secret.
+  - Python subprocess calls, the Makefile and workflow command lines: none.
+- Widening the guard to patterns 1-3 is its own item, not built.
+
+**Incident, 2026-10-20 23:42: live's database password in `ps` for about 20 s, my mistake.**
+- While measuring the fix above, a sampling command ran `grep -F -- "$PW"` about 190 times over about 20 s. That put the value of `.env`'s POSTGRES_PASSWORD, which live uses, in grep's arguments, readable by any local user via `ps`.
+- Nothing else was exposed. The measurement was redone with the pattern read from a file descriptor.
+- Whether to rotate the password is the owner's decision.
 
 **Open, 2026-10-20: the mandatory-attachment rule does not look at the scan.** `apps/approvals/services.py` `_check_mandatory_attachments` accepts any ACTIVE attachment. A file that is `pending`, `infected` or `error` (ClamAV unreachable) satisfies it, so the document posts with a file nobody can download. Not built.
 

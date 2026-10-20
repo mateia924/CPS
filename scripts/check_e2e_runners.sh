@@ -34,7 +34,10 @@ for spec_path in "$ROOT"/frontend/e2e/*.spec.ts; do
   count=$((count + 1))
   runners=""
   for runner in $RUNNERS; do
-    if grep -vE '^\s*#' "$ROOT/$runner" | grep -qF "$spec"; then
+    # One process, no pipe: `grep -v … | grep -q` under pipefail failed ~11%
+    # of runs (grep -q exits at the first match, the upstream grep dies of
+    # SIGPIPE, pipefail makes the pipeline false — block 8.2.1 follow-up).
+    if awk -v s="$spec" '!/^[[:space:]]*#/ && index($0, s) { found = 1 } END { exit !found }' "$ROOT/$runner"; then
       runners="$runners $runner"
     fi
   done

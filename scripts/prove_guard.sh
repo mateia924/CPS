@@ -189,7 +189,10 @@ if [ "$TESTS_RC" -eq 0 ]; then
   echo "[prove_guard] NOT PROVEN: every test passed with the guard disabled." >&2
   exit 1
 fi
-if ! echo "$OUTPUT" | grep -qE '^FAILED |✘'; then
+# Here-strings, not `echo | grep -q`: under pipefail, grep -q exiting at its
+# first match can SIGPIPE the echo and turn a real match into "no match"
+# (found in check_e2e_runners.sh, 2026-10-20: 11% of runs).
+if ! grep -qE '^FAILED |✘' <<< "$OUTPUT"; then
   # Nothing failed BY NAME: the run broke before or around the tests.
   echo "[prove_guard] the test run failed without a named test failure — its last lines:" >&2
   echo "$OUTPUT" | tail -n 25 >&2
@@ -201,7 +204,7 @@ for name in "$@"; do
   else
     pattern="^FAILED .*::${name}( |\[|$)"
   fi
-  if ! echo "$OUTPUT" | grep -qE "$pattern"; then
+  if ! grep -qE "$pattern" <<< "$OUTPUT"; then
     echo "[prove_guard] NOT PROVEN: $name did not fail." >&2
     missing=1
   fi

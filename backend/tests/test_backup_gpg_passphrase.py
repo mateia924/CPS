@@ -61,6 +61,13 @@ def _gpg_line(script):
     return command.split(" 2>/dev/null")[0].rstrip(" \\")
 
 
+def _encrypt_line():
+    """backup.sh's gpg command. Since block A (2026-10-20) it reads the
+    stream pg_dump | gzip sends it and writes $DUMP_PART, so the test feeds
+    the same bytes on stdin."""
+    return _gpg_line("backup.sh") + ' < "$RAW_DUMP_FILE"'
+
+
 def _run(tmp_path, command, *, passphrase=PASSPHRASE, argv_log=None, **files):
     """Runs one gpg command under bash, in a fresh GNUPGHOME. With argv_log,
     a gpg shim first on PATH records the arguments it was given."""
@@ -133,7 +140,7 @@ def test_a_backup_made_by_the_new_backup_line_opens_the_old_way_and_the_new_way(
     new_backup = tmp_path / "new.sql.gz.gpg"
     argv_log = tmp_path / "argv"
     made = _run(
-        tmp_path, _gpg_line("backup.sh"), argv_log=argv_log, DUMP_FILE=new_backup, RAW_DUMP_FILE=raw
+        tmp_path, _encrypt_line(), argv_log=argv_log, DUMP_PART=new_backup, RAW_DUMP_FILE=raw
     )
     assert made.returncode == 0, made.stderr
     assert PASSPHRASE not in argv_log.read_text()
@@ -153,7 +160,7 @@ def test_a_wrong_passphrase_opens_nothing(tmp_path):
     raw = _raw(tmp_path)
     backup = tmp_path / "b.sql.gz.gpg"
     assert (
-        _run(tmp_path, _gpg_line("backup.sh"), DUMP_FILE=backup, RAW_DUMP_FILE=raw).returncode == 0
+        _run(tmp_path, _encrypt_line(), DUMP_PART=backup, RAW_DUMP_FILE=raw).returncode == 0
     )
 
     opened = _run(

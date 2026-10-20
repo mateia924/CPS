@@ -54,3 +54,31 @@ for f in "$BACKUP_DIR"/cps-db-*.sql.gz.gpg; do
     rm -f "$f"
   fi
 done
+
+# Block A (2026-10-20): plaintext and partial dumps. Until today this saw
+# only *.sql.gz.gpg, so a plaintext dump left by a failed or killed run
+# (backup.sh wrote cps-db-<ts>.sql.gz before encrypting it, until today)
+# stayed forever. backup.sh no longer writes plaintext at all; this is the
+# second layer.
+#   - A plaintext cps-db-<ts>.sql.gz newer than encryption itself (81ae340,
+#     2026-10-01 14:15:53) can only be such a leftover: removed.
+#   - Older ones are the 46 dumps from before encryption existed. Unique
+#     points in time; the owner decides their fate (Block A, item B) and
+#     nothing deletes one before its encrypted copy is proven restorable.
+#     Listed on every run, never removed here.
+#   - An encrypted partial (*.sql.gz.gpg.part) older than an hour is what a
+#     SIGKILLed backup.sh leaves: removed. A younger one may belong to a
+#     run still in progress.
+ENCRYPTION_SINCE="20261001-141553"
+for f in "$BACKUP_DIR"/cps-db-*.sql.gz; do
+  [ -e "$f" ] || continue
+  ts="$(basename "$f" .sql.gz | sed -E 's/^cps-db-//')"
+  if [[ "$ts" > "$ENCRYPTION_SINCE" ]]; then
+    echo "[prune] removing a PLAINTEXT dump left by a failed run: $(basename "$f")"
+    rm -f "$f"
+  else
+    echo "[prune] NOTICE: pre-encryption plaintext dump kept for the owner's decision: $(basename "$f")"
+  fi
+done
+find "$BACKUP_DIR" -maxdepth 1 -name 'cps-db-*.sql.gz.gpg.part' -mmin +60 -print -delete \
+  | sed 's#^#[prune] removing a stale encrypted partial: #'

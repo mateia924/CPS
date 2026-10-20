@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Block A (2026-10-20): every file and directory this creates is root-only
+# (dumps were 0644 inside the 0700 directory until today).
+umask 077
 
 # CPS daily backup — sprint 5.0 (docs/CFO_REVIEW_1.md §5, O1: "لا نسخ
 # احتياطي موثّق لـ Postgres إطلاقًا"). Runs from the host (root cron —
@@ -70,12 +73,14 @@ case "$TARGET" in
 esac
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BACKUP_ROOT="/opt/cps-backups"
+# CPS_BACKUP_ROOT exists for tests only (backend/tests/test_backup_attachments.py
+# runs this script against a scratch directory); cron never sets it.
+BACKUP_ROOT="${CPS_BACKUP_ROOT:-/opt/cps-backups}"
 BACKUP_DIR="$BACKUP_ROOT"
 [ "$TARGET" = "live" ] || BACKUP_DIR="$BACKUP_ROOT/$TARGET"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-RAW_DUMP_FILE="$BACKUP_DIR/cps-db-$TIMESTAMP.sql.gz"
-DUMP_FILE="$RAW_DUMP_FILE.gpg"
+DUMP_FILE="$BACKUP_DIR/cps-db-$TIMESTAMP.sql.gz.gpg"
+DUMP_PART="$DUMP_FILE.part"
 BACKUP_REASON="${1:-}"
 OPS_LOG="$REPO_DIR/docs/ops/backups.log"
 
@@ -118,7 +123,27 @@ esac
 DB_IDENTITY="postgres/$POSTGRES_DB#$DB_SYSTEM_ID"
 echo "[$(date -Iseconds)] Target: $TARGET ($DB_IDENTITY)"
 
-echo "[$(date -Iseconds)] Starting backup -> $RAW_DUMP_FILE"
+if [ -z "$PASSPHRASE" ]; then
+  echo "[$(date -Iseconds)] ERROR: CPS_BACKUP_ENCRYPTION_PASSPHRASE is not set in .env — refusing to take a backup that would sit on disk unencrypted. Generate one with: openssl rand -base64 48" >&2
+  exit 1
+fi
+
+# Block A (2026-10-20): the dump is streamed pg_dump | gzip | gpg, so the
+# plaintext never touches the disk. Until today it was written to
+# cps-db-<ts>.sql.gz first and encrypted afterwards: a gpg failure, or the
+# run killed in between, left a full plaintext dump of every tenant behind
+# (set -e exits before the rm), and prune_backups.sh, matching only .gpg,
+# would never have removed it. Now the only thing a dying run can leave is
+# the ENCRYPTED partial $DUMP_PART — removed by the EXIT trap on any exit
+# bash survives to run it (errors, INT/TERM/HUP routed through it), and by
+# prune_backups.sh after a SIGKILL. backend/tests/test_backup_plaintext.py
+# kills a run mid-dump and checks no plaintext survives.
+trap 'command rm -f "$DUMP_PART"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+echo "[$(date -Iseconds)] Starting backup -> $DUMP_FILE (pg_dump | gzip | gpg: never on disk in plaintext)"
 # Sprint 6.6.0 (found while validating scripts/staging_refresh.sh): a
 # plain pg_dump embeds `OWNER TO $POSTGRES_USER` / GRANT statements
 # tied to THIS role's exact name — restoring onto a target whose own
@@ -129,21 +154,6 @@ echo "[$(date -Iseconds)] Starting backup -> $RAW_DUMP_FILE"
 # owner instead, which is exactly what every restore here actually
 # wants (this same fix is what scripts/restore_test.sh in 6.6.4 relies
 # on too).
-$COMPOSE exec -T postgres pg_dump --no-owner --no-privileges -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip > "$RAW_DUMP_FILE"
-
-if [ ! -s "$RAW_DUMP_FILE" ]; then
-  echo "[$(date -Iseconds)] ERROR: backup file is empty — deleting and failing loudly." >&2
-  rm -f "$RAW_DUMP_FILE"
-  exit 1
-fi
-echo "[$(date -Iseconds)] Backup OK: $(du -h "$RAW_DUMP_FILE" | cut -f1)"
-
-if [ -z "$PASSPHRASE" ]; then
-  echo "[$(date -Iseconds)] ERROR: CPS_BACKUP_ENCRYPTION_PASSPHRASE is not set in .env — refusing to leave an unencrypted dump on disk. Generate one with: openssl rand -base64 48" >&2
-  rm -f "$RAW_DUMP_FILE"
-  exit 1
-fi
-echo "[$(date -Iseconds)] Encrypting -> $DUMP_FILE"
 # Rule 50 (Pre-deploy 4): the passphrase reaches gpg through a file
 # descriptor, never argv — `ps` shows every process's arguments to every
 # user on the host. Safe ONLY because `printf` is a bash BUILTIN: the
@@ -154,9 +164,16 @@ echo "[$(date -Iseconds)] Encrypting -> $DUMP_FILE"
 # LINE, the whole of it (spaces included) — the same bytes `--passphrase`
 # used for any single-line .env value, so backups made either way open
 # either way (tests/test_backup_gpg_passphrase.py proves both directions).
-gpg --batch --yes --passphrase-file <(printf '%s' "$PASSPHRASE") --symmetric --cipher-algo AES256 -o "$DUMP_FILE" "$RAW_DUMP_FILE"
-rm -f "$RAW_DUMP_FILE"
-echo "[$(date -Iseconds)] Encrypted OK: $(du -h "$DUMP_FILE" | cut -f1)"
+$COMPOSE exec -T postgres pg_dump --no-owner --no-privileges -U "$POSTGRES_USER" "$POSTGRES_DB" | gzip \
+  | gpg --batch --yes --passphrase-file <(printf '%s' "$PASSPHRASE") --symmetric --cipher-algo AES256 -o "$DUMP_PART"
+
+# An empty dump is a failure: check the content through the ciphertext.
+if [ "$(gpg --quiet --batch --passphrase-file <(printf '%s' "$PASSPHRASE") --decrypt "$DUMP_PART" 2>/dev/null | gunzip -c | head -c 1024 | wc -c)" -eq 0 ]; then
+  echo "[$(date -Iseconds)] ERROR: the dump is empty — failing loudly (the encrypted partial is removed)." >&2
+  exit 1
+fi
+mv "$DUMP_PART" "$DUMP_FILE"
+echo "[$(date -Iseconds)] Backup OK, encrypted: $(du -h "$DUMP_FILE" | cut -f1)"
 
 GIT_HASH="$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")"
 mkdir -p "$(dirname "$OPS_LOG")"
@@ -165,16 +182,32 @@ LOGGED_FILE="$(basename "$DUMP_FILE")"
 printf '%s\t%s\t%s\t%s\tdb=%s\n' "$(date -Iseconds)" "$GIT_HASH" "$LOGGED_FILE" "$BACKUP_REASON" "$DB_IDENTITY" >> "$OPS_LOG"
 echo "[$(date -Iseconds)] Logged to $OPS_LOG"
 
+# Block A (2026-10-20): the attachments bucket, per object, encrypted —
+# scripts/backup_attachments.sh. It runs only here, after the database dump
+# is encrypted, logged and pruned, and ONLY inside `if !`: a condition is
+# exempt from `set -e`, so whatever it does — MinIO unreachable, wrong
+# credentials, a missing object, a hang cut short by `timeout` — this
+# script's exit code and the database's backups.log line above stay
+# exactly what they would have been without it. The attachment step writes
+# its own backups.log line, FAILED included. Never call it bare.
+backup_attachments() {
+  local logged_prefix=""
+  [ "$TARGET" = "live" ] || logged_prefix="$TARGET/"
+  if ! CPS_ATT_STORE="$BACKUP_DIR/attachments" CPS_ATT_TIMESTAMP="$TIMESTAMP" \
+       CPS_ATT_PAIRS="$(basename "$DUMP_FILE")" CPS_ATT_REASON="$BACKUP_REASON" CPS_ATT_GIT="$GIT_HASH" \
+       CPS_ATT_OPS_LOG="$OPS_LOG" CPS_ATT_LOGGED_PREFIX="$logged_prefix" COMPOSE="$COMPOSE" PASSPHRASE="$PASSPHRASE" \
+       timeout "${CPS_ATT_TIMEOUT:-1800}" "$REPO_DIR/scripts/backup_attachments.sh"; then
+    echo "[$(date -Iseconds)] WARNING: the attachment backup did not complete — the database backup above is unaffected and logged. See the attachments line in $OPS_LOG." >&2
+  fi
+}
+
 if [ "$TARGET" != "live" ]; then
   echo "[$(date -Iseconds)] $TARGET dump: local copy only, never uploaded off-server."
   "$REPO_DIR/scripts/prune_backups.sh" "$BACKUP_DIR"
+  backup_attachments
   echo "[$(date -Iseconds)] Done."
   exit 0
 fi
-
-# Sprint 5.1 adds the MinIO attachments bucket here (mc mirror into
-# $BACKUP_DIR/attachments/) once the Attachment model/storage exists —
-# not yet, so there is nothing to sync today.
 
 # Sprint 6.6.4 "Option 1" (sprint-6.6.md v1.1 §6.1): OCI Object
 # Storage (M3, docs/prompts/sprint-6.6.md §4 — owner-provided, unset
@@ -252,4 +285,5 @@ fi
 echo "[$(date -Iseconds)] Pruning: every backup from the last 30 days, plus one per calendar month for the 12 months before that"
 "$REPO_DIR/scripts/prune_backups.sh" "$BACKUP_DIR"
 
+backup_attachments
 echo "[$(date -Iseconds)] Done."

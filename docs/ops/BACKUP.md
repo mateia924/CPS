@@ -41,9 +41,13 @@ openssl rand -base64 48
 
 فك تعمية ملف يدويًا (مثلًا لفحصه، أو لاستعادة طارئة بلا سكربت):
 ```
-gpg --batch --yes --passphrase "$CPS_BACKUP_ENCRYPTION_PASSPHRASE" \
+gpg --batch --yes --passphrase-file <(printf '%s' "$CPS_BACKUP_ENCRYPTION_PASSPHRASE") \
   --decrypt cps-db-20261001-030000.sql.gz.gpg | gunzip -c > restored.sql
 ```
+(Rule 50, corrected 2026-10-20: this line used to read `--passphrase "$CPS_BACKUP_ENCRYPTION_PASSPHRASE"`,
+which puts the passphrase in `ps` for every user on the host while gpg runs. `printf` is a bash builtin, so
+`<(printf …)` hands it over without any process carrying it as an argument. Never replace it with `echo`
+from /bin or any external command.)
 
 ## الرفع السحابي — المتغيرات (M3، بيانات المالك)
 
@@ -81,6 +85,51 @@ deploy.sh` يعتمد على نجاح `backup.sh` قبل كل migration، ونس
 
 التاريخ يُستخرج من **اسم الملف نفسه** (`cps-db-YYYYMMDD-HHMMSS...`) لا
 من `mtime` — نسخ/استعادة الملف لا يُفسِد حساب السياسة.
+
+## Attachments and restore identity (Block A, 2026-10-20)
+
+**Attachments are backed up.** From 2026-10-20 every `backup.sh` run, nightly or manual, ends with
+`scripts/backup_attachments.sh`:
+
+- Every row of `attachments_attachment` is covered, voided and superseded included (no WHERE clause).
+- Each object not yet stored is copied from MinIO into `<backup dir>/attachments/objects/<key>.gpg`.
+  It is gpg AES256-encrypted with the dumps' passphrase, decrypted back, and checked against the row's
+  sha256 before it is kept.
+- A stored copy is never replaced.
+- One encrypted manifest per run goes to `attachments/manifests/attachments-<ts>.manifest.gpg`. It is
+  paired with that run's dump, and its header records the source `minio=minio/<bucket>#<deploymentID>`.
+- One `backups.log` line per run, FAILED included.
+- The step runs inside `if ! timeout …`, after the dump is written and logged. Whatever it does,
+  the database backup and backup.sh's exit code are unaffected
+  (`backend/tests/test_backup_attachments.py`).
+
+**No plaintext dump touches the disk.** `pg_dump | gzip | gpg` streams into `cps-db-<ts>.sql.gz.gpg.part`,
+which is renamed when complete.
+
+- An EXIT trap removes the partial.
+- `prune_backups.sh` removes partials older than an hour, and any plaintext `cps-db-*.sql.gz` newer than
+  2026-10-01 14:15:53 (when encryption arrived).
+- The 46 pre-encryption plaintext dumps are kept and listed on every run until the owner decides.
+- Everything is created owner-only (umask 077). Existing backups were set to 0600/0700 on 2026-10-20.
+
+**Restore checks where a backup came from.** `scripts/restore.sh --from live|staging|dev <dump> [target-db]
+[--attachments <manifest> --attachments-into <minio-container>]` refuses, by name and before writing
+anything, in four cases:
+
+- the dump's recorded `db=` identity (backups.log) is not the named environment's current
+  `system_identifier`;
+- the manifest's `minio=` is not that environment's MinIO `deploymentID`;
+- the manifest's `pairs=` is not the dump being restored;
+- the target is live's own database and `--from` is not `live`.
+
+Dumps with no recorded `db=` (everything before 2026-10-17) are refused. After host loss there is no
+running source to compare with, so a disaster-recovery path that names the recorded identity explicitly
+is still open (the off-host block).
+
+**The restore test needs the bytes back.** `restore_test.sh [--target live|dev|staging]` also restores the
+paired manifest into a throwaway MinIO. A throwaway backend, pointed only at the restored database and
+that MinIO, downloads every attachment through the app's signed-link view and compares each body with the
+row's sha256. A missing manifest, a missing object or a mismatch is FAIL, with the row named.
 
 ## اختبار الاستعادة الآلي (`scripts/restore_test.sh`)
 
@@ -154,6 +203,10 @@ restore_test.sh`) — **لا Celery beat**: عامل Celery يعمل داخل ح
 4. فكّ التعمية + استعادة (نفس نمط `scripts/staging_refresh.sh` خطوة 4،
    أو `scripts/restore_test.sh` كمرجع — كلاهما بـ`gpg --decrypt |
    gunzip -c | psql`).
+   **Attachments (2026-10-20):** copy `attachments/` (objects plus manifests) together with the dump, then
+   restore the manifest paired with that dump into the new MinIO. `restore.sh --attachments` does this
+   on a host where the source environment is still running. On a new host its identity check has nothing
+   to compare with, which is an open item.
 5. `manage.py setup_rls` (سبرنت 6.6.3b) — `pg_dump --no-privileges`
    يُسقط كل GRANT/سياسة RLS، فالقاعدة المُستعادة بلا هذه الخطوة تعمل
    بصلاحيات `cps_app` الكاملة (RLS متوقف فعليًا من منظور ذلك الدور)

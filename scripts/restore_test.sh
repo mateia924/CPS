@@ -26,12 +26,28 @@ set -euo pipefail
 # human reviewing docs/ops/restore_tests.log can still see the raw
 # numbers and judge for themselves.
 #
-# Usage: scripts/restore_test.sh
+# Block A (2026-10-20): attachments. A restored row pointing at a missing
+# object is the failure this guards against, so the verdict now also needs
+# the bytes back: the dump's paired attachments manifest (written by
+# scripts/backup_attachments.sh) is restored into a THROWAWAY MinIO, and a
+# THROWAWAY backend — pointed only at the restored database and that MinIO,
+# never at the live ones — downloads every attachment row through the
+# app's own signed-link view and compares each body with the row's sha256.
+# Rows the app withholds by design (scan_status not clean/skipped) are read
+# through the app's storage layer instead. FAIL on any mismatch or missing
+# object, and FAIL if not one row was downloadable (nothing proven). Both
+# the dump and the manifest must also pass the source checks of
+# scripts/restore_lib.sh: recorded as taken from the environment tested.
+#
+# Usage: scripts/restore_test.sh [--target live|dev|staging]   (default live — cron's)
 # Suggested monthly root cron (see docs/ops/BACKUP.md):
 #   0 4 1 * * /opt/cps/scripts/restore_test.sh >> /var/log/cps-restore-test.log 2>&1
 
+TARGET="live"
+if [ "${1:-}" = "--target" ]; then TARGET="${2:?usage: scripts/restore_test.sh [--target live|dev|staging]}"; shift 2; fi
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKUP_DIR="/opt/cps-backups"
+[ "$TARGET" = "live" ] || BACKUP_DIR="/opt/cps-backups/$TARGET"
 RESTORE_TEST_DB="cps_restore_test"
 LOG_PATH="$REPO_DIR/docs/ops/restore_tests.log"
 # A restored tenant count below this fraction of live's own is treated
@@ -44,9 +60,13 @@ log() { echo "[restore_test $(date -Iseconds)] $1"; }
 
 set -a
 source "$REPO_DIR/.env"
+[ "$TARGET" != "staging" ] || source "$REPO_DIR/.env.staging"
 set +a
-COMPOSE="docker compose --env-file $REPO_DIR/.env"
+# shellcheck source=restore_lib.sh
+source "$REPO_DIR/scripts/restore_lib.sh"
+COMPOSE="$(cps_env_compose "$TARGET")" || exit 1
 cd "$REPO_DIR/infra"
+RT_MINIO="cps-restore-test-minio-$$"
 
 record_result() {
   # status, backup file, restored tenant count, live tenant count,
@@ -68,6 +88,7 @@ cleanup() {
     "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$RESTORE_TEST_DB' AND pid <> pg_backend_pid();" \
     > /dev/null 2>&1 || true
   $COMPOSE exec -T postgres dropdb -U "$POSTGRES_USER" --if-exists "$RESTORE_TEST_DB" > /dev/null 2>&1 || true
+  docker rm -f "$RT_MINIO" > /dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -77,6 +98,15 @@ BACKUP_NAME="$(basename "$LATEST_BACKUP")"
 log "using backup: $BACKUP_NAME"
 
 [ -n "${CPS_BACKUP_ENCRYPTION_PASSPHRASE:-}" ] || fail "CPS_BACKUP_ENCRYPTION_PASSPHRASE is not set in .env"
+
+DUMP_TS="${BACKUP_NAME#cps-db-}"
+DUMP_TS="${DUMP_TS%.sql.gz.gpg}"
+MANIFEST="$BACKUP_DIR/attachments/manifests/attachments-$DUMP_TS.manifest.gpg"
+SOURCE_CHECK="$(cps_require_dump_from "$LATEST_BACKUP" "$TARGET" 2>&1)" || fail "$SOURCE_CHECK"
+log "$SOURCE_CHECK"
+[ -f "$MANIFEST" ] || fail "no attachments manifest paired with $BACKUP_NAME (expected $MANIFEST) — the attachments of this backup cannot be restored"
+SOURCE_CHECK="$(cps_require_manifest_from "$MANIFEST" "$TARGET" "$LATEST_BACKUP" 2>&1)" || fail "$SOURCE_CHECK"
+log "$SOURCE_CHECK"
 
 cleanup  # in case a previous run was interrupted before its own cleanup ran
 
@@ -114,7 +144,13 @@ TEST_DATABASE_URL="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:543
 # smoke.sh) already relies on, and `-e` still overrides DATABASE_URL
 # for just this one call.
 log "running manage.py check against the restored database"
-if ! $COMPOSE exec -T -e DATABASE_URL="$TEST_DATABASE_URL" backend python manage.py check; then
+# Rule 50 (block A, 2026-10-20): the URL carries the database password, so it
+# travels by NAME — `-e DATABASE_URL` with no value makes compose read it from
+# its own environment, set by the prefix assignment. Until today both calls
+# below had `-e DATABASE_URL="$TEST_DATABASE_URL"`, the password readable in
+# `ps` on live's monthly cron path; the rule-50 guard's pattern could not see
+# it (a URL, not a *PASSWORD* name).
+if ! DATABASE_URL="$TEST_DATABASE_URL" $COMPOSE exec -T -e DATABASE_URL backend python manage.py check; then
   fail "manage.py check failed against the restored database"
 fi
 
@@ -148,7 +184,7 @@ from apps.accounting.services import unreversed_posted_entries
 total = sum(unreversed_posted_entries(t).count() for t in Tenant.objects.exclude(status="archived"))
 print(f"RESULT:{total}")
 '
-RESTORED_POSTED="$($COMPOSE exec -T -e DATABASE_URL="$TEST_DATABASE_URL" backend python manage.py shell -c "$POSTED_COUNT_PY" \
+RESTORED_POSTED="$(DATABASE_URL="$TEST_DATABASE_URL" $COMPOSE exec -T -e DATABASE_URL backend python manage.py shell -c "$POSTED_COUNT_PY" \
   | sed -n 's/^RESULT://p' | tr -d '[:space:]')"
 LIVE_POSTED="$($COMPOSE exec -T backend python manage.py shell -c "$POSTED_COUNT_PY" \
   | sed -n 's/^RESULT://p' | tr -d '[:space:]')"
@@ -164,5 +200,72 @@ if [ "${LIVE_TENANTS:-0}" -gt 0 ]; then
   fi
 fi
 
+# --- Attachments: restore into a throwaway MinIO, download through the app.
+NETWORK="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$($COMPOSE ps -q postgres)" | cut -d' ' -f1)"
+MINIO_IMAGE="$(docker inspect -f '{{.Config.Image}}' "$($COMPOSE ps -q minio)")"
+BACKEND_ID="$($COMPOSE ps -q backend)"
+BACKEND_IMAGE="$(docker inspect -f '{{.Config.Image}}' "$BACKEND_ID")"
+# Fresh credentials for the throwaway MinIO, by name only (rule 50).
+export MINIO_ROOT_USER="rt$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+export MINIO_ROOT_PASSWORD="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
+log "starting throwaway MinIO $RT_MINIO ($MINIO_IMAGE) on $NETWORK"
+docker run -d --name "$RT_MINIO" --network "$NETWORK" -e MINIO_ROOT_USER -e MINIO_ROOT_PASSWORD \
+  "$MINIO_IMAGE" server /data > /dev/null || fail "could not start a throwaway MinIO"
+for _ in $(seq 1 30); do
+  docker exec "$RT_MINIO" sh -c "$CPS_MC_ENV; mc ready m" > /dev/null 2>&1 && break
+  sleep 1
+done
+docker exec -e B="$MINIO_BUCKET" "$RT_MINIO" sh -c "$CPS_MC_ENV; mc mb \"m/\$B\" > /dev/null" || fail "throwaway MinIO never came up"
+log "restoring attachments from $(basename "$MANIFEST")"
+ATT_RESTORE="$(cps_restore_attachments "$MANIFEST" "$BACKUP_DIR/attachments" "$RT_MINIO" "$MINIO_BUCKET" 2>&1)" \
+  || fail "attachment restore: $(echo "$ATT_RESTORE" | tr '\n' ' ')"
+log "attachments restored: $(echo "$ATT_RESTORE" | tail -1)"
+
+DOWNLOAD_PY='
+import hashlib
+from django.conf import settings
+from django.test import Client
+from apps.attachments.models import Attachment
+from apps.attachments.services import sign_link
+settings.ALLOWED_HOSTS = ["*"]
+client = Client()
+downloaded = verified = bad = 0
+for a in Attachment.objects.order_by("file"):
+    body = b""
+    try:
+        if a.scan_status in (Attachment.ScanStatus.CLEAN, Attachment.ScanStatus.SKIPPED):
+            r = client.get(f"/api/attachments/{a.id}/download/", {"token": sign_link(a.id)})
+            body = b"".join(r.streaming_content) if getattr(r, "streaming", False) else r.content
+            good = r.status_code == 200 and hashlib.sha256(body).hexdigest() == a.sha256
+            how = f"downloaded through the app, HTTP {r.status_code}"
+            downloaded += good
+        else:
+            with a.file.open("rb") as f:
+                body = f.read()
+            good = hashlib.sha256(body).hexdigest() == a.sha256
+            how = f"read through the app storage (scan_status {a.scan_status}: withheld from download by design)"
+            verified += good
+    except Exception as exc:  # a row whose object is gone: name it, keep going
+        good, how = False, f"NOT READABLE: {type(exc).__name__}: {str(exc)[:120]}"
+    bad += not good
+    print(("ROW OK   " if good else "ROW BAD  ") + f"{a.file.name} [{a.status}] {len(body)} bytes, {how}")
+print(f"RESULT:{downloaded}:{verified}:{bad}")
+'
+log "downloading every attachment through a throwaway backend ($BACKEND_IMAGE) on the restored data"
+DOWNLOAD_OUT="$(docker run --rm --network "$NETWORK" --env-file <(
+    docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$BACKEND_ID" \
+      | grep -vE '^(DATABASE_URL|PLATFORM_DATABASE_URL|MINIO_ENDPOINT_URL|MINIO_ACCESS_KEY|MINIO_SECRET_KEY|ATTACHMENT_STORAGE_BACKEND)='
+    printf 'DATABASE_URL=%s\nPLATFORM_DATABASE_URL=%s\n' "$TEST_DATABASE_URL" "$TEST_DATABASE_URL"
+    printf 'MINIO_ENDPOINT_URL=http://%s:9000\nMINIO_ACCESS_KEY=%s\nMINIO_SECRET_KEY=%s\nATTACHMENT_STORAGE_BACKEND=s3\n' \
+      "$RT_MINIO" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+  ) "$BACKEND_IMAGE" python manage.py shell -c "$DOWNLOAD_PY" 2>&1)" || fail "the throwaway backend failed: $(echo "$DOWNLOAD_OUT" | tail -5 | tr '\n' ' ')"
+echo "$DOWNLOAD_OUT" | grep '^ROW '
+RESULT_LINE="$(echo "$DOWNLOAD_OUT" | sed -n 's/^RESULT://p')"
+IFS=: read -r ATT_DOWNLOADED ATT_VERIFIED ATT_BAD <<< "$RESULT_LINE"
+ATT_DETAIL="attachments: ${ATT_DOWNLOADED:-?} downloaded byte-identical, ${ATT_VERIFIED:-?} verified via storage, ${ATT_BAD:-?} bad ($(echo "$ATT_RESTORE" | tail -1))"
+log "$ATT_DETAIL"
+[ "${ATT_BAD:-1}" = "0" ] || fail "$ATT_DETAIL"
+[ "${ATT_DOWNLOADED:-0}" -gt 0 ] || fail "$ATT_DETAIL — not one attachment downloadable after the restore, so nothing is proven"
+
 log "OK"
-record_result "OK" "$BACKUP_NAME" "$RESTORED_TENANTS" "$LIVE_TENANTS" "$RESTORED_POSTED" "$LIVE_POSTED" ""
+record_result "OK" "$BACKUP_NAME" "$RESTORED_TENANTS" "$LIVE_TENANTS" "$RESTORED_POSTED" "$LIVE_POSTED" "$ATT_DETAIL"
