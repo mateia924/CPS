@@ -116,24 +116,17 @@ run_tests() {
     E2E_CONTAINER_NAME="$TEST_CONTAINER" "$REPO_DIR/scripts/e2e_access.sh" "$TEST_PATH"
     return
   fi
-  local image network workdir="/app"
-  local -a repo_mount=()
-  image="$(docker inspect -f '{{.Config.Image}}' "$TEMPLATE")"
+  # 2026-10-20 (dev/CI parity): the same container scripts/pytest_run.sh
+  # uses — the `test` image (git, gnupg), the whole repo read-only at
+  # /workspace, uid 1001 like GitHub's runner. --repo is now the same as
+  # a container name (the repo is always mounted); kept for its callers.
+  local network
+  docker build -q --target test -t cps-test:latest "$REPO_DIR/backend" >/dev/null
   network="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$TEMPLATE" | cut -d' ' -f1)"
-  if [ "$CONTAINER" = "--repo" ]; then
-    repo_mount=(-v "$REPO_DIR:/workspace:ro")
-    workdir="/workspace/backend"
-  fi
-  # 2026-10-19: --repo tests may also drive git (test_deploy_sh_guards.py
-  # clones the repo). The dev image has no git, so they would SKIP — and a
-  # skip is never a FAILED, so the proof could not pass, only stall. Git
-  # goes into this throwaway container, as scripts/ci_local.sh does.
-  local setup=":"
-  [ "$CONTAINER" != "--repo" ] || setup="apt-get update -qq >/dev/null && apt-get install -y -qq --no-install-recommends git >/dev/null && git config --global --add safe.directory '*'"
-  docker run --rm --name "$TEST_CONTAINER" --network "$network" \
+  docker run --rm --name "$TEST_CONTAINER" --user 1001:1001 -e HOME=/tmp --network "$network" \
     --env-file <(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$TEMPLATE") \
-    --volumes-from "$TEMPLATE" "${repo_mount[@]}" -w "$workdir" \
-    --entrypoint bash "$image" -c "$setup && exec pytest -q -p no:cacheprovider \"\$0\"" "$TEST_PATH"
+    -v "$REPO_DIR:/workspace:ro" -w /workspace/backend --entrypoint pytest \
+    cps-test:latest -q -p no:cacheprovider "$TEST_PATH"
 }
 
 OUTPUT_FILE="$(mktemp -t cps-prove-guard.XXXXXX)"

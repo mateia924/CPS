@@ -29,6 +29,19 @@ EXPOSE 8000
 ENTRYPOINT ["./entrypoint.sh"]
 CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]
 
+# 2026-10-20 (dev/CI parity): what scripts/pytest_run.sh runs the suite in —
+# a throwaway container per run, the whole repo mounted read-only, as uid
+# 1001. GitHub's runner has git and gpg and the repo around backend/; the
+# dev server has none of them, so 59 tests skipped locally and ran only in
+# CI, and the uid difference (root here, 1001 there) hid 4 real failures.
+# Never used by docker-compose; dev and prod are unchanged.
+FROM dev AS test
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git gnupg \
+    && rm -rf /var/lib/apt/lists/* \
+    && git config --system --add safe.directory '*'
+
 # Default (unspecified) build target — what docker-compose.prod.yml gets.
 # Deliberately excludes requirements-dev.txt from the shipped image.
 FROM base AS prod
