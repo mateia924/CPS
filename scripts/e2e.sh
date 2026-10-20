@@ -260,4 +260,11 @@ echo "[e2e] archiving the smoke-* tenant this run created"
 docker exec cps-dev-backend-1 python manage.py archive_smoke_tenants \
   --force --reason "e2e.sh: disposable smoke tenant this run created, never meant to be reversed"
 
+# Block 8.0.1: sidebar gating and the shell's no-permission state, as a
+# Viewer. Its own tenant (it needs a second user and the purchasing
+# module on), built and archived by e2e_access.sh — after the archive
+# above, since that script archives every smoke-* tenant on exit.
+echo "[e2e] phase 14: no sidebar link the user cannot open; a refused screen names the reason"
+"$ROOT_DIR/scripts/e2e_access.sh" 14-screen-access.spec.ts
+
 echo "[e2e] ALL CHECKS PASSED — screenshots in $SCREENS_DIR/"

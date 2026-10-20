@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
@@ -8,6 +8,8 @@ import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DialogHost } from "@/components/Dialog";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
+import { ScreenAccess } from "@/components/ScreenAccess";
+import { APPROVAL_INBOX, NAV_SECTIONS, PROFILE, canSee } from "@/lib/nav";
 import type { PendingApprovalsResponse } from "@/lib/types";
 
 // BRAND.md §4 "الشريط الجانبي": the active item gets a filled background
@@ -57,65 +59,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   if (!isReady || !user) return null;
 
-  // 3.13: a tenant in simplified mode never sees the organization
-  // structure at all, even if they technically hold the permission —
-  // there's nothing to manage until they add a second entity. Sprint
-  // 3.5 (3.18): the same gate now also hides "الشركات الشقيقة" and the
-  // advanced "الأطراف (عرض شامل)" screen — neither makes sense for a
-  // single-branch tenant either.
-  const showOrganization = !!me && !me.simplified_mode && me.features.organization;
-  // Sprint 6.5.18 (UAT item 7): the Owner's own escape hatch out of
-  // simplified mode — without this, a single-branch tenant's Owner has
-  // no way to ever add a second branch/company, since showOrganization
-  // itself is exactly what simplified mode hides. Same route/page as
-  // showOrganization above; only the label changes (see the render
-  // below) while simplified_mode is still on.
-  const isOwner = !!me && me.roles.includes("Owner");
-  const showCostCenters = !!me && me.features.cost_centers && me.permissions.includes("costcenters.view");
-  const showAffiliates = !!me && !me.simplified_mode;
-  const showRoles = !!me && me.permissions.includes("roles.manage");
-  const showFullPartiesView =
-    !!me && !me.simplified_mode && me.permissions.includes("parties.view_all");
-  // Sprint 3 (3.13): Free hides both; Business+ shows them.
-  const showTreasury = !!me && me.features.treasury;
-  const showVouchers = showTreasury && !!me && me.permissions.includes("vouchers.view");
-  const showCompanySettings = !!me && me.permissions.includes("organization.manage");
-  const showAssets = !!me && me.features.assets;
-  // Sprint 3.5 (3.18): "المشتريات ... purchasing".
-  const showPurchasing = !!me && me.features.purchasing;
-  // Sprint 7.1: item categories/units are dedicated MANAGEMENT screens,
-  // shown only for a tenant that actually has the inventory module —
-  // the underlying API itself stays reachable regardless (D7/D18: a
-  // category is a normal `products` field for everyone), this gate is
-  // purely about not cluttering a pure-service tenant's nav.
-  const showInventory = !!me && me.features.inventory;
-  const showAccounting = !!me && me.permissions.includes("accounting.view");
-  // Sprint 6.9 (sprint-6.md §القائمة) originally hid this behind
-  // !simplified_mode too — corrected in 6.5.7 (§11): simplified mode
-  // hides organizational *complexity* (entity pickers, holding-only
-  // features), never an accounting function. Recurring entries are a
-  // real accounting tool a single-branch tenant uses just as much as
-  // anyone else, so this now only follows the same permission gate as
-  // every other accounting screen.
-  const showRecurring = showAccounting;
-  const showApprovalRules = !!me && me.permissions.includes("approvals.view");
-  const showDocumentNumbering = !!me && me.permissions.includes("numbering.view");
-  const showAttachmentRules = !!me && me.permissions.includes("attachments.view");
-  // Sprint 6.1 (decision 1): fiscal years/periods management screen —
-  // gated by the "manage" permission, same pattern as company settings.
-  const showFiscalYears = !!me && me.permissions.includes("accounting.manage_fiscal_periods");
-  // Sprint 6.0.1-B: the inbox aggregates every approvable doc_type
-  // (apps.approvals.views.PendingApprovalsView) — no single RBAC
-  // permission covers all of them, so this reuses the same permission
-  // codes those doc types' own "approve" actions already require
-  // (apps.sales/vouchers/accounting/treasury.views permission_map) —
-  // "does this user hold an approval permission for anything at all".
-  const showApprovalInbox =
-    !!me &&
-    (me.permissions.includes("invoices.approve") ||
-      me.permissions.includes("vouchers.approve") ||
-      me.permissions.includes("accounting.manage") ||
-      me.permissions.includes("treasury.request_iban_change"));
+  // Block 8.0.1: every link comes from lib/nav.ts, where each entry
+  // names the permission its screen's API requires (or why it needs
+  // none) — a link the user's roles can't open is never rendered.
+  const showApprovalInbox = canSee(me, APPROVAL_INBOX);
   // Sprint 6.6.2 (items 1/2): mirrors the backend middleware's own
   // gate — every link below would just 403, so don't show them at all.
   const forced = !!me && (me.user.must_change_password || me.requires_2fa_setup);
@@ -164,7 +111,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <>
         {showApprovalInbox && (
         <div className="topbar" style={{ marginBottom: "0.5rem" }}>
-          <Link href="/dashboard/approvals" style={{ color: "var(--sidebar-text)" }}>
+          <Link href={APPROVAL_INBOX.href} style={{ color: "var(--sidebar-text)" }}>
             {t("approvalInbox")}
             {pendingCount > 0 && (
               <span
@@ -183,131 +130,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </Link>
         </div>
         )}
-        <SidebarLink href="/dashboard">{t("dashboard")}</SidebarLink>
-
-        <div className="sidebar-section-label">{t("salesSection")}</div>
-        <SidebarLink href="/dashboard/customers">{t("customers")}</SidebarLink>
-        <SidebarLink href="/dashboard/products">{t("items")}</SidebarLink>
-        <SidebarLink href="/dashboard/invoices">{t("invoices")}</SidebarLink>
-
-        {showPurchasing && (
-          <>
-            <div className="sidebar-section-label">{t("purchasingSection")}</div>
-            <SidebarLink href="/dashboard/suppliers">{t("suppliers")}</SidebarLink>
-            <SidebarLink href="/dashboard/purchasing/settings">{t("purchaseSettings")}</SidebarLink>
-          </>
-        )}
-
-        {showInventory && (
-          <>
-            <div className="sidebar-section-label">{t("inventorySection")}</div>
-            <SidebarLink href="/dashboard/inventory/stock/receipts">{t("stockReceipts")}</SidebarLink>
-            <SidebarLink href="/dashboard/inventory/stock/issues">{t("stockIssues")}</SidebarLink>
-            <SidebarLink href="/dashboard/inventory/stock/transfers">{t("stockTransfers")}</SidebarLink>
-            <SidebarLink href="/dashboard/inventory/stock/counts">{t("stockCounts")}</SidebarLink>
-            <SidebarLink href="/dashboard/inventory/balances">{t("stockBalances")}</SidebarLink>
-            <SidebarLink href="/dashboard/inventory/warehouses">{t("warehouses")}</SidebarLink>
-            <SidebarLink href="/dashboard/inventory/item-categories">{t("itemCategories")}</SidebarLink>
-            <SidebarLink href="/dashboard/inventory/units">{t("unitsOfMeasure")}</SidebarLink>
-            <SidebarLink href="/dashboard/inventory/settings">{t("inventorySettings")}</SidebarLink>
-          </>
-        )}
-
-        {showTreasury && (
-          <>
-            <div className="sidebar-section-label">{t("treasurySection")}</div>
-            <SidebarLink href="/dashboard/treasury/banks">{t("banks")}</SidebarLink>
-            <SidebarLink href="/dashboard/treasury/cash-boxes">{t("cashBoxes")}</SidebarLink>
-            <SidebarLink href="/dashboard/treasury/custodies">{t("custodies")}</SidebarLink>
-            {showVouchers && (
-              <>
-                <SidebarLink href="/dashboard/treasury/vouchers/receipt">{t("receiptVouchers")}</SidebarLink>
-                <SidebarLink href="/dashboard/treasury/vouchers/payment">{t("paymentVouchers")}</SidebarLink>
-                <SidebarLink href="/dashboard/treasury/vouchers/settlement">{t("settlementVouchers")}</SidebarLink>
-              </>
-            )}
-            <SidebarLink href="/dashboard/treasury/exchange-rates">{t("exchangeRatesNav")}</SidebarLink>
-            <SidebarLink href="/dashboard/treasury/reconciliation">{t("bankReconciliationDashboardNav")}</SidebarLink>
-          </>
-        )}
-
-        {showAccounting && (
-          <>
-            <div className="sidebar-section-label">{t("accountingSection")}</div>
-            <SidebarLink href="/dashboard/accounting/chart-of-accounts">{t("chartOfAccounts")}</SidebarLink>
-            <SidebarLink href="/dashboard/accounting/journal-entries">{t("manualJournalEntries")}</SidebarLink>
-            <SidebarLink href="/dashboard/accounting/opening-balances">{t("openingBalancesNav")}</SidebarLink>
-            {showRecurring && (
-              <SidebarLink href="/dashboard/accounting/recurring-entries">{t("recurringEntriesNav")}</SidebarLink>
-            )}
-            <SidebarLink href="/dashboard/accounting/tax-codes">{t("taxCodesNav")}</SidebarLink>
-            <SidebarLink href="/dashboard/accounting/tax-periods">{t("taxPeriodsNav")}</SidebarLink>
-          </>
-        )}
-
-        {showAccounting && (
-          <>
-            <div className="sidebar-section-label">{t("reportsSection")}</div>
-            <SidebarLink href="/dashboard/reports/trial-balance">{t("trialBalanceNav")}</SidebarLink>
-            <SidebarLink href="/dashboard/reports/income-statement">{t("incomeStatementNav")}</SidebarLink>
-            <SidebarLink href="/dashboard/reports/balance-sheet">{t("balanceSheetNav")}</SidebarLink>
-            <SidebarLink href="/dashboard/reports/ledger">{t("ledgerNav")}</SidebarLink>
-            <SidebarLink href="/dashboard/reports/aging">{t("agingReportNav")}</SidebarLink>
-            <SidebarLink href="/dashboard/reports/statement">{t("statementReportNav")}</SidebarLink>
-            <SidebarLink href="/dashboard/reports/fixed-assets">{t("fixedAssetsReportNav")}</SidebarLink>
-          </>
-        )}
-
-        {showAssets && (
-          <>
-            <div className="sidebar-section-label">{t("assetsSection")}</div>
-            <SidebarLink href="/dashboard/assets">{t("assets")}</SidebarLink>
-          </>
-        )}
-
-        <div className="sidebar-section-label">{t("hrSection")}</div>
-        <SidebarLink href="/dashboard/employees">{t("employeesNav")}</SidebarLink>
-
-        {(showOrganization ||
-          isOwner ||
-          showCostCenters ||
-          showAffiliates ||
-          showRoles ||
-          showFullPartiesView ||
-          showApprovalRules ||
-          showDocumentNumbering ||
-          showAttachmentRules ||
-          showFiscalYears ||
-          showCompanySettings) && <div className="sidebar-section-label">{t("settingsSection")}</div>}
-        {showCompanySettings && <SidebarLink href="/dashboard/settings/company">{t("companySettingsNav")}</SidebarLink>}
-        {(showOrganization || isOwner) && (
-          <SidebarLink href="/dashboard/organization">
-            {t(me?.simplified_mode ? "legalStructureNav" : "organization")}
-          </SidebarLink>
-        )}
-        {showCostCenters && <SidebarLink href="/dashboard/cost-centers">{t("costCenters")}</SidebarLink>}
-        {showAffiliates && <SidebarLink href="/dashboard/affiliates">{t("affiliatesNav")}</SidebarLink>}
-        {showRoles && <SidebarLink href="/dashboard/roles">{t("rolesAndUsers")}</SidebarLink>}
-        {showFullPartiesView && (
-          <SidebarLink href="/dashboard/settings/parties">{t("fullPartiesView")}</SidebarLink>
-        )}
-        {showApprovalRules && (
-          <SidebarLink href="/dashboard/settings/approval-rules">{t("approvalRulesNav")}</SidebarLink>
-        )}
-        {showDocumentNumbering && (
-          <SidebarLink href="/dashboard/settings/document-numbering">{t("documentNumberingNav")}</SidebarLink>
-        )}
-        {showAttachmentRules && (
-          <SidebarLink href="/dashboard/settings/attachment-rules">{t("attachmentRulesNav")}</SidebarLink>
-        )}
-        {showFiscalYears && (
-          <SidebarLink href="/dashboard/settings/fiscal-years">{t("fiscalYearsNav")}</SidebarLink>
-        )}
+        {NAV_SECTIONS.map((section, i) => {
+          const visible = section.entries.filter((entry) => canSee(me, entry, section));
+          if (visible.length === 0) return null;
+          return (
+            <Fragment key={section.label ?? i}>
+              {section.label && <div className="sidebar-section-label">{t(section.label)}</div>}
+              {visible.map((entry) => (
+                <SidebarLink key={entry.href} href={entry.href}>
+                  {t(typeof entry.label === "function" ? (me ? entry.label(me) : "") : entry.label)}
+                </SidebarLink>
+              ))}
+            </Fragment>
+          );
+        })}
         </>
         )}
 
         <div style={{ marginTop: "auto", paddingTop: "1rem" }}>
-          <SidebarLink href="/dashboard/profile">{t("profileNav")}</SidebarLink>
+          <SidebarLink href={PROFILE.href}>{t(PROFILE.label as string)}</SidebarLink>
           <LocaleSwitcher />
           <button
             className="secondary"
@@ -327,7 +168,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {t("pastDueWarning")}
           </div>
         )}
-        {children}
+        <ScreenAccess>{children}</ScreenAccess>
       </main>
       <DialogHost />
     </div>

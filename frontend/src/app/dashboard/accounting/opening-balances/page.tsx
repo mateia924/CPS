@@ -53,27 +53,37 @@ function OpeningBalancesContent() {
   const [refreshToken, setRefreshToken] = useState(0);
 
   const showCostCenterUI = !!me && me.features.cost_centers;
+  // Block 8.0.1: creating an entry needs accounting.manage on the API, and
+  // the form's party picker reads /parties/ (parties.view_all). A role
+  // with only accounting.view (Viewer) used to load all of it in one
+  // Promise.all, get a 403 on /parties/, and be left with an empty status
+  // table and no message. The status and the list are theirs to read;
+  // the form and its data are only for a role that can create.
+  const canCreate = !!me && me.permissions.includes("accounting.manage");
 
   useEffect(() => {
     (async () => {
-      const [entityData, tree, partyData, statusData] = await Promise.all([
+      const [entityData, statusData] = await Promise.all([
         api.get<Paginated<LegalEntity>>("/legal-entities/"),
-        api.get<AccountTreeNode[]>("/accounts/tree/"),
-        api.get<Paginated<Party>>("/parties/"),
         api.get<OpeningBalanceStatusRow[]>("/opening-balances/status/"),
       ]);
       setEntities(entityData.results.filter((entity) => entity.entity_type !== "holding"));
       if (me?.default_legal_entity_id) setLegalEntityId((prev) => prev || me.default_legal_entity_id!);
+      setStatusRows(statusData);
+      if (!canCreate) return;
+      const [tree, partyData] = await Promise.all([
+        api.get<AccountTreeNode[]>("/accounts/tree/"),
+        api.get<Paginated<Party>>("/parties/"),
+      ]);
       setAccounts(tree);
       setParties(partyData.results);
-      setStatusRows(statusData);
       if (showCostCenterUI) {
         const ccData = await api.get<Paginated<CostCenter>>("/cost-centers/");
         setCostCenters(ccData.results);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showCostCenterUI, refreshToken]);
+  }, [showCostCenterUI, canCreate, refreshToken]);
 
   const resetForm = () => {
     setKind("initial");
@@ -139,6 +149,7 @@ function OpeningBalancesContent() {
         </table>
       </div>
 
+      {canCreate && (
       <div className="card">
         <h3>{t("createOpeningBalance")}</h3>
         <form onSubmit={onSubmit}>
@@ -176,6 +187,7 @@ function OpeningBalancesContent() {
           <button className="primary" type="submit">{t("createOpeningBalance")}</button>
         </form>
       </div>
+      )}
 
       <FormField name="list_entity_filter" label={t("entityFilter")}>
         <select value={listEntityId} onChange={(e) => setListEntityId(e.target.value)}>

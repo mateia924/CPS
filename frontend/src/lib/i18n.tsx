@@ -636,6 +636,8 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     meLoadError: "تعذّر تحميل بيانات الحساب. قد لا تظهر كل خيارات القائمة حتى يُحل هذا.",
     sessionExpired: "انتهت الجلسة — سجّل الدخول مرة أخرى.",
     retry: "إعادة المحاولة",
+    noPermissionTitle: "ليس لديك صلاحية",
+    noPermissionBody: "لا تملك الصلاحية اللازمة لفتح هذه الشاشة أو جزء منها. اطلب من مالك الحساب منحك الصلاحية من «الأدوار والمستخدمون».",
 
     // --- Sprint 5.2: AttachmentPanel ---
     attachments: "المرفقات",
@@ -1606,6 +1608,8 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     meLoadError: "Could not load your account data. Some menu options may be missing until this is resolved.",
     sessionExpired: "Your session has expired — please log in again.",
     retry: "Retry",
+    noPermissionTitle: "You do not have permission",
+    noPermissionBody: "Your account lacks the permission this screen (or part of it) needs. Ask the account owner to grant it under Roles & users.",
 
     // --- Sprint 5.2: AttachmentPanel ---
     attachments: "Attachments",

@@ -33,9 +33,14 @@ set -euo pipefail
 #                     container copies; or --repo: the same, from
 #                     cps-dev-backend-1, plus the whole repo at /workspace —
 #                     for tests that read scripts/ (they skip where only
-#                     backend/ is mounted)
-#   TEST_PATH         pytest path (relative to backend/)
-#   EXPECTED_FAILURE  test name(s) that must appear as FAILED
+#                     backend/ is mounted); or --e2e: a Playwright spec run by
+#                     scripts/e2e_access.sh against the dev stack, whose
+#                     `next dev` picks the disabled guard up on the next
+#                     request (block 8.0.1, the first frontend guard proofs)
+#   TEST_PATH         pytest path (relative to backend/); with --e2e the spec
+#                     file name under frontend/e2e/
+#   EXPECTED_FAILURE  test name(s) that must appear as FAILED (with --e2e, the
+#                     test title as Playwright's list reporter prints it)
 # Exit 0 only if pytest failed, every expected name failed, and FILE is
 # byte-identical to its saved copy afterwards.
 
@@ -49,6 +54,7 @@ SAVED="$SAVE_DIR/$(echo "$FILE" | tr '/' '_').orig"
 TEST_CONTAINER="cps-prove-guard-$$"
 TEMPLATE="$CONTAINER"
 [ "$CONTAINER" != "--repo" ] || TEMPLATE="cps-dev-backend-1"
+[ "$CONTAINER" != "--e2e" ] || TEMPLATE="cps-dev-frontend-1"
 TESTS_PID=""
 OUTPUT_FILE=""
 
@@ -104,6 +110,12 @@ echo "[prove_guard] guard disabled in $FILE:"
 diff -U0 "$SAVED" "$TARGET" | grep -E '^[-+][^-+]' || true
 
 run_tests() {
+  if [ "$CONTAINER" = "--e2e" ]; then
+    # The spec's Playwright container gets our name, so restore()'s
+    # `docker rm -f` ends it like any other test container here.
+    E2E_CONTAINER_NAME="$TEST_CONTAINER" "$REPO_DIR/scripts/e2e_access.sh" "$TEST_PATH"
+    return
+  fi
   local image network workdir="/app"
   local -a repo_mount=()
   image="$(docker inspect -f '{{.Config.Image}}' "$TEMPLATE")"
@@ -133,7 +145,10 @@ PYTEST_RC=$?
 set -e
 TESTS_PID=""
 OUTPUT="$(cat "$OUTPUT_FILE")"
-echo "$OUTPUT" | grep -E '^(FAILED|ERROR)|passed|failed|REFUSED|Error response' || true
+echo "$OUTPUT" | grep -E '^(FAILED|ERROR)|✘|passed|failed|REFUSED|Error response' || true
+# A browser failure's own detail (which locator, expected vs received,
+# the spec line) is the proof worth reading; pytest's -q line names it.
+[ "$CONTAINER" != "--e2e" ] || echo "$OUTPUT" | grep -E '^ +(Error:|Locator:|Expected|Received|> [0-9]+ \|)' || true
 
 if [ "$PYTEST_RC" -eq 0 ]; then
   echo "[prove_guard] NOT PROVEN: every test passed with the guard disabled." >&2
@@ -141,7 +156,12 @@ if [ "$PYTEST_RC" -eq 0 ]; then
 fi
 missing=0
 for name in "$@"; do
-  if ! echo "$OUTPUT" | grep -qE "^FAILED .*::${name}( |\[|$)"; then
+  if [ "$CONTAINER" = "--e2e" ]; then
+    pattern="✘ .* › ${name}( \(|$)"
+  else
+    pattern="^FAILED .*::${name}( |\[|$)"
+  fi
+  if ! echo "$OUTPUT" | grep -qE "$pattern"; then
     echo "[prove_guard] NOT PROVEN: $name did not fail." >&2
     missing=1
   fi
