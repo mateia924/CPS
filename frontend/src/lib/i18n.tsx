@@ -685,6 +685,15 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     assetNotInService: "لم يدخل الخدمة",
     assetFromBill: "من فاتورة المورد",
     assetInServiceRequired: "حدِّد تاريخ بدء الخدمة — هذا الأصل من فاتورة مورد، وتاريخ الفاتورة ليس تاريخ دخوله الخدمة.",
+    // Block 8.0.2: the other named failure states.
+    errorNotFoundTitle: "غير موجود",
+    errorNotFoundBody: "المستند أو البيانات المطلوبة غير موجودة — ربما حُذفت، أو أن الرابط غير صحيح، أو أن الوحدة غير مفعّلة لحسابك.",
+    errorServerTitle: "خطأ في الخادم",
+    errorServerBody: "تعذّر تحميل البيانات بسبب خطأ في الخادم — ما يظهر هنا ليس النتيجة، ولا يعني أنه لا توجد سجلات. أعد المحاولة بعد قليل، وإن تكرر فأبلغ الدعم.",
+    errorNetworkTitle: "تعذّر الاتصال بالخادم",
+    errorNetworkBody: "لم يصل الطلب إلى الخادم — تحقق من الاتصال ثم أعد المحاولة. ما يظهر هنا ليس النتيجة.",
+    errorPageNotFound: "هذه الصفحة غير موجودة.",
+    errorBackToDashboard: "العودة إلى لوحة التحكم",
     noPermissionTitle: "ليس لديك صلاحية",
     noPermissionBody: "لا تملك الصلاحية اللازمة لفتح هذه الشاشة أو جزء منها. اطلب من مالك الحساب منحك الصلاحية من «الأدوار والمستخدمون».",
 
@@ -1706,6 +1715,15 @@ const dictionaries: Record<Locale, Record<string, string>> = {
     assetNotInService: "Not in service",
     assetFromBill: "From supplier bill",
     assetInServiceRequired: "Set the in-service date: this asset came from a supplier bill, and the bill date is not the date it went into use.",
+    // Block 8.0.2: the other named failure states.
+    errorNotFoundTitle: "Not found",
+    errorNotFoundBody: "The document or data you asked for does not exist — it may have been deleted, the link may be wrong, or the module is not enabled for your account.",
+    errorServerTitle: "Server error",
+    errorServerBody: "The data could not be loaded because of a server error — what you see here is not the result, and it does not mean there are no records. Try again shortly; if it keeps happening, contact support.",
+    errorNetworkTitle: "Cannot reach the server",
+    errorNetworkBody: "The request did not reach the server — check the connection and try again. What you see here is not the result.",
+    errorPageNotFound: "This page does not exist.",
+    errorBackToDashboard: "Back to the dashboard",
     noPermissionTitle: "You do not have permission",
     noPermissionBody: "Your account lacks the permission this screen (or part of it) needs. Ask the account owner to grant it under Roles & users.",
 

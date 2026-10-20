@@ -14,6 +14,7 @@ import { StockDocumentForm } from "@/components/StockDocumentForm";
 import { WarningsBanner } from "@/components/WarningsBanner";
 import { formatDate } from "@/lib/date";
 import type { LegalEntity, Paginated, StockDocument, StockDocumentKind, Warehouse } from "@/lib/types";
+import { ErrorState, apiErrorKind, type ApiErrorKind } from "@/components/ScreenErrors";
 
 export const STOCK_KIND_SLUG: Record<StockDocumentKind, string> = {
   receipt: "receipts",
@@ -59,6 +60,8 @@ export function StockDocumentScreen({ kind }: { kind: StockDocumentKind }) {
   const [dateTo, setDateTo] = useState("");
   const [refreshToken, setRefreshToken] = useState(0);
   const [incoming, setIncoming] = useState<StockDocument[]>([]);
+  // Block 8.0.2: a failed load must not read «لا توجد تحويلات واردة».
+  const [incomingError, setIncomingError] = useState<ApiErrorKind | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -70,7 +73,16 @@ export function StockDocumentScreen({ kind }: { kind: StockDocumentKind }) {
 
   const loadIncoming = () => {
     if (kind !== "transfer") return;
-    api.get<StockDocument[]>("/stock-documents/incoming/").then(setIncoming);
+    api
+      .get<StockDocument[]>("/stock-documents/incoming/")
+      .then((data) => {
+        setIncoming(data);
+        setIncomingError(null);
+      })
+      .catch((err) => {
+        setIncoming([]);
+        setIncomingError(apiErrorKind(err) ?? "server-error");
+      });
   };
   useEffect(loadIncoming, [kind, refreshToken]);
 
@@ -92,7 +104,9 @@ export function StockDocumentScreen({ kind }: { kind: StockDocumentKind }) {
       {kind === "transfer" && (
         <div className="card" data-testid="incoming-transfers">
           <h3>{t("stockIncomingTransfers")}</h3>
-          {incoming.length === 0 ? (
+          {incomingError ? (
+            <ErrorState kind={incomingError} compact />
+          ) : incoming.length === 0 ? (
             <p style={{ color: "var(--muted)" }}>{t("stockNoIncoming")}</p>
           ) : (
             <table>

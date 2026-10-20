@@ -275,4 +275,9 @@ echo "[e2e] phase 14: no sidebar link the user cannot open; a refused screen nam
 echo "[e2e] phase 15: supplier bills (rent/telecoms/RC/asset), duplicate number, attachment rule, expenses"
 "$ROOT_DIR/scripts/e2e_access.sh" 15-supplier-bills.spec.ts
 
+# Block 8.0.2: 404 / JSON 500 / HTML 500 each render a named state; a list
+# never renders a failure as an empty result.
+echo "[e2e] phase 16: named error states — API 404, JSON 500, HTML 500 on three lists"
+"$ROOT_DIR/scripts/e2e_access.sh" 16-error-states.spec.ts
+
 echo "[e2e] ALL CHECKS PASSED — screenshots in $SCREENS_DIR/"

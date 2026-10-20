@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useLocale } from "@/lib/i18n";
 import { DialogHost } from "@/components/Dialog";
 import { LocaleSwitcher } from "@/components/LocaleSwitcher";
-import { ScreenAccess } from "@/components/ScreenAccess";
+import { ScreenErrors } from "@/components/ScreenErrors";
 import { APPROVAL_INBOX, NAV_SECTIONS, PROFILE, canSee } from "@/lib/nav";
 import type { PendingApprovalsResponse } from "@/lib/types";
 
@@ -168,7 +168,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {t("pastDueWarning")}
           </div>
         )}
-        <ScreenAccess>{children}</ScreenAccess>
+        <ScreenErrors>{children}</ScreenErrors>
       </main>
       <DialogHost />
     </div>

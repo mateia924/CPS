@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api as customerApi } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
+import { ErrorState, apiErrorKind, type ApiErrorKind } from "@/components/ScreenErrors";
 import type { Paginated } from "@/lib/types";
 
 interface ApiClient {
@@ -74,6 +75,10 @@ export function DataTable<T extends DataTableRow>({
   const [ordering, setOrdering] = useState<string | null>(null);
   const [showInactive, setShowInactive] = useState(false);
   const [loading, setLoading] = useState(false);
+  // Block 8.0.2: a failed load is never an empty result. The rows go (no
+  // stale page left looking like the answer to the new filter) and the
+  // table says which failure it was instead of «لا توجد بيانات».
+  const [loadError, setLoadError] = useState<ApiErrorKind | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -91,6 +96,13 @@ export function DataTable<T extends DataTableRow>({
       const data = await api.get<Paginated<T>>(`${endpoint}?${params.toString()}`);
       setRows(data.results);
       setCount(data.count);
+      setLoadError(null);
+    } catch (err) {
+      setRows([]);
+      setCount(0);
+      // An error with no named state of its own (a 400 on a bad filter)
+      // is still a failure, not an empty list: shown as a server error.
+      setLoadError(apiErrorKind(err) ?? "server-error");
     } finally {
       setLoading(false);
     }
@@ -177,7 +189,14 @@ export function DataTable<T extends DataTableRow>({
           </tr>
         </thead>
         <tbody>
-          {!loading && rows.length === 0 && (
+          {loadError && (
+            <tr>
+              <td colSpan={columns.length + 1}>
+                <ErrorState kind={loadError} compact />
+              </td>
+            </tr>
+          )}
+          {!loading && !loadError && rows.length === 0 && (
             <tr>
               <td
                 colSpan={columns.length + 1}

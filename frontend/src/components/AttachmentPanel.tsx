@@ -7,6 +7,7 @@ import { formatDate } from "@/lib/date";
 import { FormField } from "@/components/FormField";
 import { WarningsBanner } from "@/components/WarningsBanner";
 import type { Attachment, AttachmentCategory, AttachmentTargetType, Paginated } from "@/lib/types";
+import { ErrorState, apiErrorKind, type ApiErrorKind } from "@/components/ScreenErrors";
 
 export const CATEGORY_LABEL_KEY: Record<AttachmentCategory, string> = {
   fatura_original: "categoryFaturaOriginal",
@@ -50,6 +51,9 @@ export function AttachmentPanel({
   const [open, setOpen] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [count, setCount] = useState(0);
+  // Block 8.0.2: a failed load is not "no attachments" — on a document
+  // whose rule makes an original invoice mandatory that would be a lie.
+  const [loadError, setLoadError] = useState<ApiErrorKind | null>(null);
   const [category, setCategory] = useState<AttachmentCategory>("other");
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +72,11 @@ export function AttachmentPanel({
       .then((data) => {
         setAttachments(data.results);
         setCount(data.results.filter((a) => a.status === "active").length);
+        setLoadError(null);
+      })
+      .catch((err) => {
+        setAttachments([]);
+        setLoadError(apiErrorKind(err) ?? "server-error");
       });
   };
 
@@ -175,7 +184,7 @@ export function AttachmentPanel({
   return (
     <div className="card">
       <button type="button" className="secondary" onClick={() => setOpen((v) => !v)}>
-        📎 {t("attachments")} ({count})
+        📎 {t("attachments")} ({loadError ? "!" : count})
       </button>
 
       {open && (
@@ -250,7 +259,9 @@ export function AttachmentPanel({
             </div>
           )}
 
-          {current.length === 0 ? (
+          {loadError ? (
+            <ErrorState kind={loadError} compact />
+          ) : current.length === 0 ? (
             <p style={{ color: "var(--muted)" }}>{t("noAttachments")}</p>
           ) : (
             <table>

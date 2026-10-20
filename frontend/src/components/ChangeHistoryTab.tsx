@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import { useLocale } from "@/lib/i18n";
 import { formatDateTime } from "@/lib/date";
 import type { AuditLogEntry, Paginated } from "@/lib/types";
+import { ErrorState, apiErrorKind, type ApiErrorKind } from "@/components/ScreenErrors";
 
 /** Sprint 5.7 (CFO_REVIEW_1 F10): "سجل التغييرات" tab — GET /api/
  * audit-log/?target_type=&target_id=, this tenant's own AuditLog rows
@@ -27,6 +28,7 @@ export function ChangeHistoryTab({
   const [open, setOpen] = useState(false);
   const [entries, setEntries] = useState<AuditLogEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<ApiErrorKind | null>(null);
 
   useEffect(() => {
     if (!open || loaded) return;
@@ -35,7 +37,8 @@ export function ChangeHistoryTab({
       .then((data) => {
         setEntries(data.results);
         setLoaded(true);
-      });
+      })
+      .catch((err) => setLoadError(apiErrorKind(err) ?? "server-error"));
   }, [open, loaded, targetType, targetId]);
 
   return (
@@ -44,7 +47,9 @@ export function ChangeHistoryTab({
         {t("changeHistoryTab")} {open ? "▲" : "▼"}
       </h3>
       {open && (
-        entries.length === 0 && loaded ? (
+        loadError ? (
+          <ErrorState kind={loadError} compact />
+        ) : entries.length === 0 && loaded ? (
           <p style={{ color: "var(--muted)" }}>{t("noChangeHistory")}</p>
         ) : (
           <table>

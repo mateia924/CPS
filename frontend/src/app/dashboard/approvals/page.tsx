@@ -11,6 +11,7 @@ import { WarningsBanner } from "@/components/WarningsBanner";
 import { useLocale } from "@/lib/i18n";
 import { formatDateTime } from "@/lib/date";
 import type { EmergencyApproval, PendingApproval, PendingApprovalsResponse } from "@/lib/types";
+import { ErrorState, apiErrorKind, type ApiErrorKind } from "@/components/ScreenErrors";
 
 // Sprint 6.3 (decision 8): opening_balance's approve requires a written
 // attestation (>= 20 chars) the generic one-click flow below has no
@@ -102,6 +103,8 @@ export default function ApprovalInboxPage() {
   const [rows, setRows] = useState<PendingApproval[]>([]);
   const [blocked, setBlocked] = useState<{ count: number; role_names: string[] }>({ count: 0, role_names: [] });
   const [emergencyRows, setEmergencyRows] = useState<EmergencyApproval[] | null>(null);
+  const [loadError, setLoadError] = useState<ApiErrorKind | null>(null);
+  const [emergencyError, setEmergencyError] = useState<ApiErrorKind | null>(null);
   // Sprint 6.5.15 (UAT item 7): "رفض بسبب" inline in the row, matching
   // the spec's own inbox mock — no separate screen needed for the
   // common case (opening_balance still routes to its own detail
@@ -113,15 +116,29 @@ export default function ApprovalInboxPage() {
 
   const showEmergencyTab = !!me && me.roles.includes("Owner");
 
+  // Block 8.0.2: an approver must never read «nothing awaits your
+  // approval» because the inbox failed to load.
   const load = async () => {
-    const data = await api.get<PendingApprovalsResponse>("/approvals/pending/");
-    setRows(data.results);
-    setBlocked(data.blocked);
+    try {
+      const data = await api.get<PendingApprovalsResponse>("/approvals/pending/");
+      setRows(data.results);
+      setBlocked(data.blocked);
+      setLoadError(null);
+    } catch (err) {
+      setRows([]);
+      setLoadError(apiErrorKind(err) ?? "server-error");
+    }
   };
 
   const loadEmergency = async () => {
-    const data = await api.get<EmergencyApproval[]>("/approvals/emergency/");
-    setEmergencyRows(data);
+    try {
+      const data = await api.get<EmergencyApproval[]>("/approvals/emergency/");
+      setEmergencyRows(data);
+      setEmergencyError(null);
+    } catch (err) {
+      setEmergencyRows(null);
+      setEmergencyError(apiErrorKind(err) ?? "server-error");
+    }
   };
 
   useEffect(() => {
@@ -169,7 +186,8 @@ export default function ApprovalInboxPage() {
         </div>
       )}
 
-      {tab === "inbox" &&
+      {tab === "inbox" && loadError && <ErrorState kind={loadError} compact />}
+      {tab === "inbox" && !loadError &&
         (rows.length === 0 ? (
           <p style={{ color: "var(--muted)" }}>
             {blocked.count > 0
@@ -250,7 +268,8 @@ export default function ApprovalInboxPage() {
           </table>
         ))}
 
-      {tab === "emergency" &&
+      {tab === "emergency" && emergencyError && <ErrorState kind={emergencyError} compact />}
+      {tab === "emergency" && !emergencyError &&
         (!emergencyRows || emergencyRows.length === 0 ? (
           <p style={{ color: "var(--muted)" }}>{t("noEmergencyApprovals")}</p>
         ) : (

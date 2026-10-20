@@ -9,6 +9,7 @@ import { formatDateTime } from "@/lib/date";
 import { FormField } from "@/components/FormField";
 import { WarningsBanner } from "@/components/WarningsBanner";
 import type { MeResponse } from "@/lib/types";
+import { ErrorState, apiErrorKind, type ApiErrorKind } from "@/components/ScreenErrors";
 
 interface Session {
   id: string;
@@ -46,13 +47,21 @@ export default function ProfilePage() {
   const [disableError, setDisableError] = useState<string | null>(null);
 
   const [sessions, setSessions] = useState<Session[]>([]);
+  // Block 8.0.2: a failed load was swallowed and read «no active sessions».
+  const [sessionsError, setSessionsError] = useState<ApiErrorKind | null>(null);
 
   useEffect(() => {
     if (me) setNotify(me.user.notify_approvals_email);
   }, [me]);
 
   useEffect(() => {
-    api.get<Session[]>("/auth/sessions/").then(setSessions).catch(() => undefined);
+    api
+      .get<Session[]>("/auth/sessions/")
+      .then((data) => {
+        setSessions(data);
+        setSessionsError(null);
+      })
+      .catch((err) => setSessionsError(apiErrorKind(err) ?? "server-error"));
   }, []);
 
   if (!me) return null;
@@ -231,7 +240,9 @@ export default function ProfilePage() {
       {!forced && (
         <div className="card">
           <h3>{t("activeSessionsTitle")}</h3>
-          {sessions.length === 0 ? (
+          {sessionsError ? (
+            <ErrorState kind={sessionsError} compact />
+          ) : sessions.length === 0 ? (
             <p>{t("noActiveSessions")}</p>
           ) : (
             <table>
